@@ -1,0 +1,19 @@
+model:
+  type: baseline
+data:
+  channels: 3
+  height: 32
+  width: 32
+training:
+  batch_size: 32
+  num_batches: 50
+  epochs: 1
+  log_every: 10
+optim:
+  lr: 1.0e-4
+  weight_decay: 0.0
+spectral:
+  freq_equalized_noise: false
+  freq_attention: false
+sampling:
+  sampler_type: ddim
