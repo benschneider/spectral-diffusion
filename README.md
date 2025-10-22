@@ -88,7 +88,10 @@ Each run logs its configuration and metrics to allow automatic ranking of factor
 git clone https://github.com/benschneider/spectral-diffusion.git
 cd spectral-diffusion
 pip install -r requirements.txt
-python src/run_experiment.py --config configs/baseline.yaml
+python train_model.py --config configs/baseline.yaml --dry-run   # sanity check
+python train_model.py --config configs/baseline.yaml              # full placeholder run
+# Optional Taguchi batch
+python -m src.experiments.run_experiment
 ```
 
 Results and metrics will appear in results/summary.csv.

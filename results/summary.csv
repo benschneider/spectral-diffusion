@@ -1,1 +1,3 @@
 run_id,config_path,metrics_path,timestamp
+20251022_234433,results/logs/20251022_234433/config.yaml,results/metrics/20251022_234433.json,2025-10-22T23:44:33.413017
+20251022_234555,results/logs/20251022_234555/config.yaml,results/metrics/20251022_234555.json,2025-10-22T23:45:55.589078+00:00

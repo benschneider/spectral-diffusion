@@ -5,7 +5,7 @@ import csv
 import json
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -107,7 +107,7 @@ def append_run_summary(
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     with summary_path.open("a", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow([run_id, str(config_path), str(metrics_path), datetime.utcnow().isoformat()])
+        writer.writerow([run_id, str(config_path), str(metrics_path), datetime.now(timezone.utc).isoformat()])
 
 
 def train_from_config(
@@ -131,7 +131,7 @@ def train_from_config(
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    run_identifier = run_id or datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    run_identifier = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     dirs = ensure_directories(output_dir=output_dir, run_id=run_identifier)
 
     config_copy_path = dirs["run_dir"] / "config.yaml"
