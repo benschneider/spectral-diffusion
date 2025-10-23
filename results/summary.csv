@@ -1,7 +1,1 @@
-run_id,config_path,metrics_path,timestamp
-20251022_234433,results/logs/20251022_234433/config.yaml,results/metrics/20251022_234433.json,2025-10-22T23:44:33.413017
-20251022_234555,results/logs/20251022_234555/config.yaml,results/metrics/20251022_234555.json,2025-10-22T23:45:55.589078+00:00
-20251023_030314,results/logs/20251023_030314/config.yaml,results/metrics/20251023_030314.json,2025-10-23T03:03:14.849534+00:00
-20251023_030837,results/logs/20251023_030837/config.yaml,results/metrics/20251023_030837.json,2025-10-23T03:16:34.269456+00:00
-20251023_032008,results/logs/20251023_032008/config.yaml,results/metrics/20251023_032008.json,2025-10-23T03:20:08.048003+00:00
-20251023_032008,results/logs/20251023_032008/config.yaml,results/metrics/20251023_032008.json,2025-10-23T03:20:08.999171+00:00
+run_id,config_path,metrics_path,timestamp,loss_mean,loss_initial,loss_final,loss_drop,loss_drop_per_second,runtime_seconds,steps_per_second,images_per_second,runtime_per_epoch,loss_threshold,loss_threshold_steps,loss_threshold_time,spectral_calls,spectral_time_seconds

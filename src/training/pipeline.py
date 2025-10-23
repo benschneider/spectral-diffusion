@@ -118,8 +118,13 @@ class TrainingPipeline:
         max_batches = self.config.get("training", {}).get("num_batches")
         batch_limit = int(max_batches) if str(max_batches).isdigit() else None
 
+        metrics_cfg = self.config.get("metrics", {})
+        loss_threshold = metrics_cfg.get("loss_threshold")
+
         step = 0
         loss_history, mae_history = [], []
+        threshold_steps: Optional[int] = None
+        threshold_time: Optional[float] = None
         wall_start = perf_counter()
         for epoch in range(epochs):
             for batch_idx, (xb, yb) in enumerate(self.loader):
@@ -140,17 +145,57 @@ class TrainingPipeline:
                 mae_history.append(float(mae.detach().cpu()))
                 if step % log_every == 0:
                     self.logger.info("epoch %d step %d loss %.5f", epoch, step, loss_val)
+                if (
+                    loss_threshold is not None
+                    and threshold_steps is None
+                    and loss_val <= loss_threshold
+                ):
+                    threshold_steps = step
+                    threshold_time = perf_counter() - wall_start
                 if batch_limit is not None and (batch_idx + 1) >= batch_limit:
                     break
 
         runtime_seconds = perf_counter() - wall_start
 
+        steps_per_second = step / runtime_seconds if runtime_seconds > 0 else 0.0
+        images_per_second = (
+            (step * self.loader.batch_size) / runtime_seconds if runtime_seconds > 0 else 0.0
+        )
+        runtime_per_epoch = runtime_seconds / epochs if epochs > 0 else None
+        initial_loss = loss_history[0] if loss_history else None
+        final_loss = loss_history[-1] if loss_history else None
+        loss_drop = (
+            (initial_loss - final_loss)
+            if initial_loss is not None and final_loss is not None
+            else None
+        )
+        loss_drop_per_second = (
+            (loss_drop / runtime_seconds)
+            if loss_drop is not None and runtime_seconds > 0
+            else None
+        )
         metrics = compute_basic_metrics(
             loss_history=loss_history,
             mae_history=mae_history,
             runtime_seconds=runtime_seconds,
-            extra={"status": "ok", "num_steps": step, "epochs": epochs},
+            extra={
+                "status": "ok",
+                "num_steps": step,
+                "epochs": epochs,
+                "steps_per_second": steps_per_second,
+                "images_per_second": images_per_second,
+                "runtime_per_epoch": runtime_per_epoch,
+                "loss_initial": initial_loss,
+                "loss_final": final_loss,
+                "loss_drop": loss_drop,
+                "loss_drop_per_second": loss_drop_per_second,
+                "loss_threshold": loss_threshold,
+                "loss_threshold_steps": threshold_steps,
+                "loss_threshold_time": threshold_time,
+            },
         )
+        if hasattr(self.model, "spectral_stats"):
+            metrics.update(self.model.spectral_stats())
         self.logger.info("Training metrics: %s", metrics)
         return metrics
 

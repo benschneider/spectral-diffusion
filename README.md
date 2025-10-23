@@ -96,6 +96,8 @@ python train_model.py --config configs/baseline.yaml --dry-run   # sanity check
 python train_model.py --config configs/baseline.yaml              # full placeholder run
 # Optional Taguchi batch
 python -m src.experiments.run_experiment
+# Validation helper (removes dry-run artifacts unless --keep-artifacts is provided)
+python validate_setup.py
 ```
 
 Results and metrics will appear in `results/summary.csv`.
@@ -143,10 +145,10 @@ flowchart TD
     L8 --> RUNNER["TaguchiExperimentRunner<br/>src/experiments/run_experiment.py"]
     CFG --> RUNNER
     RUNNER --> EXEC["TrainingPipeline<br/>per row"]
-    EXEC --> METRICS["Collected metrics list (in-memory)<br/>TODO: persist via summary.csv"]
+    EXEC --> METRICS["Per-run artifacts<br/>logs · metrics · summary.csv"]
 ```
 
-The runner currently aggregates results in memory. The TODO list includes appending each run to `results/summary.csv` for full reproducibility.
+Each design-row produces its own run ID, config snapshot, metrics JSON, and an entry in `results/summary.csv`. Aggregated Taguchi S/N analysis will build on these artifacts.
 
 ### Model Variant Dispatch
 
@@ -176,6 +178,7 @@ flowchart TD
 
 - Synthetic mode generates random tensors sized by `data.channels/height/width`, limiting iterations with `training.num_batches`.
 - CIFAR-10 mode expects `data.root/cifar-10-batches-py` (or `data.download: true`) and wraps samples so the reconstruction loss applies.
+- Spectral toggles live under `spectral.*` in the config (`enabled`, `normalize`, `weighting` ∈ {`none`, `radial`, `bandpass`}); when enabled, the model performs an FFT → optional weighting → inverse FFT round-trip before and after the UNet.
 
 ### What Gets Logged & How to Read It
 
@@ -184,20 +187,26 @@ flowchart TD
 - `results/metrics/<run_id>.json` – structured metrics:
   - `loss_mean`, `loss_last`, `mae_mean` → reconstruction quality proxies.
   - `runtime_seconds`, `num_steps`, `epochs` → throughput and coverage.
-- `results/summary.csv` – append-only ledger linking run IDs to config/metrics; Taguchi batches will soon write here automatically.
+  - `steps_per_second`, `images_per_second`, `runtime_per_epoch` → throughput/efficiency.
+  - `loss_initial`, `loss_final`, `loss_drop`, `loss_drop_per_second` → convergence speed indicators.
+  - `loss_threshold_*` entries (optional) record when a configured target loss is reached.
+  - `spectral_calls`, `spectral_time_seconds` → FFT usage/overhead when spectral mode is enabled.
+- `results/summary.csv` – append-only ledger linking run IDs to config/metrics; Taguchi batches now append here automatically.
+- `validate_setup.py` removes its dry-run artifacts by default; pass `--keep-artifacts` to inspect them.
 
 > ❗️Still in progress:
 > - Spectral transforms (FFT pipeline), diffusion-specific losses/schedulers, and perceptual metrics (FID/LPIPS) remain placeholders.
-> - Taguchi experiment runner currently keeps results in memory; persistence into the summary log is queued next.
+> - Taguchi experiment runner analysis (factor ranking, S/N ratios) is the next milestone.
 
 ### Baseline vs. Spectral Snapshot
 
-| Aspect | Baseline (`baseline_conv`) | Spectral (planned) |
-|--------|----------------------------|--------------------|
-| Domain | Pixel / spatial            | Frequency (FFT)    |
-| Noise | Standard Gaussian           | Frequency-equalized noise |
-| Attention | None                     | Frequency attention toggle |
+| Aspect | Baseline (`baseline_conv`) | Spectral (current/roadmap) |
+|--------|----------------------------|----------------------------|
+| Domain | Pixel / spatial            | Frequency (FFT round-trip) |
+| Noise | Standard Gaussian           | Frequency-equalized noise (future) |
+| Attention | None                     | Frequency attention toggle (future) |
 | Loss | Reconstruction MSE / MAE     | Band-aware diffusion loss (TODO) |
+| Config toggle | `spectral.enabled: false` | `spectral.enabled: true` + `weighting: radial/bandpass` |
 | Goal | Stability + quick testing    | Probe spectral benefits, Taguchi optimization |
 
 ---
@@ -228,3 +237,9 @@ If you use this repository in academic work, please cite it as:
   url = {https://github.com/benschneider/spectral-diffusion}
 }
 ```
+# Run spectral unit tests
+python -m pytest tests/test_spectral_fft.py
+python -m pytest tests/test_tiny_unet_spectral.py
+
+# Benchmark baseline vs spectral throughput
+python benchmarks/benchmark_fft.py --device cpu --batch-size 16

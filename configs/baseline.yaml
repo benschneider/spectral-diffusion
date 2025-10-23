@@ -9,7 +9,7 @@ data:
   channels: 3
   height: 32
   width: 32
-  download: true
+  download: false
 training:
   batch_size: 32
   epochs: 1
@@ -19,6 +19,9 @@ optim:
   lr: 1.0e-4
   weight_decay: 0.0
 spectral:
+  enabled: false
+  normalize: true
+  weighting: none
   freq_equalized_noise: false
   freq_attention: false
 sampling:

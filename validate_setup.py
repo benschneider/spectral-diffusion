@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import yaml
 
-from train_model import train_from_config
+from train_model import cleanup_run_artifacts, train_from_config
 
 FAST_TRAINING_OVERRIDES: Dict[str, Any] = {
     "training": {
@@ -84,7 +84,7 @@ def _cifar10_available(root: Path) -> bool:
     return (root / "cifar-10-batches-py").exists()
 
 
-def validate(cleanup: bool = True) -> Dict[str, Any]:
+def validate(cleanup_temp: bool = True, cleanup_runs: bool = True) -> Dict[str, Any]:
     config_path = Path("configs/baseline.yaml")
     if not config_path.exists():
         raise FileNotFoundError("Baseline config not found: configs/baseline.yaml")
@@ -99,7 +99,7 @@ def validate(cleanup: bool = True) -> Dict[str, Any]:
     temp_configs: List[Path] = []
     try:
         print("Running dry-run validation...")
-        _run_training(config_path=config_path, dry_run=True, overrides=None, temp_configs=temp_configs)
+        dry_result = _run_training(config_path=config_path, dry_run=True, overrides=None, temp_configs=temp_configs)
 
         print("Running short training validation...")
         overrides = FAST_TRAINING_OVERRIDES
@@ -126,9 +126,19 @@ def validate(cleanup: bool = True) -> Dict[str, Any]:
         _assert_exists(summary_path)
 
         print("Validation metrics:", result["metrics"])
+
+        if cleanup_runs and dry_result["metrics"].get("status") == "dry_run":
+            run_dir = Path(dry_result["config_path"]).parent
+            cleanup_run_artifacts(
+                run_id=dry_result["run_id"],
+                run_dir=run_dir,
+                metrics_path=Path(dry_result["metrics_path"]),
+            )
+            print(f"Removed dry-run artifacts for run: {dry_result['run_id']}")
+
         return result
     finally:
-        if cleanup:
+        if cleanup_temp:
             for temp_path in temp_configs:
                 temp_path.unlink(missing_ok=True)
 
@@ -140,13 +150,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Preserve temporary config files generated during validation.",
     )
+    parser.add_argument(
+        "--keep-artifacts",
+        action="store_true",
+        help="Preserve dry-run and fast-run artifacts generated during validation.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     try:
-        validate(cleanup=not args.keep_temp_configs)
+        validate(cleanup_temp=not args.keep_temp_configs, cleanup_runs=not args.keep_artifacts)
     except Exception as exc:
         print(f"❌ Validation failed: {exc}")
         sys.exit(1)
