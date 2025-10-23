@@ -5,6 +5,7 @@ import csv
 import json
 import logging
 import random
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -97,17 +98,72 @@ def save_metrics(metrics: Dict[str, Any], destination: Path) -> Path:
     return destination
 
 
+SUMMARY_HEADER = [
+    "run_id",
+    "config_path",
+    "metrics_path",
+    "timestamp",
+    "loss_mean",
+    "loss_initial",
+    "loss_final",
+    "loss_drop",
+    "loss_drop_per_second",
+    "runtime_seconds",
+    "steps_per_second",
+    "images_per_second",
+    "runtime_per_epoch",
+    "loss_threshold",
+    "loss_threshold_steps",
+    "loss_threshold_time",
+    "spectral_calls",
+    "spectral_time_seconds",
+]
+
+
 def append_run_summary(
     run_id: str,
     config_path: Path,
     metrics_path: Path,
     summary_path: Path = SUMMARY_PATH,
+    metrics: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Append a new row to the experiment summary log."""
     summary_path.parent.mkdir(parents=True, exist_ok=True)
+    needs_header = not summary_path.exists() or summary_path.stat().st_size == 0
+
+    row = [
+        run_id,
+        str(config_path),
+        str(metrics_path),
+        datetime.now(timezone.utc).isoformat(),
+    ]
+    def _m(key: str) -> Any:
+        return metrics.get(key) if metrics else None
+
+    row.extend(
+        [
+            _m("loss_mean"),
+            _m("loss_initial"),
+            _m("loss_final"),
+            _m("loss_drop"),
+            _m("loss_drop_per_second"),
+            _m("runtime_seconds"),
+            _m("steps_per_second"),
+            _m("images_per_second"),
+            _m("runtime_per_epoch"),
+            _m("loss_threshold"),
+            _m("loss_threshold_steps"),
+            _m("loss_threshold_time"),
+            _m("spectral_calls"),
+            _m("spectral_time_seconds"),
+        ]
+    )
+
     with summary_path.open("a", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow([run_id, str(config_path), str(metrics_path), datetime.now(timezone.utc).isoformat()])
+        if needs_header:
+            writer.writerow(SUMMARY_HEADER)
+        writer.writerow(row)
 
 
 def configure_run_logger(logger: logging.Logger, log_file: Path) -> None:
@@ -122,6 +178,44 @@ def configure_run_logger(logger: logging.Logger, log_file: Path) -> None:
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
+
+
+def cleanup_run_artifacts(
+    run_id: str,
+    run_dir: Path,
+    metrics_path: Path,
+    summary_path: Path = SUMMARY_PATH,
+) -> None:
+    """Remove artifacts associated with a specific run (useful for dry runs)."""
+    logger = logging.getLogger("spectral_diffusion.train")
+    if run_dir.exists():
+        shutil.rmtree(run_dir, ignore_errors=True)
+        logger.debug("Removed run directory %s", run_dir)
+    if metrics_path.exists():
+        try:
+            metrics_path.unlink()
+            logger.debug("Removed metrics file %s", metrics_path)
+        except OSError as exc:
+            logger.warning("Failed to remove metrics file %s: %s", metrics_path, exc)
+    if summary_path.exists():
+        try:
+            with summary_path.open("r", encoding="utf-8", newline="") as handle:
+                rows = list(csv.reader(handle))
+        except OSError as exc:
+            logger.warning("Unable to read summary file %s: %s", summary_path, exc)
+            rows = []
+        if rows:
+            header, *data = rows
+            updated = [row for row in data if not row or row[0] != run_id]
+            if len(updated) != len(data):
+                try:
+                    with summary_path.open("w", encoding="utf-8", newline="") as handle:
+                        writer = csv.writer(handle)
+                        writer.writerow(header)
+                        writer.writerows(updated)
+                    logger.debug("Removed run %s from summary file", run_id)
+                except OSError as exc:
+                    logger.warning("Unable to update summary file %s: %s", summary_path, exc)
 
 
 def train_from_config(
@@ -157,12 +251,19 @@ def train_from_config(
     if dry_run:
         logger.info("Dry run requested; skipping training loop execution.")
         metrics: Dict[str, Any] = {"status": "dry_run"}
+        detailed_metrics = None
     else:
         metrics = pipeline.run()
+        detailed_metrics = metrics
 
     metrics_path = dirs["metrics_dir"] / f"{run_identifier}.json"
     save_metrics(metrics=metrics, destination=metrics_path)
-    append_run_summary(run_id=run_identifier, config_path=config_copy_path, metrics_path=metrics_path)
+    append_run_summary(
+        run_id=run_identifier,
+        config_path=config_copy_path,
+        metrics_path=metrics_path,
+        metrics=detailed_metrics,
+    )
 
     return {
         "run_id": run_identifier,

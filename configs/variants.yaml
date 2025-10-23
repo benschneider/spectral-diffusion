@@ -19,6 +19,9 @@ optim:
   lr: 1.0e-4
   weight_decay: 0.0
 spectral:
+  enabled: true
+  normalize: true
+  weighting: radial
   freq_equalized_noise: true
   freq_attention: true
 sampling:
