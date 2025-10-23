@@ -110,6 +110,20 @@ def append_run_summary(
         writer.writerow([run_id, str(config_path), str(metrics_path), datetime.now(timezone.utc).isoformat()])
 
 
+def configure_run_logger(logger: logging.Logger, log_file: Path) -> None:
+    """Attach a file handler so each run captures logs in its own directory."""
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    for handler in list(logger.handlers):
+        if isinstance(handler, logging.FileHandler):
+            logger.removeHandler(handler)
+            handler.close()
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logger.level or logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+
 def train_from_config(
     config_path: Path,
     variant: Optional[str] = None,
@@ -136,6 +150,8 @@ def train_from_config(
 
     config_copy_path = dirs["run_dir"] / "config.yaml"
     save_config_snapshot(config=config, destination=config_copy_path)
+
+    configure_run_logger(logger, dirs["run_dir"] / "run.log")
 
     pipeline = TrainingPipeline(config=config, work_dir=dirs["run_dir"], logger=logger)
     if dry_run:
