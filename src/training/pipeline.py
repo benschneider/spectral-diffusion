@@ -126,14 +126,38 @@ class TrainingPipeline:
         threshold_steps: Optional[int] = None
         threshold_time: Optional[float] = None
         wall_start = perf_counter()
-        for epoch in range(epochs):
-            for batch_idx, (xb, yb) in enumerate(self.loader):
-                xb = xb.to(self.device)
-                yb = yb.to(self.device)
+        diffusion_cfg = self.config.get("diffusion", {})
+        T = int(diffusion_cfg.get("num_timesteps", 1000))
+        schedule = diffusion_cfg.get("beta_schedule", "cosine")
+        prediction_type = diffusion_cfg.get("prediction_type", "eps")
+        snr_weighting = diffusion_cfg.get("snr_weighting", False)
+        snr_transform = diffusion_cfg.get("snr_transform", "snr")
 
-                pred = self.model(xb)
-                loss = self.loss_fn(pred, yb)
-                mae = F.l1_loss(pred, yb)
+        coeffs = build_diffusion(T, schedule)
+        coeffs = coeffs
+
+        for epoch in range(epochs):
+            for batch_idx, (xb, _) in enumerate(self.loader):
+                xb = xb.to(self.device)
+                B = xb.shape[0]
+                t = sample_timesteps(B, T, xb.device)
+
+                alpha_t = coeffs.sqrt_alphas_cumprod[t].view(B, 1, 1, 1).to(self.device)
+                sigma_t = coeffs.sqrt_one_minus_alphas_cumprod[t].view(B, 1, 1, 1).to(self.device)
+
+                eps = torch.randn_like(xb)
+                x_t = alpha_t * xb + sigma_t * eps
+
+                pred = self.model(x_t, t)
+                target = compute_target(prediction_type, xb, x_t, eps, alpha_t, sigma_t)
+
+                residual = pred - target
+                weight = None
+                if snr_weighting:
+                    weight = compute_snr_weight(alpha_t, sigma_t, transform=snr_transform)
+
+                loss = self.loss_fn(residual, weight)
+                mae = F.l1_loss(pred, target)
 
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()

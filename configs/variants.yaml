@@ -24,5 +24,13 @@ spectral:
   weighting: radial
   freq_equalized_noise: true
   freq_attention: true
+diffusion:
+  num_timesteps: 1000
+  beta_schedule: cosine
+  prediction_type: eps
+  snr_weighting: false
+  snr_transform: snr
+  loss_threshold: null
+  time_embed_dim: 128
 sampling:
   sampler_type: dpm-solver
