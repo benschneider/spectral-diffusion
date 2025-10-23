@@ -15,7 +15,7 @@ def compute_basic_metrics(
         "loss_mean": mean(losses) if losses else None,
         "loss_last": losses[-1] if losses else None,
         "mae_mean": mean(maes) if maes else None,
-        "runtime_seconds": runtime_seconds,
+        "runtime_seconds": float(runtime_seconds),
     }
     if extra:
         metrics.update(extra)
@@ -40,11 +40,11 @@ def compute_runtime_stats(runtime_seconds: float, num_steps: int) -> Dict[str, A
         return {"runtime_seconds": 0.0, "steps_per_second": None}
     steps_per_second = num_steps / runtime_seconds if num_steps > 0 else None
     return {
-        "runtime_seconds": runtime_seconds,
+        "runtime_seconds": float(runtime_seconds),
         "steps_per_second": steps_per_second,
     }
 
 
 def aggregate_metrics(raw_metrics: Dict[str, Any]) -> Dict[str, Any]:
-    """Aggregate raw metric outputs into a standardized dictionary."""
+    """Simple identity aggregator stub (customize as needed)."""
     return dict(raw_metrics)

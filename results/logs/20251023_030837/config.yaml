@@ -1,0 +1,25 @@
+data:
+  channels: 3
+  download: true
+  height: 32
+  root: data
+  source: cifar10
+  width: 32
+model:
+  base_channels: 32
+  channels: 3
+  depth: 2
+  type: unet_tiny
+optim:
+  lr: 0.0001
+  weight_decay: 0.0
+sampling:
+  sampler_type: ddim
+spectral:
+  freq_attention: false
+  freq_equalized_noise: false
+training:
+  batch_size: 32
+  epochs: 1
+  log_every: 100
+  num_batches: null

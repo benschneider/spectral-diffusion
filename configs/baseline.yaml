@@ -9,7 +9,7 @@ data:
   channels: 3
   height: 32
   width: 32
-  download: false
+  download: true
 training:
   batch_size: 32
   epochs: 1

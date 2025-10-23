@@ -1,0 +1,9 @@
+{
+  "loss_mean": 0.11396000161767006,
+  "loss_last": 0.08510083705186844,
+  "mae_mean": 0.24836181849241257,
+  "runtime_seconds": 0.5451552090235054,
+  "status": "ok",
+  "num_steps": 2,
+  "epochs": 1
+}
