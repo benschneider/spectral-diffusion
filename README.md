@@ -110,6 +110,7 @@ Results and metrics will appear in `results/summary.csv`.
 - **Run Taguchi sweeps:** keep base settings in `configs/baseline.yaml`, adjust factors in `configs/L8_array.csv`, and execute `python -m src.experiments.run_experiment`.
 - **Inspect results:** per-run metrics live in `results/metrics/<run_id>.json`; `results/summary.csv` aggregates efficiency data for notebooks.
 - **Benchmarks & tests:** run `python benchmarks/benchmark_fft.py ...` for forward throughput and `python -m pytest tests/test_*` for unit coverage.
+- **Evaluate image quality:** call `compute_dataset_metrics` from `src.evaluation.metrics` to score generated vs reference folders (MSE/MAE/PSNR, optional FID when torchmetrics is installed).
 
 ---
 

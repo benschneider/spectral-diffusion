@@ -2,7 +2,7 @@
 
 | Status | Area | Current Status | Immediate Next Step | Dependency | Notes / Implementation Tip |
 | - | - | - | - | - | - |
-| ⬜ | Evaluation metrics (`src/evaluation/metrics.py`) | Basic metrics implemented | Extend with dataset-aware stats (e.g., FID/LPIPS placeholders → real implementations) | Availability of metric dependencies | Use cached features to keep evaluation lightweight once implemented |
+| 🟡 | Evaluation metrics (`src/evaluation/metrics.py`) | Folder-level MSE/MAE/PSNR implemented; optional FID via torchmetrics | Add LPIPS + integrate sampler outputs for FID/LPIPS | Availability of metric dependencies | Uses PIL + torchvision; raises informative error if torchmetrics missing |
 | ⬜ | Logging polish (`train_model.py`, `src/training/pipeline.py`) | Per-run file logging in place | Add optional console log level flag and structured JSON logs | Independent | Hook into CLI via `--log-level` to avoid noisy runs |
 | ⬜ | Validation automation | `validate_setup.py` covers dry + fast real run | Integrate script into CI (GitHub Actions workflow) | Metrics + logging updates | Cache CIFAR-10 between CI runs or fall back to synthetic mode |
 | ✅ | Taguchi runner outputs (`src/experiments/run_experiment.py`) | Persists per-run configs/metrics and summary entries | Add Taguchi S/N analysis and factor ranking utilities | Depends on metrics completeness | Artifacts now mirror single-run structure for downstream analysis |
