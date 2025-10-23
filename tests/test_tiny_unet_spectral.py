@@ -3,7 +3,9 @@ import torch
 from src.core.model_unet_tiny import TinyUNet
 
 
-def _build_config(enabled: bool, weighting: str = "none"):
+def _build_config(enabled: bool, weighting: str = "none", apply_to=None, per_block: bool = False):
+    if apply_to is None:
+        apply_to = ["input"]
     return {
         "channels": 3,
         "base_channels": 8,
@@ -13,6 +15,8 @@ def _build_config(enabled: bool, weighting: str = "none"):
             "enabled": enabled,
             "normalize": True,
             "weighting": weighting,
+            "apply_to": apply_to,
+            "per_block": per_block,
         },
     }
 
@@ -23,17 +27,18 @@ def test_tiny_unet_forward_shape_matches_input():
     x = torch.randn(2, 3, 16, 16)
     out = model(x)
     assert out.shape == x.shape
-    assert model._spectral_calls == 0
+    assert model.spectral_stats()["spectral_calls"] == 0
 
 
 def test_tiny_unet_spectral_toggle_identity():
     config = _build_config(enabled=True, weighting="none")
     model = TinyUNet(config)
     x = torch.randn(1, 3, 16, 16)
+    adapter = model.spectral_input
+    assert adapter is not None
     with torch.no_grad():
-        out = model._apply_spectral_roundtrip(x)
+        out = adapter(x)
     assert torch.allclose(out, x, atol=1e-5)
-    assert model._spectral_calls >= 1
     stats = model.spectral_stats()
     assert stats["spectral_calls"] >= 1
 
@@ -42,8 +47,21 @@ def test_tiny_unet_spectral_weighting_changes_tensor():
     config = _build_config(enabled=True, weighting="radial")
     model = TinyUNet(config)
     x = torch.randn(1, 3, 16, 16)
+    adapter = model.spectral_input
+    assert adapter is not None
     with torch.no_grad():
-        freq = model._apply_spectral_roundtrip(x)
+        freq = adapter(x)
     diff = (freq - x).abs().mean()
     assert diff > 1e-5
-    assert model._spectral_calls >= 1
+    stats = model.spectral_stats()
+    assert stats["spectral_calls"] >= 1
+
+
+def test_tiny_unet_per_block_adapter_runs():
+    config = _build_config(enabled=True, weighting="radial", per_block=True, apply_to=["input"])
+    model = TinyUNet(config)
+    x = torch.randn(1, 3, 16, 16)
+    out = model(x)
+    assert out.shape == x.shape
+    stats = model.spectral_stats()
+    assert stats["spectral_calls"] >= 1

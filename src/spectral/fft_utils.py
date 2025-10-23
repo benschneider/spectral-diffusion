@@ -29,10 +29,17 @@ def inverse_fft_transform(batch: torch.Tensor, normalize: bool = True) -> torch.
 def configure_spectral_params(config: Dict) -> Dict:
     """Extract spectral configuration flags."""
     spectral_cfg = config.get("spectral", {}) if config else {}
+    apply_to = spectral_cfg.get("apply_to", ["input", "output"])
+    if isinstance(apply_to, str):
+        apply_to = [apply_to]
     return {
         "enabled": spectral_cfg.get("enabled", False),
         "normalize": spectral_cfg.get("normalize", True),
         "weighting": spectral_cfg.get("weighting", "none"),
+        "apply_to": list(apply_to),
+        "per_block": spectral_cfg.get("per_block", False),
+        "bandpass_inner": spectral_cfg.get("bandpass_inner", 0.1),
+        "bandpass_outer": spectral_cfg.get("bandpass_outer", 0.6),
     }
 
 
