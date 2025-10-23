@@ -15,6 +15,14 @@ training:
   epochs: 1
   num_batches: null
   log_every: 100
+diffusion:
+  num_timesteps: 1000
+  beta_schedule: cosine
+  prediction_type: eps
+  snr_weighting: false
+  snr_transform: snr
+  loss_threshold: null
+  time_embed_dim: 128
 optim:
   lr: 1.0e-4
   weight_decay: 0.0
