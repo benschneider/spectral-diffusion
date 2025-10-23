@@ -8,14 +8,14 @@ from .model_unet_tiny import TinyUNet
 
 class BaselineConvModel(nn.Module):
     """
-    TEMP baseline: a tiny conv stack that just echoes input shape.
-    Replace with real UNet/DiT later.
+    TEMP baseline: tiny conv stack that preserves input shape (for reconstruction).
+    Replace with real diffusion backbone later.
     """
 
     def __init__(self, config: Dict[str, Any]) -> None:
         super().__init__()
-        self.config = config
-        channels = int(config.get("data", {}).get("channels", 3))
+        data_cfg = config.get("data", {})
+        channels = int(config.get("channels") or data_cfg.get("channels", 3))
         self.net = nn.Sequential(
             nn.Conv2d(channels, 32, 3, padding=1),
             nn.ReLU(inplace=True),
@@ -25,9 +25,11 @@ class BaselineConvModel(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Simple forward pass (placeholder)."""
         return self.net(x)
 
+
+# Backwards compatibility alias
+BaseDiffusionModel = BaselineConvModel
 
 MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "baseline": BaselineConvModel,
@@ -37,13 +39,11 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
 
 
 def build_model(config: Dict[str, Any]) -> nn.Module:
-    """Factory method to build a diffusion model."""
+    """Factory method to build a model from a minimal config."""
     model_type = config.get("type", "baseline")
     model_cls = MODEL_REGISTRY.get(model_type)
     if model_cls is None:
-        raise ValueError(f"Unknown model type '{model_type}'. Available: {list(MODEL_REGISTRY.keys())}")
+        raise ValueError(
+            f"Unknown model type '{model_type}'. Available: {list(MODEL_REGISTRY.keys())}"
+        )
     return model_cls(config=config)
-
-
-# Backwards compatibility alias
-BaseDiffusionModel = BaselineConvModel

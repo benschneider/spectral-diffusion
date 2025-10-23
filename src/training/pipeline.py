@@ -32,7 +32,7 @@ class TrainingPipeline:
     def _make_dataloader(self) -> DataLoader:
         """Build a dataloader based on configuration."""
         data_cfg = self.config.get("data", {})
-        source = data_cfg.get("source", "synthetic").lower()
+        source = str(data_cfg.get("source", "synthetic")).lower()
         if source == "synthetic":
             return self._make_synthetic_dataloader(data_cfg=data_cfg)
         if source == "cifar10":
@@ -42,7 +42,7 @@ class TrainingPipeline:
     def _make_synthetic_dataloader(self, data_cfg: Dict[str, Any]) -> DataLoader:
         bs = int(self.config.get("training", {}).get("batch_size", 32))
         n_setting = self.config.get("training", {}).get("num_batches", 50)
-        n = int(n_setting) if n_setting not in (None, 0, "0") else 50
+        n = int(n_setting) if str(n_setting).isdigit() else 50
         c = int(data_cfg.get("channels", 3))
         h = int(data_cfg.get("height", 32))
         w = int(data_cfg.get("width", 32))
@@ -90,9 +90,8 @@ class TrainingPipeline:
                 img, _ = self.dataset[idx]
                 return img, img
 
-        wrapped_dataset = ReconstructionWrapper(base_dataset)
         return DataLoader(
-            wrapped_dataset,
+            ReconstructionWrapper(base_dataset),
             batch_size=bs,
             shuffle=True,
             drop_last=True,
@@ -117,28 +116,18 @@ class TrainingPipeline:
         epochs = int(self.config.get("training", {}).get("epochs", 1))
         log_every = int(self.config.get("training", {}).get("log_every", 10))
         max_batches = self.config.get("training", {}).get("num_batches")
-        if isinstance(max_batches, float):
-            max_batches = int(max_batches)
-        if isinstance(max_batches, str) and max_batches.isdigit():
-            max_batches = int(max_batches)
-        if isinstance(max_batches, int) and max_batches <= 0:
-            max_batches = None
-        if max_batches is None:
-            batch_limit = None
-        else:
-            batch_limit = int(max_batches)
+        batch_limit = int(max_batches) if str(max_batches).isdigit() else None
 
         step = 0
-        loss_history = []
-        mae_history = []
+        loss_history, mae_history = [], []
         wall_start = perf_counter()
         for epoch in range(epochs):
             for batch_idx, (xb, yb) in enumerate(self.loader):
                 xb = xb.to(self.device)
                 yb = yb.to(self.device)
 
-                pred = self.model(xb)  # will raise until you implement forward()
-                loss = self.loss_fn(pred, yb)  # will raise until you implement loss
+                pred = self.model(xb)
+                loss = self.loss_fn(pred, yb)
                 mae = F.l1_loss(pred, yb)
 
                 self.optimizer.zero_grad(set_to_none=True)
@@ -146,11 +135,11 @@ class TrainingPipeline:
                 self.optimizer.step()
 
                 step += 1
-                step_loss = float(loss.detach().cpu())
-                loss_history.append(step_loss)
+                loss_val = float(loss.detach().cpu())
+                loss_history.append(loss_val)
                 mae_history.append(float(mae.detach().cpu()))
                 if step % log_every == 0:
-                    self.logger.info("epoch %d step %d loss %.5f", epoch, step, step_loss)
+                    self.logger.info("epoch %d step %d loss %.5f", epoch, step, loss_val)
                 if batch_limit is not None and (batch_idx + 1) >= batch_limit:
                     break
 
@@ -161,16 +150,6 @@ class TrainingPipeline:
             mae_history=mae_history,
             runtime_seconds=runtime_seconds,
             extra={"status": "ok", "num_steps": step, "epochs": epochs},
-        )
-        if runtime_seconds > 0 and step > 0:
-            steps_per_second = step / runtime_seconds
-        else:
-            steps_per_second = None
-        self.logger.info(
-            "Completed training in %.2fs over %d steps%s",
-            runtime_seconds,
-            step,
-            f" ({steps_per_second:.2f} steps/s)" if steps_per_second is not None else "",
         )
         self.logger.info("Training metrics: %s", metrics)
         return metrics
