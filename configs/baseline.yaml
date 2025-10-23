@@ -32,5 +32,11 @@ spectral:
   weighting: none
   freq_equalized_noise: false
   freq_attention: false
+  apply_to:
+    - input
+    - output
+  per_block: false
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
 sampling:
   sampler_type: ddim

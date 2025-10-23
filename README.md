@@ -105,7 +105,7 @@ Results and metrics will appear in `results/summary.csv`.
 
 ## 🛠 Usage Notes
 
-- **Enable spectral processing:** set `spectral.enabled: true` and choose `spectral.weighting` (`none`, `radial`, `bandpass`).
+- **Enable spectral processing:** set `spectral.enabled: true`, choose `spectral.weighting` (`none`, `radial`, `bandpass`), and configure `spectral.apply_to` (`input`, `output`, or both) plus `spectral.per_block` if you want adapters around each UNet block.
 - **Tune diffusion behaviour:** edit the `diffusion` block (`num_timesteps`, `beta_schedule`, `prediction_type`, `snr_weighting`, `loss_threshold`, `time_embed_dim`).
 - **Run Taguchi sweeps:** keep base settings in `configs/baseline.yaml`, adjust factors in `configs/L8_array.csv`, and execute `python -m src.experiments.run_experiment`.
 - **Inspect results:** per-run metrics live in `results/metrics/<run_id>.json`; `results/summary.csv` aggregates efficiency data for notebooks.

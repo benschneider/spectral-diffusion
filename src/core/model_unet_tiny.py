@@ -6,26 +6,37 @@ from torch import nn
 from torch.nn import functional as F
 
 from src.core.time_embed import TimeMLP, sinusoidal_embedding
-from src.spectral.fft_utils import (
-    apply_weight_map,
-    configure_spectral_params,
-    fft_transform,
-    inverse_fft_transform,
-)
+from src.spectral.adapter import SpectralAdapter
+from src.spectral.fft_utils import configure_spectral_params
 
 
 class ConvBlock(nn.Module):
     """Basic convolutional block used throughout the tiny UNet."""
 
-    def __init__(self, in_channels: int, out_channels: int, time_width: int = 0) -> None:
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        time_width: int = 0,
+        spectral_adapter: Optional[SpectralAdapter] = None,
+    ) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
         self.norm1 = nn.GroupNorm(1, out_channels)
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
         self.norm2 = nn.GroupNorm(1, out_channels)
         self.time_bias = nn.Linear(time_width, out_channels) if time_width > 0 else None
+        self.spectral_adapter = spectral_adapter
 
-    def forward(self, x: torch.Tensor, t_feat: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        t_feat: Optional[torch.Tensor] = None,
+        block_adapter: Optional[SpectralAdapter] = None,
+    ) -> torch.Tensor:
+        adapter = block_adapter or self.spectral_adapter
+        if adapter is not None:
+            x = adapter(x)
         h = self.conv1(x)
         if self.time_bias is not None and t_feat is not None:
             h = h + self.time_bias(t_feat).unsqueeze(-1).unsqueeze(-1)
@@ -71,20 +82,33 @@ class TinyUNet(nn.Module):
         base_channels = int(config.get("base_channels", 32))
         depth = max(int(config.get("depth", 2)), 1)
         time_width = base_channels
-        self.time_embed_dim = config.get("time_embed_dim", 128)
+        diffusion_cfg = config.get("diffusion", {})
+        time_embed_dim = config.get("time_embed_dim")
+        if time_embed_dim is None:
+            time_embed_dim = diffusion_cfg.get("time_embed_dim", 128)
+        self.time_embed_dim = int(time_embed_dim)
         self.time_mlp = TimeMLP(self.time_embed_dim, time_width)
 
         self.spectral_cfg = configure_spectral_params(config)
-        self.weight_map = None
-        if self.spectral_cfg.get("enabled", False):
-            height = int(data_cfg.get("height", 32))
-            width = int(data_cfg.get("width", 32))
-            weight = _build_weight_map(config.get("spectral", {}), height, width)
-            if weight is not None:
-                self.register_buffer("spectral_weight_map", weight)
-                self.weight_map = self.spectral_weight_map
-        self._spectral_calls: int = 0
-        self._spectral_time: float = 0.0
+        params = self.spectral_cfg
+        enabled = params.get("enabled", False)
+        weighting = params.get("weighting", "none")
+        normalize = params.get("normalize", True)
+        inner = params.get("bandpass_inner", 0.1)
+        outer = params.get("bandpass_outer", 0.6)
+        apply_to = set(params.get("apply_to", []))
+
+        self.spectral_input: Optional[SpectralAdapter] = None
+        self.spectral_output: Optional[SpectralAdapter] = None
+        self.spectral_block: Optional[SpectralAdapter] = None
+
+        if enabled:
+            if "input" in apply_to:
+                self.spectral_input = SpectralAdapter(True, weighting, normalize, inner, outer)
+            if "output" in apply_to:
+                self.spectral_output = SpectralAdapter(True, weighting, normalize, inner, outer)
+            if params.get("per_block", False):
+                self.spectral_block = SpectralAdapter(True, weighting, normalize, inner, outer)
 
         self.encoder_blocks = nn.ModuleList()
         self.downsamples = nn.ModuleList()
@@ -92,7 +116,9 @@ class TinyUNet(nn.Module):
         current_channels = in_channels
         for level in range(depth):
             out_channels = base_channels * (2**level)
-            self.encoder_blocks.append(ConvBlock(current_channels, out_channels, time_width=time_width))
+            self.encoder_blocks.append(
+                ConvBlock(current_channels, out_channels, time_width=time_width)
+            )
             if level < depth - 1:
                 self.downsamples.append(
                     nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2, padding=1)
@@ -110,27 +136,18 @@ class TinyUNet(nn.Module):
             upsamplers.append(
                 nn.ConvTranspose2d(decoder_channels, out_channels, kernel_size=2, stride=2)
             )
-            decoder_blocks.append(ConvBlock(out_channels * 2, out_channels, time_width=time_width))
+            decoder_blocks.append(
+                ConvBlock(out_channels * 2, out_channels, time_width=time_width)
+            )
             decoder_channels = out_channels
 
         self.upsamples = nn.ModuleList(upsamplers)
         self.decoder_blocks = nn.ModuleList(decoder_blocks)
         self.head = nn.Conv2d(base_channels, in_channels, kernel_size=1)
 
-    def _apply_spectral_roundtrip(self, x: torch.Tensor) -> torch.Tensor:
-        start = time.perf_counter()
-        normalize = self.spectral_cfg.get("normalize", True)
-        x_fft = fft_transform(x, normalize=normalize)
-        if self.weight_map is not None:
-            x_fft = apply_weight_map(x_fft, self.weight_map)
-        x = inverse_fft_transform(x_fft, normalize=normalize)
-        self._spectral_calls += 1
-        self._spectral_time += time.perf_counter() - start
-        return x
-
     def forward(self, x: torch.Tensor, t: Optional[torch.Tensor] = None) -> torch.Tensor:
-        if self.spectral_cfg.get("enabled", False):
-            x = self._apply_spectral_roundtrip(x)
+        if self.spectral_input is not None:
+            x = self.spectral_input(x)
 
         t_feat = None
         if t is not None:
@@ -139,12 +156,12 @@ class TinyUNet(nn.Module):
         skips: List[torch.Tensor] = []
         h = x
         for idx, block in enumerate(self.encoder_blocks):
-            h = block(h, t_feat)
+            h = block(h, t_feat, block_adapter=self.spectral_block)
             skips.append(h)
             if idx < len(self.downsamples):
                 h = self.downsamples[idx](h)
 
-        h = self.bottleneck(h, t_feat)
+        h = self.bottleneck(h, t_feat, block_adapter=self.spectral_block)
 
         for idx, (upsample, block) in enumerate(zip(self.upsamples, self.decoder_blocks)):
             h = upsample(h)
@@ -152,17 +169,18 @@ class TinyUNet(nn.Module):
             if h.shape[-2:] != skip.shape[-2:]:
                 h = F.interpolate(h, size=skip.shape[-2:], mode="nearest")
             h = torch.cat([h, skip], dim=1)
-            h = block(h, t_feat)
+            h = block(h, t_feat, block_adapter=self.spectral_block)
 
         out = self.head(h)
-        if self.spectral_cfg.get("enabled", False):
-            # Optional: reproject residual back through inverse FFT to enforce consistency.
-            out = self._apply_spectral_roundtrip(out)
+        if self.spectral_output is not None:
+            out = self.spectral_output(out)
         return out
 
     def spectral_stats(self) -> Dict[str, float]:
-        """Return accumulated spectral instrumentation metrics."""
-        return {
-            "spectral_calls": float(self._spectral_calls),
-            "spectral_time_seconds": float(self._spectral_time),
-        }
+        stats = {"spectral_calls": 0.0, "spectral_time_seconds": 0.0}
+        for adapter in (self.spectral_input, self.spectral_output, self.spectral_block):
+            if adapter is not None:
+                data = adapter.stats()
+                stats["spectral_calls"] += data["spectral_calls"]
+                stats["spectral_time_seconds"] += data["spectral_time_seconds"]
+        return stats
