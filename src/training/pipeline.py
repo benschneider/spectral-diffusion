@@ -1,11 +1,15 @@
 import logging
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, Optional
 
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, Dataset, TensorDataset
+from torchvision import datasets, transforms
 
 from src.core import build_model, get_loss_fn
+from src.evaluation.metrics import compute_basic_metrics
 
 
 class TrainingPipeline:
@@ -26,16 +30,74 @@ class TrainingPipeline:
         self.model.to(self.device)
 
     def _make_dataloader(self) -> DataLoader:
-        """TEMP: synthetic dataloader so the loop runs end-to-end."""
+        """Build a dataloader based on configuration."""
+        data_cfg = self.config.get("data", {})
+        source = data_cfg.get("source", "synthetic").lower()
+        if source == "synthetic":
+            return self._make_synthetic_dataloader(data_cfg=data_cfg)
+        if source == "cifar10":
+            return self._make_cifar10_dataloader(data_cfg=data_cfg)
+        raise ValueError(f"Unsupported data source: {source}")
+
+    def _make_synthetic_dataloader(self, data_cfg: Dict[str, Any]) -> DataLoader:
         bs = int(self.config.get("training", {}).get("batch_size", 32))
-        n = int(self.config.get("training", {}).get("num_batches", 50))
-        c = int(self.config.get("data", {}).get("channels", 3))
-        h = int(self.config.get("data", {}).get("height", 32))
-        w = int(self.config.get("data", {}).get("width", 32))
+        n_setting = self.config.get("training", {}).get("num_batches", 50)
+        n = int(n_setting) if n_setting not in (None, 0, "0") else 50
+        c = int(data_cfg.get("channels", 3))
+        h = int(data_cfg.get("height", 32))
+        w = int(data_cfg.get("width", 32))
         x = torch.randn(n * bs, c, h, w)
         y = torch.randn_like(x)
-        ds = TensorDataset(x, y)
-        return DataLoader(ds, batch_size=bs, shuffle=True, drop_last=True)
+        dataset = TensorDataset(x, y)
+        return DataLoader(dataset, batch_size=bs, shuffle=True, drop_last=True)
+
+    def _make_cifar10_dataloader(self, data_cfg: Dict[str, Any]) -> DataLoader:
+        bs = int(self.config.get("training", {}).get("batch_size", 32))
+        target_h = int(data_cfg.get("height", 32))
+        target_w = int(data_cfg.get("width", 32))
+        num_workers = int(data_cfg.get("num_workers", 0))
+        download = bool(data_cfg.get("download", False))
+
+        transform = transforms.Compose(
+            [
+                transforms.Resize((target_h, target_w)),
+                transforms.ToTensor(),
+            ]
+        )
+        try:
+            base_dataset = datasets.CIFAR10(
+                root=data_cfg.get("root", "data"),
+                train=True,
+                download=download,
+                transform=transform,
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "CIFAR-10 dataset not found. Download it manually with:\n"
+                "  mkdir -p data && curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz "
+                "-o data/cifar-10-python.tar.gz && tar -xzf data/cifar-10-python.tar.gz -C data\n"
+                "Then rerun training or set data.source to 'synthetic'."
+            ) from exc
+
+        class ReconstructionWrapper(Dataset):
+            def __init__(self, dataset) -> None:
+                self.dataset = dataset
+
+            def __len__(self) -> int:
+                return len(self.dataset)
+
+            def __getitem__(self, idx: int):
+                img, _ = self.dataset[idx]
+                return img, img
+
+        wrapped_dataset = ReconstructionWrapper(base_dataset)
+        return DataLoader(
+            wrapped_dataset,
+            batch_size=bs,
+            shuffle=True,
+            drop_last=True,
+            num_workers=num_workers,
+        )
 
     def _make_optimizer(self) -> torch.optim.Optimizer:
         lr = float(self.config.get("optim", {}).get("lr", 1e-4))
@@ -54,34 +116,63 @@ class TrainingPipeline:
         self.model.train()
         epochs = int(self.config.get("training", {}).get("epochs", 1))
         log_every = int(self.config.get("training", {}).get("log_every", 10))
+        max_batches = self.config.get("training", {}).get("num_batches")
+        if isinstance(max_batches, float):
+            max_batches = int(max_batches)
+        if isinstance(max_batches, str) and max_batches.isdigit():
+            max_batches = int(max_batches)
+        if isinstance(max_batches, int) and max_batches <= 0:
+            max_batches = None
+        if max_batches is None:
+            batch_limit = None
+        else:
+            batch_limit = int(max_batches)
 
         step = 0
-        last_loss: Optional[float] = None
+        loss_history = []
+        mae_history = []
+        wall_start = perf_counter()
         for epoch in range(epochs):
-            for xb, yb in self.loader:
+            for batch_idx, (xb, yb) in enumerate(self.loader):
                 xb = xb.to(self.device)
                 yb = yb.to(self.device)
 
-                # --- placeholder forward/loss until real code lands ---
                 pred = self.model(xb)  # will raise until you implement forward()
                 loss = self.loss_fn(pred, yb)  # will raise until you implement loss
-                # ------------------------------------------------------
+                mae = F.l1_loss(pred, yb)
 
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 self.optimizer.step()
 
                 step += 1
-                last_loss = float(loss.detach().cpu())
+                step_loss = float(loss.detach().cpu())
+                loss_history.append(step_loss)
+                mae_history.append(float(mae.detach().cpu()))
                 if step % log_every == 0:
-                    self.logger.info("epoch %d step %d loss %.5f", epoch, step, last_loss)
+                    self.logger.info("epoch %d step %d loss %.5f", epoch, step, step_loss)
+                if batch_limit is not None and (batch_idx + 1) >= batch_limit:
+                    break
 
-        metrics = {
-            "loss": last_loss,
-            "fid": None,
-            "lpips": None,
-            "status": "ok",
-        }
+        runtime_seconds = perf_counter() - wall_start
+
+        metrics = compute_basic_metrics(
+            loss_history=loss_history,
+            mae_history=mae_history,
+            runtime_seconds=runtime_seconds,
+            extra={"status": "ok", "num_steps": step, "epochs": epochs},
+        )
+        if runtime_seconds > 0 and step > 0:
+            steps_per_second = step / runtime_seconds
+        else:
+            steps_per_second = None
+        self.logger.info(
+            "Completed training in %.2fs over %d steps%s",
+            runtime_seconds,
+            step,
+            f" ({steps_per_second:.2f} steps/s)" if steps_per_second is not None else "",
+        )
+        self.logger.info("Training metrics: %s", metrics)
         return metrics
 
     def save_checkpoint(self, step: int) -> Path:

@@ -88,13 +88,17 @@ Each run logs its configuration and metrics to allow automatic ranking of factor
 git clone https://github.com/benschneider/spectral-diffusion.git
 cd spectral-diffusion
 pip install -r requirements.txt
+# Optional: fetch CIFAR-10 locally (or set data.download: true in configs)
+mkdir -p data
+curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz -o data/cifar-10-python.tar.gz
+tar -xzf data/cifar-10-python.tar.gz -C data
 python train_model.py --config configs/baseline.yaml --dry-run   # sanity check
 python train_model.py --config configs/baseline.yaml              # full placeholder run
 # Optional Taguchi batch
 python -m src.experiments.run_experiment
 ```
 
-Results and metrics will appear in results/summary.csv.
+Results and metrics will appear in `results/summary.csv`.
 
 ---
 

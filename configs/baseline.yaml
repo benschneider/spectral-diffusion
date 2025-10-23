@@ -1,14 +1,20 @@
 model:
-  type: baseline
+  type: unet_tiny
+  channels: 3
+  base_channels: 32
+  depth: 2
 data:
+  source: cifar10
+  root: data
   channels: 3
   height: 32
   width: 32
+  download: false
 training:
   batch_size: 32
-  num_batches: 50
   epochs: 1
-  log_every: 10
+  num_batches: null
+  log_every: 100
 optim:
   lr: 1.0e-4
   weight_decay: 0.0
