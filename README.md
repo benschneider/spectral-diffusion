@@ -6,14 +6,12 @@
 
 ## 🧭 Overview
 
-**Spectral Diffusion** investigates how operating in **frequency space**—via Fourier or wavelet transforms—affects the behavior, stability, and efficiency of diffusion-based generative models.  
-Instead of the usual pixel-domain denoising, we explore **multi-band**, **frequency-aware**, and **adaptive noise** techniques to improve sample quality and reduce computational cost.
+**Spectral Diffusion** investigates how frequency-domain processing changes diffusion-model behaviour and efficiency. The codebase now includes:
 
-This repository provides a flexible framework to:
-
-- Prototype and compare baseline vs. spectral variants of diffusion models  
-- Test **non-iterative** or **hybrid flow-matching** approaches  
-- Automate experiments with a **Taguchi-inspired design**, minimizing the number of runs while maximizing insight
+- A diffusion-ready UNet (timestep conditioning, optional spectral pre/post transforms)
+- Unified training pipeline with cosine β schedule, ε-prediction, and optional SNR weighting
+- Taguchi batch runner that persists per-run configs/metrics for downstream analysis
+- Instrumentation for throughput (`images_per_second`) and convergence speed (`loss_drop_per_second`) across variants
 
 ---
 
@@ -57,28 +55,19 @@ spectral-diffusion/
 
 ## 🧪 Experimental Design
 
-We use a **Taguchi-style factorial design** to minimize test count.
-
-| Factor | Description | Levels |
-|--------|--------------|--------|
-| A | Frequency-equalized noise | Off / On |
-| B | Frequency attention | Off / On |
-| C | Sampler type | DDIM / DPM-Solver++ |
-| D | Loss weighting | Standard / Frequency-balanced |
-| E | Optimizer | Adam / Custom adaptive |
-
-Each run logs its configuration and metrics to allow automatic ranking of factor influence.
+Taguchi-style orthogonal arrays drive controlled sweeps. Each CSV row maps to overrides in `TaguchiExperimentRunner._build_config_from_row`, so variants share the unified diffusion pipeline while toggling spectral options or sampler strategies.
 
 ---
 
-## 📊 Evaluation Metrics
+## 📊 Key Metrics
 
 | Metric | Description |
 |--------|--------------|
-| **FID** | Measures realism vs. reference distribution |
-| **LPIPS** | Perceptual similarity for visual fidelity |
-| **Runtime** | Training and inference speed |
-| **Spectral MSE** | Difference between power spectra of generated vs. real samples |
+| **loss_drop_per_second** | Convergence efficiency (higher is better) |
+| **images_per_second** | Throughput under current config/hardware |
+| **spectral_time_seconds** | Cumulative FFT overhead per run |
+| **loss_threshold_time** | Wall time to reach configured target loss (if set) |
+| **FID / LPIPS** | (Coming soon) image quality comparators for sampled images |
 
 ---
 
@@ -93,16 +82,25 @@ mkdir -p data
 curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz -o data/cifar-10-python.tar.gz
 tar -xzf data/cifar-10-python.tar.gz -C data
 python train_model.py --config configs/baseline.yaml --dry-run   # sanity check
-python train_model.py --config configs/baseline.yaml              # full placeholder run
+python train_model.py --config configs/baseline.yaml              # diffusion training (ε-pred)
 # Optional Taguchi batch
 python -m src.experiments.run_experiment
 # Validation helper (removes dry-run artifacts unless --keep-artifacts is provided)
 python validate_setup.py
+# Benchmark baseline vs spectral throughput
+python benchmarks/benchmark_fft.py --device cpu --batch-size 16
 ```
 
 Results and metrics will appear in `results/summary.csv`.
 
 ---
+
+# Run spectral unit tests
+python -m pytest tests/test_spectral_fft.py
+python -m pytest tests/test_tiny_unet_spectral.py
+
+# Benchmark baseline vs spectral throughput
+python benchmarks/benchmark_fft.py --device cpu --batch-size 16
 
 ## 🔄 Flow Overview
 
@@ -110,28 +108,31 @@ Results and metrics will appear in `results/summary.csv`.
 
 ```mermaid
 flowchart LR
-    A["Input sample"] --> B["FFT / Spectral transform<br/>(optional)"]
-    B --> C["Model predicts noise / score<br/>(Baseline or Spectral)"]
-    C --> D["Inverse transform<br/>(if spectral branch)"]
-    D --> E["Loss computation<br/>MSE · MAE · future spectral losses"]
-    E --> F["Optimizer update"]
-    F --> B
+    A["x₀"] --> B{Spectral enabled?}
+    B -->|No| C["xₜ = αₜ x₀ + σₜ ε"]
+    B -->|Yes| B1["FFT(x₀)"] --> C
+    C --> D["UNet(xₜ, t)"]
+    D --> E["Target builder (ε / v / x₀)"]
+    E --> F["Diffusion loss + SNR weighting"]
+    F --> G["Optimizer step"]
+    G --> H{Spectral enabled?}
+    H -->|Yes| H1["iFFT(output)"] --> A
+    H -->|No| A
 ```
 
-This cycle highlights the shared training loop. The spectral branch (FFT and inverse FFT) is wired but still a no-op until the spectral utilities are upgraded.
+This highlights the shared diffusion loop. Spectral toggles route data through FFT/iFFT while reusing the same timestep-conditioned UNet.
 
 ### System Flow (Single Run)
 
 ```mermaid
 flowchart LR
-    subgraph Execution["🧠 Single-Run Execution"]
-        A["Config YAML<br/>configs/*.yaml"] --> B["train_model.py<br/>parse, seed, log"]
-        B --> C["TrainingPipeline<br/>src/training/pipeline.py"]
-        C --> D["Training Loop<br/>pipeline.run()"]
-        D --> E["metrics JSON<br/>results/metrics/<run_id>.json"]
-        D --> F["run.log<br/>results/logs/<run_id>/run.log"]
-        D --> G["summary.csv<br/>append_run_summary()"]
-    end
+    A["Config YAML"] --> B["train_model.py"]
+    B --> C["TrainingPipeline"]
+    C --> D["Diffusion Loop"]
+    D --> E["metrics JSON"]
+    D --> F["run.log"]
+    D --> G["summary.csv"]
+    G --> H["analysis notebooks / Taguchi stats"]
 ```
 
 ### Experiment Flow (Batch Runs)
@@ -144,8 +145,11 @@ flowchart TD
     end
     L8 --> RUNNER["TaguchiExperimentRunner<br/>src/experiments/run_experiment.py"]
     CFG --> RUNNER
-    RUNNER --> EXEC["TrainingPipeline<br/>per row"]
-    EXEC --> METRICS["Per-run artifacts<br/>logs · metrics · summary.csv"]
+    RUNNER --> EXEC["TrainingPipeline per row"]
+    EXEC --> METRICS["Per-run artifacts"]
+    METRICS --> H["summary.csv"]
+    METRICS --> I["metrics JSON"]
+    METRICS --> J["log dir"]
 ```
 
 Each design-row produces its own run ID, config snapshot, metrics JSON, and an entry in `results/summary.csv`. Aggregated Taguchi S/N analysis will build on these artifacts.
@@ -237,9 +241,3 @@ If you use this repository in academic work, please cite it as:
   url = {https://github.com/benschneider/spectral-diffusion}
 }
 ```
-# Run spectral unit tests
-python -m pytest tests/test_spectral_fft.py
-python -m pytest tests/test_tiny_unet_spectral.py
-
-# Benchmark baseline vs spectral throughput
-python benchmarks/benchmark_fft.py --device cpu --batch-size 16

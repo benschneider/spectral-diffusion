@@ -1,4 +1,4 @@
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 
 import torch
 from torch import nn
@@ -24,7 +24,7 @@ class BaselineConvModel(nn.Module):
             nn.Conv2d(32, channels, 3, padding=1),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t: Optional[torch.Tensor] = None) -> torch.Tensor:
         return self.net(x)
 
 
