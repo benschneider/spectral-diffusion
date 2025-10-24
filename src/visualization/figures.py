@@ -106,7 +106,7 @@ def plot_runtime_metrics(df: pd.DataFrame, title: str, out_path: Path) -> None:
     plt.close(fig)
 
 
-def plot_taguchi_snr(df: pd.DataFrame, out_path: Path) -> None:
+def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, str]) -> None:
     factors = df["factor"].unique()
     levels = sorted(df["level"].unique())
     width = 0.8 / max(len(levels), 1)
@@ -123,8 +123,11 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path) -> None:
         bars = ax.bar(offsets, values, width=width, color=colors[idx], label=f"Level {level}")
         _bar_ann(ax, bars)
 
+    choices_map = descriptions.get("taguchi_choices", {})
+    labels = [f"{factor}\n{choices_map.get(factor, '')}".strip() for factor in factors]
+
     ax.set(title="Taguchi Signal-to-Noise Ratios", xlabel="Factor", ylabel="S/N (dB)")
-    ax.set_xticks(x, factors)
+    ax.set_xticks(x, labels, rotation=12, ha="right")
     ax.legend(title="Level", loc="best")
     fig.tight_layout()
     fig.savefig(out_path)
@@ -317,7 +320,7 @@ def generate_figures(
         )
 
     if taguchi_report is not None:
-        plot_taguchi_snr(taguchi_report, output_dir / "taguchi_snr.png")
+        plot_taguchi_snr(taguchi_report, output_dir / "taguchi_snr.png", descriptions)
     if taguchi_summary is not None and taguchi_report is not None:
         plot_taguchi_metric_distribution(
             taguchi_summary,
