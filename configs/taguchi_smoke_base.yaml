@@ -14,9 +14,9 @@ data:
 
 training:
   batch_size: 64
-  epochs: 1
-  num_batches: 20
-  log_every: 5
+  epochs: 3
+  num_batches: null
+  log_every: 100
 
 optim:
   lr: 2.0e-4

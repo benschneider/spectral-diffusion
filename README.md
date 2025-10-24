@@ -95,6 +95,8 @@ scripts/run_smoke_test.sh
 scripts/clean_results.sh
 # Taguchi smoke batch (synthetic factors + S/N report)
 scripts/run_taguchi_smoke.sh
+# Summarise latest runs (top-5 by loss_drop_per_second)
+scripts/report_summary.py --metric loss_drop_per_second --top 5 --include-factors
 # (Set OMP_NUM_THREADS=1 if your environment restricts shared-memory allocs)
 ```
 
