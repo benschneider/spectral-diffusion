@@ -3,6 +3,7 @@ import torch
 from src.spectral.complex_layers import (
     ComplexBatchNorm2d,
     ComplexConv2d,
+    ComplexConvTranspose2d,
     ComplexResidualBlock,
     ComplexSiLU,
 )
@@ -44,3 +45,10 @@ def test_complex_residual_block():
     assert out.shape == x.shape
     out.sum().backward()
     assert x.grad is not None
+
+
+def test_complex_conv_transpose():
+    layer = ComplexConvTranspose2d(3, 2, kernel_size=2, stride=2)
+    x = _complex_tensor(channels=3, height=8, width=8)
+    out = layer(x)
+    assert out.shape == (x.shape[0], 4, 16, 16)

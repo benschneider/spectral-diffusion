@@ -67,6 +67,52 @@ class ComplexConv2d(nn.Module):
         return _merge_complex(real_out, imag_out)
 
 
+class ComplexConvTranspose2d(nn.Module):
+    """Complex-valued transposed convolution (upsampling) via paired real convolutions."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size,
+        stride=1,
+        padding=0,
+        output_padding=0,
+        groups=1,
+        bias: bool = True,
+        dilation: int = 1,
+    ) -> None:
+        super().__init__()
+        self.real_conv = nn.ConvTranspose2d(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            groups=groups,
+            bias=bias,
+            dilation=dilation,
+        )
+        self.imag_conv = nn.ConvTranspose2d(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            groups=groups,
+            bias=bias,
+            dilation=dilation,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        real, imag = _split_complex(x)
+        real_out = self.real_conv(real) - self.imag_conv(imag)
+        imag_out = self.real_conv(imag) + self.imag_conv(real)
+        return _merge_complex(real_out, imag_out)
+
+
 class ComplexBatchNorm2d(nn.Module):
     """Applies independent BatchNorm to real and imaginary components."""
 
