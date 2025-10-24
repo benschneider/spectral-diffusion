@@ -27,6 +27,9 @@ class BaselineConvModel(nn.Module):
     def forward(self, x: torch.Tensor, t: Optional[torch.Tensor] = None) -> torch.Tensor:
         return self.net(x)
 
+    def reset_spectral_stats(self) -> None:  # pragma: no cover - baseline has no spectral adapters
+        return
+
 
 # Backwards compatibility alias
 BaseDiffusionModel = BaselineConvModel

@@ -117,7 +117,13 @@ SUMMARY_HEADER = [
     "loss_threshold_time",
     "spectral_calls",
     "spectral_time_seconds",
+    "spectral_cpu_time_seconds",
+    "spectral_cuda_time_seconds",
     "sampling_images_dir",
+    "eval_mse",
+    "eval_mae",
+    "eval_psnr",
+    "eval_fid",
 ]
 
 
@@ -157,7 +163,13 @@ def append_run_summary(
             _m("loss_threshold_time"),
             _m("spectral_calls"),
             _m("spectral_time_seconds"),
+            _m("spectral_cpu_time_seconds"),
+            _m("spectral_cuda_time_seconds"),
             _m("sampling_images_dir"),
+            _m("eval_mse"),
+            _m("eval_mae"),
+            _m("eval_psnr"),
+            _m("eval_fid"),
         ]
     )
 

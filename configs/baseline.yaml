@@ -48,3 +48,7 @@ sampling:
   sampler_type: ddim
   num_samples: 16
   num_steps: 1000
+evaluation:
+  reference_dir: null
+  use_fid: false
+  image_size: null

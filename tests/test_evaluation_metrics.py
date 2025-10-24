@@ -57,8 +57,8 @@ def test_compute_dataset_metrics_fid_optional(tmp_path):
         _write_image(ref_dir / name, array)
 
     if FID_AVAILABLE:
-        metrics = compute_dataset_metrics(gen_dir, ref_dir, use_fid=True)
+        metrics = compute_dataset_metrics(gen_dir, ref_dir, use_fid=True, strict_filenames=False)
         assert "fid" in metrics
     else:
         with pytest.raises(RuntimeError):
-            compute_dataset_metrics(gen_dir, ref_dir, use_fid=True)
+            compute_dataset_metrics(gen_dir, ref_dir, use_fid=True, strict_filenames=False)

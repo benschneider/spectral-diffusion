@@ -5,3 +5,8 @@ pandas
 pyyaml
 pytest
 Pillow
+tqdm
+scipy
+piq
+torch-fidelity
+torchmetrics

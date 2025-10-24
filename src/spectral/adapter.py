@@ -26,6 +26,8 @@ class SpectralAdapter(nn.Module):
 
         self._total_calls: int = 0
         self._total_time: float = 0.0
+        self._cpu_time: float = 0.0
+        self._cuda_time: float = 0.0
         self._use_cuda_timer = torch.cuda.is_available()
         if self._use_cuda_timer:
             self._start_evt = torch.cuda.Event(enable_timing=True)
@@ -89,8 +91,10 @@ class SpectralAdapter(nn.Module):
             self._end_evt.record()
             torch.cuda.synchronize()
             elapsed = self._start_evt.elapsed_time(self._end_evt) / 1000.0
+            self._cuda_time += elapsed
         else:
             elapsed = time.perf_counter() - start
+            self._cpu_time += elapsed
 
         self._total_calls += 1
         self._total_time += elapsed
@@ -100,8 +104,12 @@ class SpectralAdapter(nn.Module):
         return {
             "spectral_calls": float(self._total_calls),
             "spectral_time_seconds": float(self._total_time),
+            "spectral_cpu_time_seconds": float(self._cpu_time),
+            "spectral_cuda_time_seconds": float(self._cuda_time),
         }
 
     def reset_stats(self) -> None:
         self._total_calls = 0
         self._total_time = 0.0
+        self._cpu_time = 0.0
+        self._cuda_time = 0.0
