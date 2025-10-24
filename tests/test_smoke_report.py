@@ -22,7 +22,16 @@ def test_smoke_report_generates_summary(tmp_path):
         stderr=subprocess.PIPE,
         text=True,
     )
-    summary_path = output_dir / "figures" / "summary.md"
+    figures_dir = output_dir / "figures"
+    if not figures_dir.exists():
+        candidates = sorted(
+            [p for p in output_dir.iterdir() if p.is_dir()],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        assert candidates, result.stdout + result.stderr
+        figures_dir = candidates[0] / "figures"
+    summary_path = figures_dir / "summary.md"
     assert summary_path.exists(), result.stdout + result.stderr
     content = summary_path.read_text()
     assert "Synthetic Benchmark" in content

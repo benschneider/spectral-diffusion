@@ -106,12 +106,14 @@ class TaguchiExperimentRunner:
           B (freq_attention):       1=off, 2=on
           C (sampler):              1=ddim, 2=dpm_solver++
           D (spectral_enabled):     1=disabled, 2=enabled
+          E (cross_domain_init):    1=random, 2=cross-domain
         """
         cfg = deepcopy(self.base_config)
 
         cfg.setdefault("model", {})
         cfg.setdefault("spectral", {})
         cfg.setdefault("sampling", {})
+        cfg.setdefault("initialization", {})
 
         if "A" in row:
             cfg["spectral"]["freq_equalized_noise"] = int(row["A"]) == 2
@@ -121,6 +123,20 @@ class TaguchiExperimentRunner:
             cfg["sampling"]["sampler_type"] = "dpm_solver++" if int(row["C"]) == 2 else "ddim"
         if "D" in row:
             cfg["spectral"]["enabled"] = int(row["D"]) == 2
+        if "E" in row:
+            level = int(row["E"])
+            init_cfg = cfg.setdefault("initialization", {})
+            if level == 2:
+                init_cfg.update(
+                    {
+                        "strategy": "cross_domain_flat",
+                        "source": {"type": "gpt2", "model_name": "gpt2"},
+                        "scale": init_cfg.get("scale", 0.02),
+                        "recycle": True,
+                    }
+                )
+            else:
+                init_cfg.setdefault("strategy", "default")
 
         taguchi_meta = cfg.setdefault("taguchi", {})
         taguchi_meta["row"] = row.to_dict()
