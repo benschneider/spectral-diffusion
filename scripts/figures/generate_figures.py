@@ -186,18 +186,31 @@ def write_summary_markdown(
         lines.append(f"## {title}")
         if desc:
             lines.extend([desc, ""])        
-        lines.extend(
-            [
-                "| Run | Loss Drop | Final Loss | Images/s | Runtime (s) |",
-                "| --- | --- | --- | --- | --- |",
-            ]
-        )
+        headers = ["Run", "Loss Drop", "Final Loss", "Images/s", "Runtime (s)"]
+        if "eval_fid" in synthetic_df.columns:
+            headers.append("FID")
+        if "eval_lpips" in synthetic_df.columns:
+            headers.append("LPIPS")
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
         labels = _label_series(synthetic_df)
         for (_, row), label in zip(synthetic_df.iterrows(), labels):
-            lines.append(
-                f"| {label} | {row['loss_drop']:.3f} | {row['loss_final']:.3f} | "
-                f"{row['images_per_second']:.1f} | {row['runtime_seconds']:.1f} |"
-            )
+            values = [
+                label,
+                f"{row['loss_drop']:.3f}",
+                f"{row['loss_final']:.3f}",
+                f"{row['images_per_second']:.1f}",
+                f"{row['runtime_seconds']:.1f}",
+            ]
+            if "eval_fid" in synthetic_df.columns:
+                values.append(
+                    f"{row['eval_fid']:.3f}" if not pd.isna(row.get("eval_fid")) else "–"
+                )
+            if "eval_lpips" in synthetic_df.columns:
+                values.append(
+                    f"{row['eval_lpips']:.3f}" if not pd.isna(row.get("eval_lpips")) else "–"
+                )
+            lines.append("| " + " | ".join(values) + " |")
         lines.append("")
 
     if cifar_df is not None:
@@ -206,18 +219,31 @@ def write_summary_markdown(
         lines.append(f"## {title}")
         if desc:
             lines.extend([desc, ""])        
-        lines.extend(
-            [
-                "| Run | Loss Drop | Final Loss | Images/s | Runtime (s) |",
-                "| --- | --- | --- | --- | --- |",
-            ]
-        )
+        headers = ["Run", "Loss Drop", "Final Loss", "Images/s", "Runtime (s)"]
+        if "eval_fid" in cifar_df.columns:
+            headers.append("FID")
+        if "eval_lpips" in cifar_df.columns:
+            headers.append("LPIPS")
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
         labels = _label_series(cifar_df)
         for (_, row), label in zip(cifar_df.iterrows(), labels):
-            lines.append(
-                f"| {label} | {row['loss_drop']:.3f} | {row['loss_final']:.3f} | "
-                f"{row['images_per_second']:.1f} | {row['runtime_seconds']:.1f} |"
-            )
+            values = [
+                label,
+                f"{row['loss_drop']:.3f}",
+                f"{row['loss_final']:.3f}",
+                f"{row['images_per_second']:.1f}",
+                f"{row['runtime_seconds']:.1f}",
+            ]
+            if "eval_fid" in cifar_df.columns:
+                values.append(
+                    f"{row['eval_fid']:.3f}" if not pd.isna(row.get("eval_fid")) else "–"
+                )
+            if "eval_lpips" in cifar_df.columns:
+                values.append(
+                    f"{row['eval_lpips']:.3f}" if not pd.isna(row.get("eval_lpips")) else "–"
+                )
+            lines.append("| " + " | ".join(values) + " |")
         lines.append("")
 
     if taguchi_report is not None:
