@@ -44,4 +44,7 @@ loss:
   bandpass_inner: 0.1
   bandpass_outer: 0.6
 sampling:
+  enabled: false
   sampler_type: dpm-solver
+  num_samples: 16
+  num_steps: 1000

@@ -117,6 +117,7 @@ SUMMARY_HEADER = [
     "loss_threshold_time",
     "spectral_calls",
     "spectral_time_seconds",
+    "sampling_images_dir",
 ]
 
 
@@ -156,6 +157,7 @@ def append_run_summary(
             _m("loss_threshold_time"),
             _m("spectral_calls"),
             _m("spectral_time_seconds"),
+            _m("sampling_images_dir"),
         ]
     )
 
