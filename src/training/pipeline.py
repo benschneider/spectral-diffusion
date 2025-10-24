@@ -5,12 +5,12 @@ from typing import Any, Dict, Optional
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset, TensorDataset
-from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
 
 from src.core import build_model, get_loss_fn
 from src.core.functional import compute_snr_weight, compute_target
 from src.evaluation.metrics import compute_basic_metrics, compute_dataset_metrics
+from src.training.builders import build_dataloader, build_optimizer
 from src.training.sampling import sample_ddpm
 from src.training.scheduler import build_diffusion, sample_timesteps
 
@@ -32,85 +32,11 @@ class TrainingPipeline:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
-    def _make_dataloader(self) -> DataLoader:
-        """Build a dataloader based on configuration."""
-        data_cfg = self.config.get("data", {})
-        source = str(data_cfg.get("source", "synthetic")).lower()
-        if source == "synthetic":
-            return self._make_synthetic_dataloader(data_cfg=data_cfg)
-        if source == "cifar10":
-            return self._make_cifar10_dataloader(data_cfg=data_cfg)
-        raise ValueError(f"Unsupported data source: {source}")
-
-    def _make_synthetic_dataloader(self, data_cfg: Dict[str, Any]) -> DataLoader:
-        bs = int(self.config.get("training", {}).get("batch_size", 32))
-        n_setting = self.config.get("training", {}).get("num_batches", 50)
-        n = int(n_setting) if str(n_setting).isdigit() else 50
-        c = int(data_cfg.get("channels", 3))
-        h = int(data_cfg.get("height", 32))
-        w = int(data_cfg.get("width", 32))
-        x = torch.randn(n * bs, c, h, w)
-        y = torch.randn_like(x)
-        dataset = TensorDataset(x, y)
-        return DataLoader(dataset, batch_size=bs, shuffle=True, drop_last=True)
-
-    def _make_cifar10_dataloader(self, data_cfg: Dict[str, Any]) -> DataLoader:
-        bs = int(self.config.get("training", {}).get("batch_size", 32))
-        target_h = int(data_cfg.get("height", 32))
-        target_w = int(data_cfg.get("width", 32))
-        num_workers = int(data_cfg.get("num_workers", 0))
-        download = bool(data_cfg.get("download", False))
-
-        transform = transforms.Compose(
-            [
-                transforms.Resize((target_h, target_w)),
-                transforms.ToTensor(),
-            ]
-        )
-        try:
-            base_dataset = datasets.CIFAR10(
-                root=data_cfg.get("root", "data"),
-                train=True,
-                download=download,
-                transform=transform,
-            )
-        except RuntimeError as exc:
-            raise RuntimeError(
-                "CIFAR-10 dataset not found. Download it manually with:\n"
-                "  mkdir -p data && curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz "
-                "-o data/cifar-10-python.tar.gz && tar -xzf data/cifar-10-python.tar.gz -C data\n"
-                "Then rerun training or set data.source to 'synthetic'."
-            ) from exc
-
-        class ReconstructionWrapper(Dataset):
-            def __init__(self, dataset) -> None:
-                self.dataset = dataset
-
-            def __len__(self) -> int:
-                return len(self.dataset)
-
-            def __getitem__(self, idx: int):
-                img, _ = self.dataset[idx]
-                return img, img
-
-        return DataLoader(
-            ReconstructionWrapper(base_dataset),
-            batch_size=bs,
-            shuffle=True,
-            drop_last=True,
-            num_workers=num_workers,
-        )
-
-    def _make_optimizer(self) -> torch.optim.Optimizer:
-        lr = float(self.config.get("optim", {}).get("lr", 1e-4))
-        wd = float(self.config.get("optim", {}).get("weight_decay", 0.0))
-        return torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=wd)
-
     def setup(self) -> None:
         """Prepare datasets, optimizers, and other resources."""
         self.logger.debug("Setting up training pipeline with config: %s", self.config)
-        self.loader = self._make_dataloader()
-        self.optimizer = self._make_optimizer()
+        self.loader = build_dataloader(self.config)
+        self.optimizer = build_optimizer(self.model, self.config)
 
     def run(self) -> Dict[str, Any]:
         """Execute the (placeholder) training loop and return metrics."""
