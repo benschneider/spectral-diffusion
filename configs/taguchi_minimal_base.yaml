@@ -45,6 +45,11 @@ spectral:
   per_block: false
   bandpass_inner: 0.1
   bandpass_outer: 0.6
+  learnable: true
+  condition: time
+  mlp_hidden_dim: 32
+  learnable_temperature: 40.0
+  learnable_gain_init: 1.0
 
 sampling:
   enabled: true
@@ -55,6 +60,9 @@ sampling:
 initialization:
   strategy: default
   scale: 0.02
+  source:
+    type: constant
+    values: [0.0, 1.0, -1.0, 0.5]
 
 evaluation:
   reference_dir: null
