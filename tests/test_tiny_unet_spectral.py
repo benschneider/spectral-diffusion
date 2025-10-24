@@ -17,6 +17,7 @@ def _build_config(enabled: bool, weighting: str = "none", apply_to=None, per_blo
             "weighting": weighting,
             "apply_to": apply_to,
             "per_block": per_block,
+            "learnable": False,
         },
     }
 
@@ -65,3 +66,17 @@ def test_tiny_unet_per_block_adapter_runs():
     assert out.shape == x.shape
     stats = model.spectral_stats()
     assert stats["spectral_calls"] >= 1
+
+
+def test_tiny_unet_learnable_output_adapter_backward():
+    config = _build_config(enabled=True, weighting="bandpass", apply_to=["output"], per_block=False)
+    config["spectral"]["learnable"] = True
+    config["spectral"]["condition"] = "time"
+    model = TinyUNet(config)
+    x = torch.randn(2, 3, 16, 16, requires_grad=True)
+    t = torch.randint(0, 1000, (2,), dtype=torch.long)
+    out = model(x, t)
+    out.mean().backward()
+    assert any(
+        (p.grad is not None) for p in model.spectral_output.parameters() if p.requires_grad
+    )
