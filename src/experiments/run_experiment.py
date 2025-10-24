@@ -104,7 +104,8 @@ class TaguchiExperimentRunner:
         Expected columns (example L8):
           A (freq_equalized_noise): 1=off, 2=on
           B (freq_attention):       1=off, 2=on
-          C (sampler):              1=ddim, 2=dpm-solver
+          C (sampler):              1=ddim, 2=dpm_solver++
+          D (spectral_enabled):     1=disabled, 2=enabled
         """
         cfg = deepcopy(self.base_config)
 
@@ -118,6 +119,8 @@ class TaguchiExperimentRunner:
             cfg["spectral"]["freq_attention"] = int(row["B"]) == 2
         if "C" in row:
             cfg["sampling"]["sampler_type"] = "dpm_solver++" if int(row["C"]) == 2 else "ddim"
+        if "D" in row:
+            cfg["spectral"]["enabled"] = int(row["D"]) == 2
 
         taguchi_meta = cfg.setdefault("taguchi", {})
         taguchi_meta["row"] = row.to_dict()

@@ -63,6 +63,74 @@ def _label_series(df: pd.DataFrame) -> pd.Series:
     return df["run_id"]
 
 
+DEFAULT_TAGUCHI_LABELS: dict[str, str] = {
+    "A": "Freq-equalized noise",
+    "B": "Spectral attention",
+    "C": "Sampler",
+    "D": "Spectral adapters",
+}
+
+
+def _safe_ratio(numerator: float, denominator: float) -> Optional[float]:
+    if denominator == 0:
+        return None
+    return numerator / denominator
+
+
+def _benchmark_takeaways(df: pd.DataFrame) -> list[str]:
+    lines: list[str] = []
+    if df.empty:
+        return lines
+
+    labeled = df.copy()
+    labeled["_label"] = _label_series(df).values
+
+    def _fmt_row(row: pd.Series, col: str, precision: int = 3) -> str:
+        return f"{row['_label']} ({row[col]:.{precision}f})"
+
+    if "loss_final" in labeled.columns and labeled["loss_final"].notna().any():
+        best_loss = labeled.loc[labeled["loss_final"].idxmin()]
+        lines.append(f"- Lowest final loss: {_fmt_row(best_loss, 'loss_final')}")
+
+    if "images_per_second" in labeled.columns and labeled["images_per_second"].notna().any():
+        fastest = labeled.loc[labeled["images_per_second"].idxmax()]
+        lines.append(f"- Fastest throughput: {_fmt_row(fastest, 'images_per_second', precision=1)} images/s")
+
+    if (
+        len(labeled) > 1
+        and "loss_final" in labeled.columns
+        and "images_per_second" in labeled.columns
+        and labeled["loss_final"].notna().all()
+        and labeled["images_per_second"].notna().all()
+    ):
+        best_loss = labeled.loc[labeled["loss_final"].idxmin()]
+        fastest = labeled.loc[labeled["images_per_second"].idxmax()]
+        if best_loss["_label"] != fastest["_label"]:
+            speed_gap = _safe_ratio(fastest["images_per_second"], best_loss["images_per_second"])
+            loss_gap = best_loss["loss_final"] - fastest["loss_final"]
+            gap_bits = []
+            if speed_gap is not None and speed_gap > 0:
+                gap_bits.append(f"{speed_gap:.1f}× faster")
+            gap_bits.append(
+                f"Δ loss {loss_gap:+.3f}" if loss_gap != 0 else "similar loss"
+            )
+            lines.append(
+                f"- Trade-off: {fastest['_label']} vs {best_loss['_label']} → "
+                + ", ".join(gap_bits)
+            )
+
+    if (
+        "loss_drop_per_second" in labeled.columns
+        and labeled["loss_drop_per_second"].notna().any()
+    ):
+        best_drop = labeled.loc[labeled["loss_drop_per_second"].idxmax()]
+        lines.append(
+            "- Fastest convergence: "
+            f"{_fmt_row(best_drop, 'loss_drop_per_second', precision=3)} loss drop/s"
+        )
+    return lines
+
+
 def plot_loss_metrics(df: pd.DataFrame, title: str, out_path: Path) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(8, 4))
     colors = _color_palette(len(df))
@@ -106,49 +174,209 @@ def plot_runtime_metrics(df: pd.DataFrame, title: str, out_path: Path) -> None:
     plt.close(fig)
 
 
-def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, str]) -> None:
-    factors = df["factor"].unique()
-    levels = sorted(df["level"].unique())
-    width = 0.8 / max(len(levels), 1)
-    x = np.arange(len(factors))
-    colors = _color_palette(len(levels))
+def plot_tradeoff_scatter(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    title: str,
+    x_label: str,
+    y_label: str,
+    out_path: Path,
+) -> None:
+    if x_col not in df.columns or y_col not in df.columns:
+        logging.warning("Skipping trade-off plot; missing columns %s or %s", x_col, y_col)
+        return
 
-    fig, ax = plt.subplots(figsize=(7, 4))
-    for idx, level in enumerate(levels):
-        values = []
-        for factor in factors:
-            row = df[(df["factor"] == factor) & (df["level"] == level)]
-            values.append(row["snr"].values[0] if not row.empty else np.nan)
-        offsets = x + (idx - (len(levels) - 1) / 2) * width
-        bars = ax.bar(offsets, values, width=width, color=colors[idx], label=f"Level {level}")
-        _bar_ann(ax, bars)
+    labeled = df.copy()
+    labeled["_label"] = _label_series(df).values
+    groups = labeled.groupby("_label")
+    colors = _color_palette(len(groups))
 
-    choices_map = descriptions.get("taguchi_choices", {})
-    labels = [f"{factor}\n{choices_map.get(factor, '')}".strip() for factor in factors]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    for color, (label, group) in zip(colors, groups):
+        ax.scatter(
+            group[x_col],
+            group[y_col],
+            label=label,
+            color=color,
+            s=64,
+            alpha=0.85,
+            edgecolor="black",
+            linewidth=0.5,
+        )
+        if len(group) == 1 and len(df) <= 6:
+            row = group.iloc[0]
+            ax.annotate(
+                label,
+                xy=(row[x_col], row[y_col]),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=9,
+                ha="left",
+                va="bottom",
+            )
 
-    for idx, level in enumerate(levels):
-        values = []
-        for factor in factors:
-            row = df[(df["factor"] == factor) & (df["level"] == level)]
-            values.append(row["snr"].values[0] if not row.empty else np.nan)
-        offsets = x + (idx - (len(levels) - 1) / 2) * width
-        ax.scatter(offsets, values, color=colors[idx], label=f"Level {level}")
-        for xv, yv in zip(offsets, values):
-            ax.annotate(f"{yv:.1f}", (xv, yv), textcoords="offset points", xytext=(0, 4), ha="center", fontsize=8)
-
-    ax.set(title="Taguchi Signal-to-Noise Ratios", xlabel="Factor", ylabel="S/N (dB)")
-    ax.set_xticks(x, labels, rotation=12, ha="right")
-    ax.legend(title="Level", loc="best")
+    ax.set(title=title, xlabel=x_label, ylabel=y_label)
+    ax.grid(True, linestyle="--", alpha=0.4)
+    if len(groups) > 1:
+        ax.legend(loc="best", frameon=True)
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
 
 
-def plot_taguchi_metric_distribution(df: pd.DataFrame, metric: str, out_path: Path) -> None:
+def plot_metric_boxplot(
+    df: pd.DataFrame,
+    metric: str,
+    title: str,
+    ylabel: str,
+    out_path: Path,
+) -> None:
+    if metric not in df.columns:
+        logging.warning("Skipping box plot; metric '%s' missing", metric)
+        return
+
+    labeled = df.copy()
+    labeled["_label"] = _label_series(df).values
+    groups = [(label, grp[metric].dropna()) for label, grp in labeled.groupby("_label")]
+    groups = [(label, values) for label, values in groups if len(values) > 0]
+
+    if not groups:
+        logging.warning("Skipping box plot; metric '%s' has no valid values", metric)
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    positions = np.arange(len(groups))
+    box_data = [values.values for _, values in groups]
+    bp = ax.boxplot(
+        box_data,
+        positions=positions,
+        widths=0.6,
+        patch_artist=True,
+        boxprops=dict(facecolor="#9ecae1", color="#3182bd"),
+        medianprops=dict(color="#08519c", linewidth=1.5),
+        whiskerprops=dict(color="#3182bd"),
+        capprops=dict(color="#3182bd"),
+        flierprops=dict(markerfacecolor="#3182bd", markeredgecolor="#08519c", markersize=5),
+    )
+    for patch in bp["boxes"]:
+        patch.set_alpha(0.75)
+
+    # Jitter individual observations to show sample counts.
+    for pos, (_, values) in zip(positions, groups):
+        if len(values) == 1:
+            jitter = np.array([0.0])
+        else:
+            jitter = np.linspace(-0.08, 0.08, len(values))
+        ax.scatter(
+            np.full(len(values), pos) + jitter,
+            values,
+            color="#08519c",
+            alpha=0.6,
+            s=26,
+        )
+
+    ax.set(title=title, ylabel=ylabel)
+    ax.set_xticks(positions, [label for label, _ in groups], rotation=20, ha="right")
+    ax.grid(True, axis="y", linestyle="--", alpha=0.4)
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, str]) -> None:
+    factors = sorted(df["factor"].unique())
+    if not factors:
+        logging.warning("No Taguchi factors found for S/N plot.")
+        return
+
+    levels = sorted(df["level"].unique())
+    colors = _color_palette(len(factors))
+    fig_width = max(6, 3 * len(factors))
+    fig, axes = plt.subplots(1, len(factors), figsize=(fig_width, 4), sharey=True)
+    if len(factors) == 1:
+        axes = [axes]
+
+    choices_map = {
+        **DEFAULT_TAGUCHI_LABELS,
+        **(descriptions.get("taguchi_choices", {}) or {}),
+    }
+
+    any_plotted = False
+    for idx, (factor, ax) in enumerate(zip(factors, axes)):
+        factor_df = df[df["factor"] == factor].copy()
+        factor_df = factor_df.sort_values("level")
+        values = [factor_df.loc[factor_df["level"] == lvl, "snr"].mean() for lvl in levels]
+        values_arr = np.array(values, dtype=float)
+        if np.all(np.isnan(values_arr)):
+            logging.warning("All NaN S/N values for factor '%s'; skipping plot.", factor)
+            ax.set_visible(False)
+            continue
+
+        positions = np.arange(len(levels))
+        any_plotted = True
+
+        ax.plot(
+            positions,
+            values_arr,
+            color=colors[idx],
+            marker="o",
+            linewidth=2.0,
+            markersize=6,
+        )
+        best_idx = int(np.nanargmax(values_arr))
+        ax.scatter(
+            [positions[best_idx]],
+            [values_arr[best_idx]],
+            color=colors[idx],
+            s=70,
+            edgecolors="black",
+            linewidths=0.6,
+            zorder=5,
+        )
+        ax.annotate(
+            f"best→{levels[best_idx]}",
+            xy=(positions[best_idx], values_arr[best_idx]),
+            xytext=(0, -16),
+            textcoords="offset points",
+            ha="center",
+            va="top",
+            fontsize=8,
+        )
+
+        desc = choices_map.get(factor, "")
+        if desc and "(" in desc and ")" in desc:
+            prefix = desc.split("(")[0].strip()
+            suffix_raw = desc[desc.find("(") + 1 : desc.find(")")]
+            suffix = suffix_raw.strip()
+            base_title = prefix if prefix else factor
+            full_title = f"{base_title}\n({suffix})" if suffix else base_title
+        else:
+            full_title = desc or factor
+        ax.set(title=full_title, xlabel="Level")
+        ax.set_xticks(positions, [str(lvl) for lvl in levels])
+
+    if any_plotted:
+        visible_axes = [ax for ax in axes if ax.get_visible()]
+        if visible_axes:
+            visible_axes[0].set_ylabel("S/N (dB)")
+    fig.suptitle("Taguchi Signal-to-Noise Ratios (Main Effects)", fontsize=13)
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+def plot_taguchi_metric_distribution(
+    df: pd.DataFrame, metric: str, out_path: Path, descriptions: Optional[dict[str, str]] = None
+) -> None:
     factor_cols = [c for c in df.columns if c.startswith("factor_")]
     if not factor_cols:
         logging.warning("No factor columns found for Taguchi distribution plot.")
         return
+    label_map = {f"factor_{k}": v for k, v in DEFAULT_TAGUCHI_LABELS.items()}
+    if descriptions and descriptions.get("taguchi_choices"):
+        for key, value in descriptions["taguchi_choices"].items():
+            label_map[f"factor_{key}"] = value
 
     fig, axes = plt.subplots(1, len(factor_cols), figsize=(4 * len(factor_cols), 4), sharey=True)
     if len(factor_cols) == 1:
@@ -169,7 +397,9 @@ def plot_taguchi_metric_distribution(df: pd.DataFrame, metric: str, out_path: Pa
         )
         for patch in bp["boxes"]:
             patch.set_alpha(0.7)
-        ax.set(title=factor.replace("factor_", "").title(), xlabel="Level")
+        letter = factor.replace("factor_", "")
+        title = label_map.get(factor, DEFAULT_TAGUCHI_LABELS.get(letter, letter))
+        ax.set(title=title, xlabel="Level")
         ax.set_xticks(positions, [str(lvl) for lvl in levels])
         if ax is axes[0]:
             ax.set_ylabel(metric)
@@ -187,6 +417,31 @@ def write_summary_markdown(
     out_path: Path,
     descriptions: dict[str, str],
 ) -> None:
+    base_dir = out_path.parent
+    choices_map = {
+        **DEFAULT_TAGUCHI_LABELS,
+        **(descriptions.get("taguchi_choices", {}) or {}),
+    }
+
+    def _embed_image(filename: str, alt: str) -> None:
+        path = base_dir / filename
+        if path.exists():
+            lines.append(f"![{alt}]({filename})")
+            lines.append("")
+
+    def _factor_label(letter: str) -> str:
+        return choices_map.get(letter, letter)
+
+    def _level_label(letter: str, level: int) -> str:
+        desc = choices_map.get(letter, "")
+        if "(" in desc and ")" in desc:
+            raw = desc[desc.find("(") + 1 : desc.find(")")]
+            options = [opt.strip() for opt in raw.split("/")]
+            idx = level - 1
+            if 0 <= idx < len(options):
+                return options[idx]
+        return f"Level {level}"
+
     lines = ["# Results Summary", ""]
     if synthetic_df is not None:
         title = descriptions.get("synthetic_title", "Synthetic Benchmark")
@@ -220,6 +475,13 @@ def write_summary_markdown(
                 )
             lines.append("| " + " | ".join(values) + " |")
         lines.append("")
+        takeaways = _benchmark_takeaways(synthetic_df)
+        if takeaways:
+            lines.append("**Quick takeaways**")
+            lines.extend(takeaways)
+            lines.append("")
+        _embed_image("tradeoff_loss_vs_speed_synthetic.png", "Synthetic loss vs throughput")
+        _embed_image("loss_final_distribution_synthetic.png", "Synthetic final loss distribution")
 
     if cifar_df is not None:
         title = descriptions.get("cifar_title", "CIFAR-10 Benchmark")
@@ -253,6 +515,13 @@ def write_summary_markdown(
                 )
             lines.append("| " + " | ".join(values) + " |")
         lines.append("")
+        takeaways = _benchmark_takeaways(cifar_df)
+        if takeaways:
+            lines.append("**Quick takeaways**")
+            lines.extend(takeaways)
+            lines.append("")
+        _embed_image("tradeoff_loss_vs_speed_cifar.png", "CIFAR-10 loss vs throughput")
+        _embed_image("loss_final_distribution_cifar.png", "CIFAR-10 final loss distribution")
 
     if taguchi_report is not None:
         title = descriptions.get("taguchi_title", "Taguchi Factors (Top 5)")
@@ -268,9 +537,49 @@ def write_summary_markdown(
             ]
         )
         for _, row in top.iterrows():
+            factor = str(row["factor"])
+            level = int(row["level"])
             lines.append(
-                f"| {int(row['rank'])} | {row['factor']} | {row['level']} | {row['snr']:.2f} |"
+                "| "
+                + " | ".join(
+                    [
+                        str(int(row["rank"])),
+                        _factor_label(factor),
+                        _level_label(factor, level),
+                        f"{row['snr']:.2f}",
+                    ]
+                )
+                + " |"
+        )
+        lines.append("")
+        _embed_image("taguchi_snr.png", "Taguchi S/N main effects")
+        _embed_image("taguchi_loss_drop_per_second.png", "Taguchi loss_drop_per_second distributions")
+        lines.append("**Quick takeaways**")
+        taguchi_lines: list[str] = []
+        factors_seen: set[str] = set()
+        report_sorted = taguchi_report.sort_values(["rank", "factor", "snr"], ascending=[True, True, False])
+        for _, row in report_sorted.iterrows():
+            factor = str(row["factor"])
+            if factor in factors_seen:
+                continue
+            factor_df = taguchi_report[taguchi_report["factor"] == factor]
+            best_idx = factor_df["snr"].idxmax()
+            worst_idx = factor_df["snr"].idxmin()
+            best_row = factor_df.loc[best_idx]
+            worst_row = factor_df.loc[worst_idx]
+            delta = best_row["snr"] - worst_row["snr"]
+            taguchi_lines.append(
+                "- "
+                + f"{_factor_label(factor)} best at {_level_label(factor, int(best_row['level']))} "
+                + f"({best_row['snr']:.2f} dB, Δ {delta:+.2f} dB vs. { _level_label(factor, int(worst_row['level'])) })"
             )
+            factors_seen.add(factor)
+            if len(taguchi_lines) >= 3:
+                break
+        if taguchi_lines:
+            lines.extend(taguchi_lines)
+        else:
+            lines.append("- No clear factor preference (insufficient S/N variation).")
         lines.append("")
 
     out_path.write_text("\n".join(lines), encoding="utf-8")
@@ -298,7 +607,10 @@ def generate_figures(
             "cifar_text": data.get("cifar_benchmark", {}).get("description", ""),
             "taguchi_title": data.get("taguchi_analysis", {}).get("title", ""),
             "taguchi_text": data.get("taguchi_analysis", {}).get("description", ""),
+            "taguchi_choices": data.get("taguchi_choices", {}),
         }
+    else:
+        descriptions["taguchi_choices"] = {}
 
     synthetic_df = _load_csv(synthetic_dir / "summary.csv") if synthetic_dir else None
     cifar_df = _load_csv(cifar_dir / "summary.csv") if cifar_dir else None
@@ -316,6 +628,29 @@ def generate_figures(
             "Synthetic Benchmark – Runtime Metrics",
             output_dir / "runtime_metrics_synthetic.png",
         )
+        plot_tradeoff_scatter(
+            synthetic_df,
+            x_col="images_per_second",
+            y_col="loss_final",
+            title="Synthetic Benchmark – Loss vs Throughput",
+            x_label="Images per Second (Higher is Better)",
+            y_label="Final Loss (Lower is Better)",
+            out_path=output_dir / "tradeoff_loss_vs_speed_synthetic.png",
+        )
+        plot_metric_boxplot(
+            synthetic_df,
+            metric="loss_final",
+            title="Synthetic Benchmark – Final Loss Distribution",
+            ylabel="Final Loss",
+            out_path=output_dir / "loss_final_distribution_synthetic.png",
+        )
+        plot_metric_boxplot(
+            synthetic_df,
+            metric="images_per_second",
+            title="Synthetic Benchmark – Throughput Distribution",
+            ylabel="Images per Second",
+            out_path=output_dir / "images_per_second_distribution_synthetic.png",
+        )
 
     if cifar_df is not None:
         plot_loss_metrics(
@@ -328,6 +663,29 @@ def generate_figures(
             "CIFAR-10 Benchmark – Runtime Metrics",
             output_dir / "runtime_metrics_cifar.png",
         )
+        plot_tradeoff_scatter(
+            cifar_df,
+            x_col="images_per_second",
+            y_col="loss_final",
+            title="CIFAR-10 Benchmark – Loss vs Throughput",
+            x_label="Images per Second (Higher is Better)",
+            y_label="Final Loss (Lower is Better)",
+            out_path=output_dir / "tradeoff_loss_vs_speed_cifar.png",
+        )
+        plot_metric_boxplot(
+            cifar_df,
+            metric="loss_final",
+            title="CIFAR-10 Benchmark – Final Loss Distribution",
+            ylabel="Final Loss",
+            out_path=output_dir / "loss_final_distribution_cifar.png",
+        )
+        plot_metric_boxplot(
+            cifar_df,
+            metric="images_per_second",
+            title="CIFAR-10 Benchmark – Throughput Distribution",
+            ylabel="Images per Second",
+            out_path=output_dir / "images_per_second_distribution_cifar.png",
+        )
 
     if taguchi_report is not None:
         plot_taguchi_snr(taguchi_report, output_dir / "taguchi_snr.png", descriptions)
@@ -336,6 +694,7 @@ def generate_figures(
             taguchi_summary,
             metric="loss_drop_per_second",
             out_path=output_dir / "taguchi_loss_drop_per_second.png",
+            descriptions=descriptions,
         )
 
     write_summary_markdown(
