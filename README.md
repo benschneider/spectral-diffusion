@@ -93,8 +93,10 @@ python benchmarks/benchmark_fft.py --device cpu --batch-size 16
 scripts/run_smoke_test.sh
 # Clean generated run artifacts (preserves summary unless --wipe-summary)
 scripts/clean_results.sh
-# Taguchi smoke batch (synthetic factors + S/N report)
+# Taguchi spectral sweep (CIFAR-10 quick pass)
 scripts/run_taguchi_smoke.sh
+# Taguchi comparison run (CIFAR-10, spectral vs baseline)
+scripts/run_taguchi_comparison.sh
 # Summarise latest runs (top-5 by loss_drop_per_second)
 scripts/report_summary.py --metric loss_drop_per_second --top 5 --include-factors
 # (Set OMP_NUM_THREADS=1 if your environment restricts shared-memory allocs)

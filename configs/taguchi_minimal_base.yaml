@@ -1,35 +1,33 @@
 model:
   type: unet_tiny
   channels: 3
-  base_channels: 32
-  depth: 2
+  base_channels: 8
+  depth: 1
 
 data:
-  source: cifar10
-  root: data
+  source: synthetic
   channels: 3
-  height: 32
-  width: 32
-  download: true
+  height: 16
+  width: 16
 
 training:
-  batch_size: 64
-  epochs: 3
-  num_batches: 10
-  log_every: 10
+  batch_size: 128
+  epochs: 5
+  num_batches: 20
+  log_every: 5
 
 optim:
   lr: 2.0e-4
   weight_decay: 0.0
 
 diffusion:
-  num_timesteps: 1000
-  beta_schedule: cosine
+  num_timesteps: 100
+  beta_schedule: linear
   prediction_type: eps
   snr_weighting: false
   snr_transform: snr
   loss_threshold: null
-  time_embed_dim: 128
+  time_embed_dim: 64
 
 loss:
   reduction: mean
@@ -51,8 +49,8 @@ spectral:
 sampling:
   enabled: true
   sampler_type: ddpm
-  num_samples: 16
-  num_steps: 50
+  num_samples: 8
+  num_steps: 20
 
 evaluation:
   reference_dir: null
