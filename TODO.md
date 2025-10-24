@@ -4,14 +4,17 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 
 | Status | Area | Current Status | Immediate Next Step | Dependency | Notes / Implementation Tip |
 | - | - | - | - | - | - |
+| ⬜ | Pipeline architecture | TrainingPipeline handles train/sample/eval | Stage plan: (S1) extract data/optimizer builders, (S2) add CLIs using existing pipeline, (S3) detach sampling/eval from training loop | None | Keep behavior identical between stages; record run metadata under `results/runs/<run_id>/` |
 | 🟡 | Spectral utilities | SpectralAdapter integrated (input/output/per-block) | Expand weighting options & adapter strength mixing | None | Adapter handles FFT/iFFT; timing & loss weighting tracked separately |
 | ✅ | Spectral-weighted losses | Residual weighting via SpectralAdapter | Consider mixing strategies & per-frequency strength | Spectral utilities | Works with `loss.spectral_weighting` (none/radial/bandpass) |
+| ⬜ | Spectral model research | Spatial UNet wrapped by FFT adapters | Prototype complex-valued SpectralUNet operating in frequency space | Spectral utilities | Manage real/imag parts explicitly; explore complex convolutions & spectral noise targets |
 | 🟡 | Diffusion sampling & image metrics | DDPM sampling + evaluation hook (MSE/MAE/PSNR) | Add DDIM/other samplers and compute LPIPS/FID on outputs | Real training components | Images stored in `results/logs/<run_id>/images/`; evaluation block controls scoring |
+| ⬜ | Sampler framework | `sample_ddpm` hard-coded in training pipeline | Introduce `Sampler` base class + registry (`ddpm`, `ddim`, `dpm_solver++`, …) | Pipeline architecture | Enables sampler swaps without retraining; lift current DDPM into first implementation |
+| ⬜ | Sampler support (DDIM/DPM-Solver++) | Fallback to DDPM currently | Implement DDIM solver + add DPM-Solver++ | Sampler framework | Necessary for fair spectral comparisons in arrays |
 | 🟡 | Taguchi S/N analysis | CLI `src.analysis.taguchi_stats` available | Integrate into batch workflow & notebooks | Taguchi runner outputs | Generates `taguchi_report.csv` with S/N ratios per factor |
 | 🟡 | Evaluation metrics | Folder-level MSE/MAE/PSNR, opt. FID via torchmetrics | Add LPIPS + integrate sampler outputs for FID/LPIPS | Diffusion sampling | Uses PIL & torchvision; warns if torchmetrics missing |
-| ⬜ | Sampler support (DDIM/DPM-Solver++) | Fallback to DDPM currently | Implement DDIM solver + add DPM-Solver++ | Diffusion sampling | Necessary for fair spectral comparisons in arrays |
-| ⬜ | Structured logging | Pending | Add JSONL logs & system metadata per run | Logging polish | Capture hardware info in `results/logs/<run_id>/system.txt` |
-| 🟡 | Testing / CI | Pytests for FFT, TinyUNet, Taguchi, metrics | Add import/dry-run tests, baseline equivalence check, CI workflow | Validation automation | Ensure deterministic behavior, spectral toggle off == baseline |
+| ⬜ | Structured logging | Pending | Add JSONL logs & system metadata per run | Logging polish | Capture hardware info in `results/runs/<run_id>/system.txt` |
+| 🟡 | Testing / CI | Pytests for FFT, TinyUNet, Taguchi, training pipeline | Add unit tests per stage: (a) train CLI dry-run, (b) sampler registry + sample CLI, (c) evaluate CLI metrics; extend baseline equivalence; prep CI workflow | Pipeline architecture | Reuse synthetic configs; keep CPU-only path fast |
 | ⬜ | Logging polish | Console logging ready | Add CLI log-level flag & structured logs | Independent | Hook into CLI via `--log-level` |
 | ⬜ | Dataset handling | Manual CIFAR download documented | Support auto-download flag + checksum validation | Network availability | Document dataset caching for CI/local |
 | ⬜ | Documentation | README updated | Add `docs/theory.md` & `docs/experiments.md` with focused guides | None | Keep README concise, document flow-matching roadmap |
@@ -21,12 +24,14 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 | ✅ | Taguchi runner outputs | Per-run configs/metrics persisted | Next: S/N analysis & factor reporting | Metrics availability | Artifacts mirror single-run structure |
 
 **Execution Order**
-1. Taguchi S/N analysis tooling  
-2. Diffusion sampling metrics (LPIPS/FID)  
-3. Evaluation metrics (LPIPS integration)  
-4. Sampler support (true DDIM/DPM-Solver++)  
-5. Structured logging & log-level CLI flag  
-6. Testing/CI harness (import, dry-run, baseline equivalence)  
-7. Dataset handling polish  
-8. Spectral adapter tuning (mixing strategies)  
-9. Documentation & analysis notebooks  
+1. Pipeline split + sampler registry scaffolding  
+2. Taguchi S/N analysis tooling  
+3. Diffusion sampling metrics (LPIPS/FID)  
+4. Evaluation metrics (LPIPS integration)  
+5. Spectral UNet research prototype  
+6. Sampler support (DDIM/DPM-Solver++)  
+7. Structured logging & log-level CLI flag  
+8. Testing/CI harness (CLI smoke + baseline equivalence)  
+9. Dataset handling polish  
+10. Spectral adapter tuning (mixing strategies)  
+11. Documentation & analysis notebooks  
