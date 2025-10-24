@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import argparse
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -133,12 +134,14 @@ def main() -> None:
     # Clean summaries so display_name is present
     collect.clean_summary(synthetic_dir / "summary.csv")
     collect.clean_summary(cifar_dir / "summary.csv")
+    collect.clean_summary(taguchi_dir / "summary.csv")
     generate_figures(
         synthetic_dir=synthetic_dir,
         cifar_dir=cifar_dir,
         taguchi_dir=taguchi_dir,
         output_dir=output_dir,
         descriptions_path=descriptions,
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
 
 

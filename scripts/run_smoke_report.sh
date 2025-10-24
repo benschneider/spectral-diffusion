@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )"/.. && pwd)"
+TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 if [[ $# -ge 1 ]]; then
-  REPORT_ROOT="$1"
+  BASE_DIR="${1%/}"
+  REPORT_ROOT="$BASE_DIR/$TIMESTAMP"
 else
-  REPORT_ROOT="$ROOT_DIR/results/smoke_report_$(date +%Y%m%d_%H%M%S)"
+  REPORT_ROOT="$ROOT_DIR/results/smoke_report_$TIMESTAMP"
 fi
 export PYTHONPATH="$ROOT_DIR"
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
@@ -55,15 +57,11 @@ run_taguchi() {
 
 generate_report() {
   echo "[4/4] Generating smoke report"
-python "$ROOT_DIR/scripts/figures/clean_summaries.py" \
-  "$SYN_DIR/summary.csv" \
-  "$CIFAR_DIR/summary.csv"
   python "$ROOT_DIR/scripts/figures/generate_figures.py" \
-    --synthetic-dir "$SYN_DIR" \
-    --cifar-dir "$CIFAR_DIR" \
-    --taguchi-dir "$TAG_DIR" \
+    --report-root "$REPORT_ROOT" \
     --output-dir "$FIG_DIR"
   echo "Smoke report available at $FIG_DIR/summary.md"
+  echo "Run artifacts stored in $REPORT_ROOT"
 }
 
 run_synthetic

@@ -54,8 +54,13 @@ def generate_taguchi_report(
     if not factor_cols:
         raise ValueError("No Taguchi factor information found in configs.")
 
-    report_rows = []
-    factor_deltas = {}
+    report_rows: list[dict[str, float]] = []
+    factor_deltas: dict[str, float] = {}
+    extra_metrics = [
+        col
+        for col in ("runtime_seconds", "images_per_second", "loss_final")
+        if col in df.columns
+    ]
 
     for factor in factor_cols:
         levels = df[factor].unique()
@@ -64,6 +69,14 @@ def generate_taguchi_report(
             values = df.loc[df[factor] == lvl, metric].astype(float).to_numpy()
             snr = _compute_snr(values, mode)
             mean_val = float(np.nanmean(values))
+            extras = {
+                f"mean_{extra}": float(
+                    np.nanmean(
+                        df.loc[df[factor] == lvl, extra].astype(float).to_numpy()
+                    )
+                )
+                for extra in extra_metrics
+            }
             level_stats.append((lvl, mean_val, snr))
             report_rows.append(
                 {
@@ -71,6 +84,7 @@ def generate_taguchi_report(
                     "level": lvl,
                     "mean_metric": mean_val,
                     "snr": snr,
+                    **extras,
                 }
             )
         snr_values = [snr for (_, _, snr) in level_stats if not np.isnan(snr)]
