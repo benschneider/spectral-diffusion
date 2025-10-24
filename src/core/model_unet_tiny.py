@@ -178,9 +178,20 @@ class TinyUNet(nn.Module):
 
     def spectral_stats(self) -> Dict[str, float]:
         stats = {"spectral_calls": 0.0, "spectral_time_seconds": 0.0}
+        stats_cpu = 0.0
+        stats_cuda = 0.0
         for adapter in (self.spectral_input, self.spectral_output, self.spectral_block):
             if adapter is not None:
                 data = adapter.stats()
                 stats["spectral_calls"] += data["spectral_calls"]
                 stats["spectral_time_seconds"] += data["spectral_time_seconds"]
+                stats_cpu += data.get("spectral_cpu_time_seconds", 0.0)
+                stats_cuda += data.get("spectral_cuda_time_seconds", 0.0)
+        stats["spectral_cpu_time_seconds"] = stats_cpu
+        stats["spectral_cuda_time_seconds"] = stats_cuda
         return stats
+
+    def reset_spectral_stats(self) -> None:
+        for adapter in (self.spectral_input, self.spectral_output, self.spectral_block):
+            if adapter is not None:
+                adapter.reset_stats()

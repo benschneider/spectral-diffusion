@@ -75,6 +75,7 @@ def compute_dataset_metrics(
     reference_dir: Path | str,
     image_size: Optional[Sequence[int]] = None,
     use_fid: bool = False,
+    strict_filenames: bool = True,
 ) -> Dict[str, Any]:
     """Compute pixel-wise metrics across image folders, optionally FID."""
     generated_dir = Path(generated_dir)
@@ -82,15 +83,19 @@ def compute_dataset_metrics(
     gen_paths = _collect_image_paths(generated_dir)
     ref_paths = _collect_image_paths(reference_dir)
 
-    if set(p.name for p in gen_paths) != set(p.name for p in ref_paths):
-        missing = set(p.name for p in gen_paths) ^ set(p.name for p in ref_paths)
-        raise ValueError(
-            "Generated and reference directories must contain the same filenames; mismatches: "
-            f"{sorted(missing)}"
-        )
-
-    if len(gen_paths) != len(ref_paths):
-        raise ValueError("Generated and reference directories must contain the same number of images")
+    if strict_filenames:
+        if set(p.name for p in gen_paths) != set(p.name for p in ref_paths):
+            missing = set(p.name for p in gen_paths) ^ set(p.name for p in ref_paths)
+            raise ValueError(
+                "Generated and reference directories must contain the same filenames; mismatches: "
+                f"{sorted(missing)}"
+            )
+        ref_lookup = {p.name: p for p in ref_paths}
+        paired = [(g, ref_lookup[g.name]) for g in gen_paths]
+    else:
+        if len(gen_paths) != len(ref_paths):
+            raise ValueError("Generated and reference directories must contain the same number of images")
+        paired = list(zip(sorted(gen_paths), sorted(ref_paths)))
 
     pair_metrics: Dict[str, List[float]] = {"mse": [], "mae": [], "psnr": []}
     fid_metric = None
@@ -99,7 +104,7 @@ def compute_dataset_metrics(
             raise RuntimeError("torchmetrics not installed. Install torchmetrics to compute FID.")
         fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=False)
 
-    for gen_path, ref_path in zip(gen_paths, ref_paths):
+    for gen_path, ref_path in paired:
         fake = _load_image_tensor(gen_path, image_size=image_size)
         real = _load_image_tensor(ref_path, image_size=image_size)
         if fake.shape != real.shape:

@@ -108,6 +108,8 @@ Results and metrics will appear in `results/summary.csv`.
 - **Enable spectral processing:** set `spectral.enabled: true`, choose `spectral.weighting` (`none`, `radial`, `bandpass`), and configure `spectral.apply_to` (`input`, `output`, or both) plus `spectral.per_block` if you want adapters around each UNet block.
 - **Spectral-weighted losses:** set `loss.spectral_weighting` (`none`, `radial`, `bandpass`) to apply weighting in frequency space before the MSE reduction. Adjust `loss.bandpass_inner/outer` to tune the bandpass mask.
 - **Generate samples:** set `sampling.enabled: true`, choose `sampling.sampler_type` (`ddpm` today), and specify `num_samples` / `num_steps`. Generated images land in `results/logs/<run_id>/images/` and include a `grid.png` preview.
+- **Evaluate samples:** add an `evaluation` block with `reference_dir`, optional `image_size`, and `use_fid`. After sampling, pixel metrics (MSE/MAE/PSNR) and optional FID are logged and appended to `results/summary.csv`.
+- **Analyze Taguchi batches:** once `results/summary.csv` has multiple runs, generate factor S/N rankings with `python -m src.analysis.taguchi_stats --summary results/summary.csv --metric loss_drop_per_second --mode larger --output results/taguchi_report.csv`.
 - **Tune diffusion behaviour:** edit the `diffusion` block (`num_timesteps`, `beta_schedule`, `prediction_type`, `snr_weighting`, `loss_threshold`, `time_embed_dim`).
 - **Run Taguchi sweeps:** keep base settings in `configs/baseline.yaml`, adjust factors in `configs/L8_array.csv`, and execute `python -m src.experiments.run_experiment`.
 - **Inspect results:** per-run metrics live in `results/metrics/<run_id>.json`; `results/summary.csv` aggregates efficiency data for notebooks.

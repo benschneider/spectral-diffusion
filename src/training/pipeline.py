@@ -10,7 +10,7 @@ from torchvision import datasets, transforms
 
 from src.core import build_model, get_loss_fn
 from src.core.functional import compute_snr_weight, compute_target
-from src.evaluation.metrics import compute_basic_metrics
+from src.evaluation.metrics import compute_basic_metrics, compute_dataset_metrics
 from src.training.sampling import sample_ddpm
 from src.training.scheduler import build_diffusion, sample_timesteps
 
@@ -221,8 +221,12 @@ class TrainingPipeline:
                 "loss_threshold_time": threshold_time,
             },
         )
+        training_stats = {}
         if hasattr(self.model, "spectral_stats"):
-            metrics.update(self.model.spectral_stats())
+            training_stats = dict(self.model.spectral_stats())
+            metrics.update(training_stats)
+            if hasattr(self.model, "reset_spectral_stats"):
+                self.model.reset_spectral_stats()
 
         # Sampling (optional)
         data_cfg = self.config.get("data", {})
@@ -230,15 +234,40 @@ class TrainingPipeline:
         channels = int(model_cfg.get("channels") or data_cfg.get("channels", 3))
         height = int(data_cfg.get("height", 32))
         width = int(data_cfg.get("width", 32))
-        self.run_sampling(coeffs, (channels, height, width), metrics)
+        images_dir = self.run_sampling(coeffs, (channels, height, width))
+
+        if images_dir:
+            metrics["sampling_images_dir"] = str(images_dir)
+
+        evaluation_cfg = self.config.get("evaluation", {})
+        if images_dir and evaluation_cfg.get("reference_dir"):
+            eval_metrics = compute_dataset_metrics(
+                generated_dir=images_dir,
+                reference_dir=evaluation_cfg["reference_dir"],
+                image_size=evaluation_cfg.get("image_size"),
+                use_fid=bool(evaluation_cfg.get("use_fid", False)),
+                strict_filenames=False,
+            )
+            metrics.update({f"eval_{k}": v for k, v in eval_metrics.items()})
+
+        if training_stats and hasattr(self.model, "spectral_stats"):
+            sampling_stats = self.model.spectral_stats()
+            metrics["sampling_spectral_calls"] = sampling_stats.get("spectral_calls", 0.0)
+            metrics["sampling_spectral_time_seconds"] = sampling_stats.get("spectral_time_seconds", 0.0)
+            metrics["sampling_spectral_cpu_time_seconds"] = sampling_stats.get("spectral_cpu_time_seconds", 0.0)
+            metrics["sampling_spectral_cuda_time_seconds"] = sampling_stats.get("spectral_cuda_time_seconds", 0.0)
+            metrics["spectral_calls"] = training_stats.get("spectral_calls", 0.0)
+            metrics["spectral_time_seconds"] = training_stats.get("spectral_time_seconds", 0.0)
+            metrics["spectral_cpu_time_seconds"] = training_stats.get("spectral_cpu_time_seconds", 0.0)
+            metrics["spectral_cuda_time_seconds"] = training_stats.get("spectral_cuda_time_seconds", 0.0)
 
         self.logger.info("Training metrics: %s", metrics)
         return metrics
 
-    def run_sampling(self, coeffs, shape, metrics: Dict[str, Any]) -> None:
+    def run_sampling(self, coeffs, shape) -> Optional[Path]:
         sampling_cfg = self.config.get("sampling", {})
         if not sampling_cfg.get("enabled", False):
-            return
+            return None
 
         sampler_type = sampling_cfg.get("sampler_type", "ddpm").lower()
         num_samples = int(sampling_cfg.get("num_samples", 16))
@@ -267,7 +296,7 @@ class TrainingPipeline:
         for idx, img in enumerate(samples):
             save_image((img + 1) / 2.0, images_dir / f"sample_{idx:03d}.png", clamp=True)
 
-        metrics["sampling_images_dir"] = str(images_dir)
+        return images_dir
 
     def save_checkpoint(self, step: int) -> Path:
         checkpoint_dir = self.work_dir / "checkpoints"
