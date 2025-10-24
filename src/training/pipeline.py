@@ -1,17 +1,18 @@
 import logging
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torchvision.utils import save_image
 
 from src.core import build_model, get_loss_fn
 from src.core.functional import compute_snr_weight, compute_target
-from src.evaluation.metrics import compute_basic_metrics, compute_dataset_metrics
+from src.evaluation.metrics import compute_basic_metrics
 from src.training.builders import build_dataloader, build_optimizer
-from src.training.sampling import sample_ddpm
+from src.training.sampling import build_sampler
 from src.training.scheduler import build_diffusion, sample_timesteps
 
 
@@ -63,7 +64,6 @@ class TrainingPipeline:
         snr_transform = diffusion_cfg.get("snr_transform", "snr")
 
         coeffs = build_diffusion(T, schedule)
-        coeffs = coeffs
 
         for epoch in range(epochs):
             for batch_idx, (xb, _) in enumerate(self.loader):
@@ -154,76 +154,74 @@ class TrainingPipeline:
             if hasattr(self.model, "reset_spectral_stats"):
                 self.model.reset_spectral_stats()
 
-        # Sampling (optional)
-        data_cfg = self.config.get("data", {})
-        model_cfg = self.config.get("model", {})
-        channels = int(model_cfg.get("channels") or data_cfg.get("channels", 3))
-        height = int(data_cfg.get("height", 32))
-        width = int(data_cfg.get("width", 32))
-        images_dir = self.run_sampling(coeffs, (channels, height, width))
-
-        if images_dir:
-            metrics["sampling_images_dir"] = str(images_dir)
-
-        evaluation_cfg = self.config.get("evaluation", {})
-        if images_dir and evaluation_cfg.get("reference_dir"):
-            eval_metrics = compute_dataset_metrics(
-                generated_dir=images_dir,
-                reference_dir=evaluation_cfg["reference_dir"],
-                image_size=evaluation_cfg.get("image_size"),
-                use_fid=bool(evaluation_cfg.get("use_fid", False)),
-                strict_filenames=False,
-            )
-            metrics.update({f"eval_{k}": v for k, v in eval_metrics.items()})
-
-        if training_stats and hasattr(self.model, "spectral_stats"):
-            sampling_stats = self.model.spectral_stats()
-            metrics["sampling_spectral_calls"] = sampling_stats.get("spectral_calls", 0.0)
-            metrics["sampling_spectral_time_seconds"] = sampling_stats.get("spectral_time_seconds", 0.0)
-            metrics["sampling_spectral_cpu_time_seconds"] = sampling_stats.get("spectral_cpu_time_seconds", 0.0)
-            metrics["sampling_spectral_cuda_time_seconds"] = sampling_stats.get("spectral_cuda_time_seconds", 0.0)
-            metrics["spectral_calls"] = training_stats.get("spectral_calls", 0.0)
-            metrics["spectral_time_seconds"] = training_stats.get("spectral_time_seconds", 0.0)
-            metrics["spectral_cpu_time_seconds"] = training_stats.get("spectral_cpu_time_seconds", 0.0)
-            metrics["spectral_cuda_time_seconds"] = training_stats.get("spectral_cuda_time_seconds", 0.0)
-
         self.logger.info("Training metrics: %s", metrics)
         return metrics
 
-    def run_sampling(self, coeffs, shape) -> Optional[Path]:
-        sampling_cfg = self.config.get("sampling", {})
-        if not sampling_cfg.get("enabled", False):
-            return None
+    def _diffusion_params(self) -> Tuple[int, str]:
+        diffusion_cfg = self.config.get("diffusion", {})
+        T = int(diffusion_cfg.get("num_timesteps", 1000))
+        schedule = diffusion_cfg.get("beta_schedule", "cosine")
+        return T, schedule
 
-        sampler_type = sampling_cfg.get("sampler_type", "ddpm").lower()
-        num_samples = int(sampling_cfg.get("num_samples", 16))
-        num_steps = int(sampling_cfg.get("num_steps", coeffs.betas.shape[0]))
+    def generate_samples(
+        self,
+        num_samples: Optional[int] = None,
+        num_steps: Optional[int] = None,
+        sampler_type: Optional[str] = None,
+        output_dir: Optional[Path] = None,
+    ) -> Dict[str, Any]:
+        sampling_cfg = dict(self.config.get("sampling", {}) or {})
+        sampling_cfg["enabled"] = True
+        if num_samples is not None:
+            sampling_cfg["num_samples"] = int(num_samples)
+        if num_steps is not None:
+            sampling_cfg["num_steps"] = int(num_steps)
+        if sampler_type is not None:
+            sampling_cfg["sampler_type"] = str(sampler_type)
 
-        images_dir = self.work_dir / "images"
+        T, schedule = self._diffusion_params()
+        coeffs = build_diffusion(T, schedule)
+
+        sampler = sampling_cfg.get("sampler_type", "ddpm").lower()
+        try:
+            sampler_impl = build_sampler(sampler, model=self.model, coeffs=coeffs)
+        except ValueError:
+            self.logger.warning("Sampler '%s' not supported; falling back to ddpm", sampler)
+            sampler_impl = build_sampler("ddpm", model=self.model, coeffs=coeffs)
+            sampler = "ddpm"
+
+        model_cfg = self.config.get("model", {})
+        data_cfg = self.config.get("data", {})
+        channels = int(model_cfg.get("channels") or data_cfg.get("channels", 3))
+        height = int(data_cfg.get("height", 32))
+        width = int(data_cfg.get("width", 32))
+        shape = (channels, height, width)
+
+        requested_samples = int(sampling_cfg.get("num_samples", 16))
+        requested_steps = int(sampling_cfg.get("num_steps", coeffs.betas.shape[0]))
+
+        images_dir = output_dir or (self.work_dir / "images")
         images_dir.mkdir(parents=True, exist_ok=True)
 
-        if sampler_type != "ddpm":
-            self.logger.warning("Sampler '%s' not supported; falling back to ddpm", sampler_type)
-            sampler_type = "ddpm"
-
-        samples = sample_ddpm(
-            model=self.model,
-            coeffs=coeffs,
-            num_samples=num_samples,
+        samples = sampler_impl.sample(
+            num_samples=requested_samples,
             shape=shape,
-            num_steps=num_steps,
+            num_steps=requested_steps,
             device=self.device,
         )
 
-        from torchvision.utils import save_image
-
         grid_path = images_dir / "grid.png"
-        save_image((samples + 1) / 2.0, grid_path, nrow=max(1, int(num_samples**0.5)))
+        save_image((samples + 1) / 2.0, grid_path, nrow=max(1, int(requested_samples**0.5)))
 
         for idx, img in enumerate(samples):
             save_image((img + 1) / 2.0, images_dir / f"sample_{idx:03d}.png")
 
-        return images_dir
+        return {
+            "images_dir": images_dir,
+            "num_samples": requested_samples,
+            "num_steps": requested_steps,
+            "sampler_type": sampler,
+        }
 
     def save_checkpoint(self, step: int) -> Path:
         checkpoint_dir = self.work_dir / "checkpoints"
@@ -231,3 +229,9 @@ class TrainingPipeline:
         checkpoint_path = checkpoint_dir / f"checkpoint_step_{step}.pt"
         torch.save({"model": self.model.state_dict()}, checkpoint_path)
         return checkpoint_path
+
+    def load_checkpoint(self, checkpoint_path: Path) -> None:
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        state_dict = checkpoint.get("model", checkpoint)
+        self.model.load_state_dict(state_dict)
+        self.model.to(self.device)

@@ -1,5 +1,4 @@
 import copy
-from pathlib import Path
 
 import torch
 
@@ -48,7 +47,7 @@ def _build_base_config() -> dict:
     }
 
 
-def test_training_pipeline_runs_end_to_end_with_sampling(tmp_path):
+def test_training_pipeline_runs_end_to_end(tmp_path):
     torch.manual_seed(0)
     config = copy.deepcopy(_build_base_config())
     pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
@@ -62,12 +61,7 @@ def test_training_pipeline_runs_end_to_end_with_sampling(tmp_path):
     assert metrics["num_steps"] == expected_steps
     assert metrics["loss_mean"] is not None
     assert metrics["mae_mean"] is not None
-
-    images_dir = Path(metrics["sampling_images_dir"])
-    assert images_dir.is_dir()
-    assert (images_dir / "grid.png").exists()
-    saved_samples = sorted(images_dir.glob("sample_*.png"))
-    assert len(saved_samples) == config["sampling"]["num_samples"]
+    assert "sampling_images_dir" not in metrics
 
 
 def test_training_pipeline_reports_spectral_stats(tmp_path):
@@ -94,4 +88,3 @@ def test_training_pipeline_reports_spectral_stats(tmp_path):
     assert metrics["loss_mean"] is not None
     assert metrics["spectral_calls"] >= 1.0
     assert metrics["spectral_time_seconds"] >= 0.0
-    assert metrics["sampling_spectral_calls"] == 0.0
