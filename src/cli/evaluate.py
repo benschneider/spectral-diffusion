@@ -152,7 +152,7 @@ def main(argv: Optional[Any] = None) -> None:
         output_path=args.output,
         update_metadata=args.update_metadata,
     )
-    logging.getLogger("spectral_diffusion.evaluate").info(
+    logging.getLogger("evaluate").info(
         "Evaluation metrics stored at %s", result["metrics_path"]
     )
 
