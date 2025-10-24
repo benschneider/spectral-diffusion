@@ -39,3 +39,25 @@ def test_apply_initialization_constant_vector():
     expected = base.repeat(8)[: model.linear.weight.numel()] * 0.25
     expected = expected.view_as(model.linear.weight)
     assert torch.allclose(model.linear.weight, expected, atol=1e-6)
+
+
+def test_apply_initialization_random_normal():
+    model = DummyModel()
+    apply_initialization(
+        model,
+        {
+            "strategy": "cross_domain_flat",
+            "source": {
+                "type": "random_normal",
+                "length": model.linear.weight.numel(),
+                "mean": 0.0,
+                "std": 2.5,
+                "seed": 42,
+            },
+            "scale": 1.0,
+            "recycle": False,
+        },
+    )
+    flat = model.linear.weight.flatten()
+    assert torch.isclose(flat.mean(), torch.tensor(0.0), atol=0.5)
+    assert flat.std() > 1.0

@@ -63,8 +63,10 @@ initialization:
   strategy: default
   scale: 0.02
   source:
-    type: constant
-    values: [0.0, 1.0, -1.0, 0.5]
+    type: random_normal
+    length: 4096
+    mean: 0.0
+    std: 2.5
 
 evaluation:
   reference_dir: null
