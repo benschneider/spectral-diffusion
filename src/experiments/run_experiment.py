@@ -130,11 +130,15 @@ class TaguchiExperimentRunner:
                 init_cfg.update(
                     {
                         "strategy": "cross_domain_flat",
-                        "source": {"type": "gpt2", "model_name": "gpt2"},
                         "scale": init_cfg.get("scale", 0.02),
                         "recycle": True,
                     }
                 )
+                if "source" not in init_cfg:
+                    init_cfg["source"] = {
+                        "type": "constant",
+                        "values": [0.0, 1.0, -1.0, 0.5],
+                    }
             else:
                 init_cfg.setdefault("strategy", "default")
 
