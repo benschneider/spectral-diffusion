@@ -26,6 +26,10 @@ run_synthetic() {
     --output-dir "$SYN_DIR" \
     --run-id "synthetic_tiny"
   python "$ROOT_DIR/train.py" \
+    --config "$ROOT_DIR/configs/learnable_adapter_smoke.yaml" \
+    --output-dir "$SYN_DIR" \
+    --run-id "synthetic_tiny_learnable"
+  python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral_smoke.yaml" \
     --output-dir "$SYN_DIR" \
     --run-id "synthetic_spectral" \

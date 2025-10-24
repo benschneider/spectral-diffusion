@@ -1,0 +1,48 @@
+model:
+  type: unet_tiny
+  channels: 3
+  base_channels: 16
+  depth: 1
+
+data:
+  source: synthetic
+  channels: 3
+  height: 16
+  width: 16
+
+training:
+  batch_size: 32
+  epochs: 2
+  num_batches: 6
+  log_every: 2
+
+optim:
+  lr: 2.0e-4
+  weight_decay: 0.0
+
+diffusion:
+  num_timesteps: 100
+  beta_schedule: linear
+  prediction_type: eps
+  snr_weighting: false
+  snr_transform: snr
+  loss_threshold: null
+  time_embed_dim: 64
+
+loss:
+  reduction: mean
+
+spectral:
+  enabled: true
+  normalize: true
+  weighting: bandpass
+  apply_to: [output]
+  per_block: true
+  learnable: true
+  condition: time
+  mlp_hidden_dim: 32
+  learnable_temperature: 40.0
+  learnable_gain_init: 1.0
+
+sampling:
+  enabled: false

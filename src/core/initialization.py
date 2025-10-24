@@ -61,6 +61,17 @@ def _load_cross_domain_vector(cfg: Dict[str, str]) -> torch.Tensor:
             vector = base
         if vector.numel() == 0:
             raise ValueError("Constant source produced empty vector")
+    elif source_type == "random_normal":
+        length = int(cfg.get("length", 0))
+        if length <= 0:
+            raise ValueError("random_normal source requires positive 'length'")
+        mean = float(cfg.get("mean", 0.0))
+        std = float(cfg.get("std", 1.0))
+        generator = torch.Generator(device="cpu")
+        seed = cfg.get("seed")
+        if seed is not None:
+            generator.manual_seed(int(seed))
+        vector = torch.normal(mean, std, size=(length,), generator=generator)
     elif source_type == "gpt2":
         model_name = cfg.get("model_name", "gpt2")
         try:
