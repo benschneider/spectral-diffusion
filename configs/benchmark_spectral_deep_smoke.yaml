@@ -1,0 +1,44 @@
+model:
+  type: unet_spectral_deep
+  channels: 3
+  base_channels: 16
+  depth: 3
+
+data:
+  source: synthetic
+  channels: 3
+  height: 16
+  width: 16
+
+training:
+  batch_size: 32
+  epochs: 2
+  num_batches: 8
+  log_every: 2
+
+optim:
+  lr: 2.0e-4
+  weight_decay: 0.0
+
+diffusion:
+  num_timesteps: 100
+  beta_schedule: linear
+  prediction_type: eps
+  snr_weighting: false
+  snr_transform: snr
+  loss_threshold: null
+  time_embed_dim: 64
+
+loss:
+  reduction: mean
+
+sampling:
+  enabled: false
+  sampler_type: ddpm
+  num_samples: 8
+  num_steps: 50
+
+evaluation:
+  reference_dir: null
+  use_fid: false
+  image_size: null

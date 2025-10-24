@@ -33,7 +33,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variant",
         type=str,
-        choices=["baseline", "spectral"],
+        choices=["baseline", "spectral", "spectral_deep"],
         default=None,
         help="Optional override for the model variant.",
     )
@@ -71,7 +71,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def apply_variant_override(config: Dict[str, Any], variant: Optional[str]) -> None:
     """Mutate the configuration to select a specific model variant."""
     if variant:
-        alias = {"baseline": "baseline", "spectral": "unet_spectral"}
+        alias = {
+            "baseline": "baseline",
+            "spectral": "unet_spectral",
+            "spectral_deep": "unet_spectral_deep",
+        }
         config.setdefault("model", {})
         config["model"]["type"] = alias.get(variant, variant)
 

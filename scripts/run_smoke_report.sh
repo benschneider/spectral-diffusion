@@ -30,6 +30,11 @@ run_synthetic() {
     --output-dir "$SYN_DIR" \
     --run-id "synthetic_spectral" \
     --variant spectral
+  python "$ROOT_DIR/train.py" \
+    --config "$ROOT_DIR/configs/benchmark_spectral_deep_smoke.yaml" \
+    --output-dir "$SYN_DIR" \
+    --run-id "synthetic_spectral_deep" \
+    --variant spectral_deep
 }
 
 run_cifar() {
@@ -43,6 +48,11 @@ run_cifar() {
     --output-dir "$CIFAR_DIR" \
     --run-id "cifar_spectral" \
     --variant spectral
+  python "$ROOT_DIR/train.py" \
+    --config "$ROOT_DIR/configs/benchmark_spectral_cifar_deep_smoke.yaml" \
+    --output-dir "$CIFAR_DIR" \
+    --run-id "cifar_spectral_deep" \
+    --variant spectral_deep
 }
 
 run_taguchi() {
