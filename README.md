@@ -296,3 +296,5 @@ If you use this repository in academic work, please cite it as:
   url = {https://github.com/benschneider/spectral-diffusion}
 }
 ```
+- Spectral vs TinyUNet benchmark (synthetic) → `scripts/run_spectral_benchmark.sh`
+- Spectral vs TinyUNet benchmark (CIFAR-10) → `python scripts/run_spectral_benchmark.sh results/spectral_benchmark_cifar configs/benchmark_spectral_cifar.yaml` (baseline) + rerun with `--variant spectral` or use the generated configs (`configs/benchmark_spectral_cifar*.yaml`)
