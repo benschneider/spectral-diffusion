@@ -1,138 +1,125 @@
 # 🌀 Spectral Diffusion
 
-Exploring how frequency-domain reasoning changes diffusion-model behaviour, efficiency, and optimisation.
+*How well can a diffusion model learn if it “thinks” in frequency space instead of pixels?*
+
+Spectral Diffusion is a sandbox for answering that question. It lets you run classic diffusion training, swap in spectral adapters or fully spectral models, and compare quality vs. speed with reproducible scripts and reports.
 
 ---
 
-## Overview
-Spectral Diffusion is a research playground for diffusion models with a focus on spectral transforms and performance instrumentation. The repository provides:
+## Why frequency space?
+Diffusion models usually operate on raw pixels. Yet many signals (images, audio) have structure that is easier to see in the frequency domain. By wrapping or replacing the UNet with FFT-aware components we can:
 
-- **Architectures**: TinyUNet (spatial), SpectralUNet (frequency-native prototype), spectral adapters.
-- **Training pipeline**: DDPM/DDIM-style loop with cosine/linear schedules, ε-prediction, optional SNR weighting.
-- **Automation**: Taguchi-style experiment runner with per-run artefacts (config, metrics, logs, checkpoints, system info).
-- **Instrumentation**: Throughput (`images_per_second`), convergence speed (`loss_drop_per_second`), FFT timing, structured logging.
-- **Evaluation**: Dataset metrics (MSE/MAE/PSNR, optional FID/LPIPS), sampling CLI, figure-generation pipeline for publication-ready plots.
+| Potential gain | What to look for in this repo |
+|----------------|--------------------------------|
+| Faster convergence | Instrumentation for `loss_drop_per_second`, throughput, and time-to-threshold metrics |
+| More efficient sampling | Extended sampler registry (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`…) |
+| Better high-frequency detail | Frequency-domain adapters, spectral UNet prototype, Taguchi sweeps over spectral settings |
 
----
-
-## Repository Layout
-```
-spectral-diffusion/
-├── configs/                # Baseline, spectral, Taguchi configs
-├── docs/
-│   ├── figures/            # Generated plots & summaries
-│   ├── spectral_model_research.md
-│   └── taguchi_tips.md
-├── results/                # Metrics, images, Taguchi outputs (gitignored)
-├── scripts/
-│   ├── figures/generate_figures.py
-│   ├── run_spectral_benchmark.sh
-│   ├── run_taguchi_*.sh
-│   └── report_summary.py
-└── src/
-    ├── core/               # Models (TinyUNet, SpectralUNet, losses)
-    ├── spectral/           # FFT adapters, complex layers
-    ├── training/           # Pipeline, samplers, scheduler
-    ├── evaluation/         # Metrics utilities
-    └── experiments/        # Taguchi runner
-```
+If you just want the bottom line, jump to **[Results at a Glance](#results-at-a-glance)**.
 
 ---
 
-## Quick Start
+## Getting Started (no jargon required)
 ```bash
-# 1. Clone & install
 git clone https://github.com/benschneider/spectral-diffusion.git
 cd spectral-diffusion
 pip install -r requirements.txt
 
-# 2. (Optional) CIFAR-10 data
+# Optional: download CIFAR-10 once
 mkdir -p data
 curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz -o data/cifar-10-python.tar.gz
 tar -xzf data/cifar-10-python.tar.gz -C data
 
-# 3. Train + sample (baseline)
+# Train the baseline TinyUNet and sample a few images
 RUN_ID=quickstart
 python train.py --config configs/baseline.yaml --run-id "$RUN_ID"
 python sample.py --run-dir results/runs/"$RUN_ID" --sampler-type dpm_solver++ --num-samples 8 --num-steps 50
 
-# 4. Evaluate
+# Evaluate vs. a folder of reference images (optional FID/LPIPS)
 python evaluate.py \
   --generated-dir results/runs/"$RUN_ID"/samples/quickstart_solver \
   --reference-dir path/to/reference \
   --use-lpips
-
-# 5. Automation & analysis
-python -m src.experiments.run_experiment \
-  --config configs/taguchi_smoke_base.yaml \
-  --array configs/taguchi_spectral_array.csv \
-  --report-metric loss_drop_per_second
-python scripts/report_summary.py --metric loss_drop_per_second --top 5 --include-factors
-python scripts/figures/generate_figures.py  # publication-ready plots → docs/figures/
-
-# 6. End-to-end report (synthetic + CIFAR + Taguchi + figures)
-scripts/run_full_report.sh
 ```
 
-**Artefact layout** (per run `results/runs/<run_id>/`):
-- `config.yaml`, `system.json`, `logs/train.log`
-- `metrics/<run_id>.json`, `checkpoints/*.pt`
-- `samples/<tag>/` (images, `metadata.json`)
-- Global ledger: `results/summary.csv`
+### Want the full story automatically?
+Run one command and grab coffee:
+```bash
+scripts/run_full_report.sh
+```
+It will:
+1. Benchmark TinyUNet vs. SpectralUNet on synthetic data
+2. Repeat on CIFAR-10
+3. Run a Taguchi sweep over spectral settings and samplers
+4. Generate figures + a report in `docs/figures/`
 
 ---
 
-## Benchmarks
-Generated via `scripts/run_spectral_benchmark.sh` (synthetic) and `configs/benchmark_spectral_cifar*.yaml` (CIFAR-10). Figures are in `docs/figures/`.
+## Results at a Glance
+*(Full tables and publication-ready plots live in `docs/figures/`.)*
 
-| Dataset | TinyUNet loss drop | SpectralUNet loss drop | Images/s (TinyUNet → Spectral) |
-|---------|-------------------|------------------------|---------------------------------|
+| Dataset | TinyUNet loss drop | SpectralUNet loss drop | Throughput (images/s) |
+|---------|-------------------|------------------------|------------------------|
 | Synthetic (3 epochs) | ~0.20 | ~1.75 | 800 → 300 |
 | CIFAR-10 (1 epoch)   | ~0.94 | ~2.94 | 103 → 48 |
 
-Interpretation: SpectralUNet recovers more loss but costs throughput. Use figures (`docs/figures/loss_metrics_*.png`, `runtime_metrics_*.png`) for publication-ready visuals.
+**Interpretation:** SpectralUNet is more aggressive at reducing loss but costs extra compute today. The Taguchi report (`results/taguchi_spectral_docs/taguchi_report.csv`) shows which spectral settings and samplers matter most.
 
 ---
 
-## Taguchi Analysis
-`src.experiments.run_experiment` with `--report-metric` auto-writes `summary.csv` + `taguchi_report.csv`.
-- `docs/taguchi_tips.md` explains interpretation.
-- Figures: `docs/figures/taguchi_snr.png`, `taguchi_loss_drop_per_second.png`.
+## How things fit together
 
-Scripts:
-```bash
-scripts/run_taguchi_smoke.sh        # tiny smoke sweep
-scripts/run_taguchi_minimal.sh      # minimal synthetic sweep
-scripts/run_taguchi_comparison.sh   # spectral vs baseline comparison
-```
+### Key components
+- `src/core/` – TinyUNet (spatial) and SpectralUNet (complex convolutions).
+- `src/spectral/` – FFT adapters and complex layers.
+- `src/training/` – Training pipeline, scheduler, sampler registry.
+- `src/visualization/` – Reusable helpers for figures + summaries.
+- `scripts/run_full_report.sh` – End-to-end benchmark + report pipeline.
 
----
+See **[`docs/architecture.md`](docs/architecture.md)** for diagrams and a more detailed map.
 
-## Showcase
-- **Benchmark summaries**: `results/spectral_benchmark*/summary.csv`, `summary_metrics.md`
-- **Taguchi sweep**: `results/taguchi_spectral_docs/taguchi_report.csv`
-- **Figures**: generate via `python scripts/figures/generate_figures.py`
-- **Full report pipeline**: `scripts/run_full_report.sh` (synthetic + CIFAR + Taguchi + plots)
+### Theory primer
+Curious about the spectral weighting, FFT/iFFT flow, or why we track high-frequency energy? Read the short note in **[`docs/theory.md`](docs/theory.md)** for a gentle walkthrough.
 
 ---
 
-## Usage Notes
-- Toggle spectral adapters: `spectral.enabled: true` with weighting `none | radial | bandpass`.
-- Model types: `baseline`, `unet_tiny`, `unet_spectral`.
-- Samplers: `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2` (extend via `register_sampler`).
-- Evaluation CLI supports `--use-fid`, `--use-lpips` when torchmetrics is installed.
+## Workflows
+
+| Task | Command(s) |
+|------|------------|
+| Train & sample baseline | `python train.py ...` + `python sample.py ...` |
+| Evaluate generated images | `python evaluate.py --generated-dir ... --use-fid --use-lpips` |
+| Synthetic vs Spectral benchmark | `scripts/run_spectral_benchmark.sh` |
+| CIFAR-10 benchmark | `python train.py --config configs/benchmark_spectral_cifar.yaml ...` |
+| Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` |
+| Make plots & summary | `python scripts/figures/generate_figures.py` |
+| Full pipeline (benchmarks + Taguchi + figures) | `scripts/run_full_report.sh` |
+
+All generated metrics land under `results/…` and are safe to delete/regenerate.
 
 ---
 
-## Spectral Model Research Plan
-Roadmap and experiments described in `docs/spectral_model_research.md`. Current status:
-- Complex-valued layers & SpectralUNet prototype implemented.
-- Benchmarks (synthetic & CIFAR-10) captured.
-- Next steps: tune spectral hyperparameters, explore higher-order samplers, expand spectral diagnostics.
+## Usage notes for explorers
+- **Models:** `baseline`, `unet_tiny`, `unet_spectral` (set `model.type` in YAML).
+- **Spectral adapters:** toggle with `spectral.enabled`, choose weighting (`none`, `radial`, `bandpass`), apply to `input/output/per_block`.
+- **Samplers:** `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2` (extend via `register_sampler`).
+- **Metrics:** dataset metrics include FID/LPIPS (torchmetrics-enabled), convergence stats (`loss_drop_per_second`), throughput, FFT timing.
+
+Looking to extend the project? See **`docs/spectral_model_research.md`** for the ongoing research plan and ideas for new ablations.
 
 ---
 
-## License & Citation
+## Documentation bundle
+- **[`docs/theory.md`](docs/theory.md)** – Layperson-friendly explanation of spectral diffusion concepts.
+- **[`docs/architecture.md`](docs/architecture.md)** – How configs, pipelines, samplers, and reports connect.
+- **[`docs/spectral_model_research.md`](docs/spectral_model_research.md)** – Roadmap, experiments, next hypotheses.
+- **[`docs/taguchi_tips.md`](docs/taguchi_tips.md)** – How to read the Taguchi S/N reports.
+- **[`docs/figures/summary.md`](docs/figures/summary.md)** – Latest benchmark narrative after running the full report.
+- **`docs/notebooks/`** – Slot for interactive demos (planned): start with a notebook that trains TinyUNet vs SpectralUNet for a few epochs and plots loss/time.
+
+---
+
+## License & citation
 MIT License © 2025 Ben Schneider
 
 ```
