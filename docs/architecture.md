@@ -47,7 +47,7 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 - Taguchi sweeps enrich `taguchi_report.csv` with S/N plus mean runtime/throughput/final-loss for each factor level.
 
 ## 4. Figure/report workflow
-1. Generate runs (manual CLI or `scripts/run_full_report.sh` / `run_smoke_report.sh`).
+1. Generate runs (manual CLI or `scripts/run_full_report.sh` / `run_smoke_report.sh`). The smoke script now trains TinyUNet, SpectralUNet, and the new deep spectral UNet on both synthetic and CIFAR mini-setups before running the Taguchi sweep.
 2. `src/visualization.collect.clean_summary` deduplicates and labels entries (synthetic, CIFAR, Taguchi).
 3. `src/visualization.figures.generate_figures` produces:
    - Bar charts, scatter trade-offs, and box plots for loss/throughput metrics
