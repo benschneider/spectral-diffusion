@@ -10,5 +10,11 @@
   "taguchi_analysis": {
     "title": "Taguchi Factor Sweep",
     "description": "We run a Taguchi orthogonal array to see which frequency-processing settings and sampler choices matter most for convergence speed."
+  },
+  "taguchi_choices": {
+    "A": "Spectral enabled (false/true)",
+    "B": "Spectral weighting (none/radial)",
+    "C": "Loss spectral weighting (none/radial)",
+    "D": "Sampler (ddpm/dpm_solver++)"
   }
 }
