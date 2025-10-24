@@ -115,8 +115,10 @@ def compute_dataset_metrics(
             pair_metrics[key].append(value)
 
         if fid_metric is not None:
-            fid_metric.update(real.unsqueeze(0), real=True)
-            fid_metric.update(fake.unsqueeze(0), real=False)
+            real_uint8 = (real * 255.0).clamp(0, 255).to(torch.uint8)
+            fake_uint8 = (fake * 255.0).clamp(0, 255).to(torch.uint8)
+            fid_metric.update(real_uint8.unsqueeze(0), real=True)
+            fid_metric.update(fake_uint8.unsqueeze(0), real=False)
 
     summary = {key: float(np.mean(values)) for key, values in pair_metrics.items()}
     if fid_metric is not None:
