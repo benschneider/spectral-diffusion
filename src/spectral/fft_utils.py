@@ -40,6 +40,11 @@ def configure_spectral_params(config: Dict) -> Dict:
         "per_block": spectral_cfg.get("per_block", False),
         "bandpass_inner": spectral_cfg.get("bandpass_inner", 0.1),
         "bandpass_outer": spectral_cfg.get("bandpass_outer", 0.6),
+        "learnable": spectral_cfg.get("learnable", False),
+        "mlp_hidden_dim": spectral_cfg.get("mlp_hidden_dim", 64),
+        "condition": spectral_cfg.get("condition", "time"),
+        "learnable_temperature": spectral_cfg.get("learnable_temperature", 50.0),
+        "learnable_gain_init": spectral_cfg.get("learnable_gain_init", 1.0),
     }
 
 

@@ -36,7 +36,7 @@ class ConvBlock(nn.Module):
     ) -> torch.Tensor:
         adapter = block_adapter or self.spectral_adapter
         if adapter is not None:
-            x = adapter(x)
+            x = adapter(x, t_feat)
         h = self.conv1(x)
         if self.time_bias is not None and t_feat is not None:
             h = h + self.time_bias(t_feat).unsqueeze(-1).unsqueeze(-1)
@@ -97,6 +97,12 @@ class TinyUNet(nn.Module):
         inner = params.get("bandpass_inner", 0.1)
         outer = params.get("bandpass_outer", 0.6)
         apply_to = set(params.get("apply_to", []))
+        learnable = params.get("learnable", False)
+        condition_mode = params.get("condition", "none") if learnable else "none"
+        mlp_hidden = params.get("mlp_hidden_dim", 64)
+        learn_temp = params.get("learnable_temperature", 50.0)
+        learn_gain_init = params.get("learnable_gain_init", 1.0)
+        condition_dim = time_width if (learnable and condition_mode == "time") else 0
 
         self.spectral_input: Optional[SpectralAdapter] = None
         self.spectral_output: Optional[SpectralAdapter] = None
@@ -104,11 +110,40 @@ class TinyUNet(nn.Module):
 
         if enabled:
             if "input" in apply_to:
-                self.spectral_input = SpectralAdapter(True, weighting, normalize, inner, outer)
+                self.spectral_input = SpectralAdapter(
+                    True,
+                    weighting,
+                    normalize,
+                    inner,
+                    outer,
+                    learnable=False,
+                )
             if "output" in apply_to:
-                self.spectral_output = SpectralAdapter(True, weighting, normalize, inner, outer)
+                self.spectral_output = SpectralAdapter(
+                    True,
+                    weighting,
+                    normalize,
+                    inner,
+                    outer,
+                    learnable=learnable,
+                    condition_dim=condition_dim,
+                    mlp_hidden_dim=mlp_hidden,
+                    learnable_temperature=learn_temp,
+                    learnable_gain_init=learn_gain_init,
+                )
             if params.get("per_block", False):
-                self.spectral_block = SpectralAdapter(True, weighting, normalize, inner, outer)
+                self.spectral_block = SpectralAdapter(
+                    True,
+                    weighting,
+                    normalize,
+                    inner,
+                    outer,
+                    learnable=learnable,
+                    condition_dim=condition_dim,
+                    mlp_hidden_dim=mlp_hidden,
+                    learnable_temperature=learn_temp,
+                    learnable_gain_init=learn_gain_init,
+                )
 
         self.encoder_blocks = nn.ModuleList()
         self.downsamples = nn.ModuleList()
@@ -147,7 +182,7 @@ class TinyUNet(nn.Module):
 
     def forward(self, x: torch.Tensor, t: Optional[torch.Tensor] = None) -> torch.Tensor:
         if self.spectral_input is not None:
-            x = self.spectral_input(x)
+            x = self.spectral_input(x, None)
 
         t_feat = None
         if t is not None:
@@ -173,7 +208,7 @@ class TinyUNet(nn.Module):
 
         out = self.head(h)
         if self.spectral_output is not None:
-            out = self.spectral_output(out)
+            out = self.spectral_output(out, t_feat)
         return out
 
     def spectral_stats(self) -> Dict[str, float]:

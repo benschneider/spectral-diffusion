@@ -43,6 +43,24 @@ def _load_cross_domain_vector(cfg: Dict[str, str]) -> torch.Tensor:
         if not path.exists():
             raise FileNotFoundError(f"Cross-domain weight file not found: {path}")
         vector = _load_tensor_from_file(path)
+    elif source_type == "constant":
+        values = cfg.get("values")
+        length = int(cfg.get("length", 0))
+        if values is None:
+            value = float(cfg.get("value", 0.0))
+            if length <= 0:
+                length = 1
+            vector = torch.full((length,), value, dtype=torch.float32)
+        else:
+            base = torch.tensor(values, dtype=torch.float32)
+            if length and length > base.numel():
+                repeats = (length // base.numel()) + 1
+                base = base.repeat(repeats)
+            if length > 0:
+                base = base[:length]
+            vector = base
+        if vector.numel() == 0:
+            raise ValueError("Constant source produced empty vector")
     elif source_type == "gpt2":
         model_name = cfg.get("model_name", "gpt2")
         try:
@@ -98,7 +116,7 @@ def apply_initialization(model: torch.nn.Module, cfg: Optional[Dict[str, any]]) 
                 num = param.numel()
                 if cursor >= total:
                     if recycle:
-                        cursor = 0
+                        cursor = cursor % total
                     else:
                         break
                 end = cursor + num
@@ -109,9 +127,10 @@ def apply_initialization(model: torch.nn.Module, cfg: Optional[Dict[str, any]]) 
                     if not recycle:
                         slice_ = torch.zeros(num, dtype=vector.dtype)
                     else:
-                        overflow = end - total
-                        slice_ = torch.cat([vector[cursor:], vector[:overflow]])
-                        cursor = overflow
+                        needed = num
+                        expanded = torch.tile(vector, (needed // total + 2,))
+                        slice_ = expanded[cursor : cursor + needed]
+                        cursor = (cursor + needed) % total
                 param.copy_(slice_.view_as(param) * scale)
         logger.info(
             "Applied cross-domain initialization (source=%s, scale=%.4f, recycle=%s)",

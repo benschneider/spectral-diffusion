@@ -29,6 +29,7 @@ python train.py --config configs/baseline.yaml \
 | `diffusion` | `num_timesteps`, `beta_schedule`, `prediction_type` | Standard DDPM settings (cosine/linear schedule). |
 | `sampling` | `enabled`, `sampler_type` (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`) | Controls optional sampling after training. |
 | `evaluation` | `reference_dir`, `use_fid`, `use_lpips` | Provide a folder of real images to compare against. |
+| `spectral` | `enabled`, `weighting` (`none`, `radial`, `bandpass`), `apply_to` (`input`, `output`, `per_block`), `bandpass_inner`, `bandpass_outer`, `learnable`, `condition` (`time`/`none`), `mlp_hidden_dim`, `learnable_temperature`, `learnable_gain_init` | Toggles spectral adapters and, when `learnable` is true, drives the MLP-conditioned masks used by `SpectralAdapter`. |
 
 ## 2. Sampling CLI (`sample.py`)
 ```
