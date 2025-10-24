@@ -58,6 +58,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Update generated_dir/metadata.json with evaluation results if present.",
     )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
     return parser
 
 
@@ -135,6 +141,7 @@ def evaluate_directory(
 def main(argv: Optional[Any] = None) -> None:
     parser = build_arg_parser()
     args = parser.parse_args(args=argv)
+    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
     result = evaluate_directory(
         generated_dir=args.generated_dir,
         reference_dir=args.reference_dir,
@@ -145,8 +152,6 @@ def main(argv: Optional[Any] = None) -> None:
         output_path=args.output,
         update_metadata=args.update_metadata,
     )
-
-    logging.basicConfig(level=logging.INFO)
     logging.getLogger("spectral_diffusion.evaluate").info(
         "Evaluation metrics stored at %s", result["metrics_path"]
     )

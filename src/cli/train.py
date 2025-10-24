@@ -16,6 +16,7 @@ from src.cli.common import (
     save_config_snapshot,
     save_metrics,
     seed_everything,
+    write_system_info,
 )
 from src.training import TrainingPipeline
 
@@ -58,14 +59,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Remove generated artifacts after completion (useful for dry runs).",
     )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
     return parser
 
 
 def apply_variant_override(config: Dict[str, Any], variant: Optional[str]) -> None:
     """Mutate the configuration to select a specific model variant."""
     if variant:
+        alias = {"baseline": "baseline", "spectral": "unet_spectral"}
         config.setdefault("model", {})
-        config["model"]["type"] = variant
+        config["model"]["type"] = alias.get(variant, variant)
 
 
 def train_from_config(
@@ -75,9 +83,10 @@ def train_from_config(
     run_id: Optional[str] = None,
     dry_run: bool = False,
     cleanup: bool = False,
+    log_level: str = "INFO",
 ) -> Dict[str, Any]:
     """Load configuration, execute training, and log artifacts."""
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
     logger = logging.getLogger("spectral_diffusion.train")
 
     config = load_config(config_path=config_path)
@@ -90,6 +99,14 @@ def train_from_config(
 
     config_copy_path = dirs["run_dir"] / "config.yaml"
     save_config_snapshot(config=config, destination=config_copy_path)
+
+    write_system_info(
+        dirs["run_dir"],
+        extra={
+            "config_path": str(config_path),
+            "run_id": run_identifier,
+        },
+    )
 
     train_log_path = dirs["logs_dir"] / "train.log"
     configure_run_logger(logger, train_log_path)
@@ -144,6 +161,7 @@ def main(argv: Optional[Any] = None) -> None:
         run_id=args.run_id,
         dry_run=args.dry_run,
         cleanup=args.cleanup,
+        log_level=args.log_level,
     )
     logging.getLogger("spectral_diffusion.train").info(
         "Completed run %s with metrics at %s", result["run_id"], result["metrics_path"]

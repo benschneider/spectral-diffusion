@@ -104,6 +104,8 @@ scripts/run_taguchi_smoke.sh
 scripts/run_taguchi_comparison.sh
 # Taguchi minimal sweep (tiny synthetic model)
 scripts/run_taguchi_minimal.sh
+# Quick spectral vs baseline benchmark (synthetic, spectral UNet vs TinyUNet)
+scripts/run_spectral_benchmark.sh
 # (See configs/taguchi_minimal_base.yaml for the miniature UNet + synthetic data setup)
 # Summarise latest runs (top-5 by loss_drop_per_second)
 scripts/report_summary.py --metric loss_drop_per_second --top 5 --include-factors
@@ -118,6 +120,7 @@ Results are rooted at `results/` by default:
 - `results/runs/<run_id>/metrics/<run_id>.json` – structured metrics.
 - `results/runs/<run_id>/checkpoints/*.pt` – saved model weights.
 - `results/runs/<run_id>/samples/<tag>/` – generated images, `grid.png`, and `metadata.json` describing sampler parameters and evaluation results.
+- `results/runs/<run_id>/system.json` – captured environment metadata (platform, Python/Torch version, device availability).
 
 ---
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
+import platform
 import random
 import shutil
 from datetime import datetime, timezone
@@ -65,6 +67,27 @@ def save_metrics(metrics: Dict[str, Any], destination: Path) -> Path:
     with destination.open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, indent=2)
     return destination
+
+
+def write_system_info(run_dir: Path, extra: Optional[Dict[str, Any]] = None) -> Path:
+    """Persist basic system metadata for the run."""
+    info = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "torch_version": torch.__version__,
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        "mps_available": getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available(),
+        "cpu_count": os.cpu_count(),
+    }
+    if extra:
+        info.update(extra)
+
+    path = run_dir / "system.json"
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(info, handle, indent=2)
+    return path
 
 
 SUMMARY_HEADER = [
