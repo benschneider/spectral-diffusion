@@ -102,3 +102,18 @@ def test_sampler_registry_dpm_solver_pp():
     )
     assert samples.shape == (2, 1, 4, 4)
     assert samples.abs().max() <= 1.0
+
+
+@pytest.mark.parametrize("name", ["ancestral", "dpm_solver2"])
+def test_extended_samplers(name):
+    coeffs = build_diffusion(T=12, kind="linear")
+    model = DummyModel()
+    sampler = build_sampler(name, model=model, coeffs=coeffs)
+    samples = sampler.sample(
+        num_samples=2,
+        shape=(1, 4, 4),
+        num_steps=4,
+        device=torch.device("cpu"),
+    )
+    assert samples.shape == (2, 1, 4, 4)
+    assert samples.min() >= -1.0 and samples.max() <= 1.0

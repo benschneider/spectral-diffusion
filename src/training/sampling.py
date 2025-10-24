@@ -166,10 +166,104 @@ class DPMSolverPlusPlusSampler(Sampler):
         return x
 
 
+class AncestralSampler(Sampler):
+    """DDPM ancestral sampler with adjustable η."""
+
+    def __init__(self, model: torch.nn.Module, coeffs: DiffusionCoeffs, eta: float = 1.0) -> None:
+        super().__init__(model, coeffs)
+        self.eta = eta
+
+    @torch.no_grad()
+    def sample(
+        self,
+        num_samples: int,
+        shape: Sequence[int],
+        num_steps: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        coeffs = self.coeffs
+        total_steps = coeffs.betas.shape[0]
+        timesteps = _make_timesteps(num_steps, total_steps, device)
+        x = torch.randn(num_samples, *shape, device=device)
+
+        for idx, t in enumerate(timesteps):
+            next_t = timesteps[idx + 1] if idx + 1 < len(timesteps) else -1
+            t_batch = torch.full((num_samples,), t, device=device, dtype=torch.long)
+            eps = self.model(x, t_batch)
+
+            alpha_t = coeffs.alphas_cumprod[t].to(device=device)
+            sqrt_alpha_t = torch.sqrt(alpha_t).view(1, *([1] * (x.dim() - 1)))
+            sigma_t = torch.sqrt(1.0 - alpha_t).view(1, *([1] * (x.dim() - 1)))
+            pred_x0 = (x - sigma_t * eps) / sqrt_alpha_t
+
+            if next_t >= 0:
+                alpha_next = coeffs.alphas_cumprod[next_t].to(device=device)
+                sqrt_alpha_next = torch.sqrt(alpha_next).view(1, *([1] * (x.dim() - 1)))
+                sigma_next = torch.sqrt(1.0 - alpha_next).view(1, *([1] * (x.dim() - 1)))
+
+                noise = torch.randn_like(x)
+                coef = self.eta * torch.sqrt(
+                    torch.clamp(
+                        (1 - alpha_t / alpha_next) * (1 - alpha_next) / (1 - alpha_t),
+                        min=0.0,
+                    )
+                ).view(1, *([1] * (x.dim() - 1)))
+                eps_rescaled = torch.sqrt(torch.clamp(sigma_next**2 - coef**2, min=0.0))
+                x = sqrt_alpha_next * pred_x0 + eps_rescaled * eps + coef * noise
+            else:
+                x = pred_x0
+            x = torch.clamp(x, -1.0, 1.0)
+        return x
+
+
+class DPMSolver2Sampler(Sampler):
+    """Second-order DPM-Solver++ style sampler (simplified)."""
+
+    @torch.no_grad()
+    def sample(
+        self,
+        num_samples: int,
+        shape: Sequence[int],
+        num_steps: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        coeffs = self.coeffs
+        total_steps = coeffs.betas.shape[0]
+        timesteps = _make_timesteps(num_steps, total_steps, device)
+        x = torch.randn(num_samples, *shape, device=device)
+
+        eps_prev = None
+        for idx, t in enumerate(timesteps):
+            t_batch = torch.full((num_samples,), t, device=device, dtype=torch.long)
+            eps = self.model(x, t_batch)
+
+            alpha_t = coeffs.alphas_cumprod[t].to(device=device)
+            sqrt_alpha_t = torch.sqrt(alpha_t).view(1, *([1] * (x.dim() - 1)))
+            sigma_t = torch.sqrt(1.0 - alpha_t).view(1, *([1] * (x.dim() - 1)))
+            pred_x0 = (x - sigma_t * eps) / sqrt_alpha_t
+
+            if eps_prev is not None:
+                eps = 0.5 * (eps + eps_prev)
+            eps_prev = eps
+
+            if idx + 1 < len(timesteps):
+                next_t = timesteps[idx + 1]
+                alpha_next = coeffs.alphas_cumprod[next_t].to(device=device)
+                sqrt_alpha_next = torch.sqrt(alpha_next).view(1, *([1] * (x.dim() - 1)))
+                sigma_next = torch.sqrt(1.0 - alpha_next).view(1, *([1] * (x.dim() - 1)))
+                x = sqrt_alpha_next * pred_x0 + sigma_next * eps
+            else:
+                x = pred_x0
+            x = torch.clamp(x, -1.0, 1.0)
+        return x
+
+
 SAMPLER_REGISTRY: Dict[str, Type[Sampler]] = {
     "ddpm": DDPMSampler,
     "ddim": DDIMSampler,
     "dpm_solver++": DPMSolverPlusPlusSampler,
+    "ancestral": AncestralSampler,
+    "dpm_solver2": DPMSolver2Sampler,
 }
 
 

@@ -4,7 +4,7 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 
 | Status | Area | Current Status | Immediate Next Step | Dependency | Notes / Implementation Tip |
 | - | - | - | - | - | - |
-| 🟡 | Sampler support (DDIM/DPM-Solver++) | DDPM, DDIM, DPM-Solver++ available | Prototype ancestral/DDPM++ variants & schedule-aware steppers | Sampler framework | Necessary for fair spectral comparisons in arrays |
+| ✅ | Sampler support (DDIM/DPM-Solver++) | Added ancestral & second-order DPM-Solver samplers; registry extensible | Compare new samplers in benchmarks, consider higher-order refinements | Sampler framework | Necessary for fair spectral comparisons in arrays |
 | 🟡 | Evaluation metrics | Folder-level MSE/MAE/PSNR, opt. FID via torchmetrics | Add LPIPS + integrate sampler outputs for FID/LPIPS | Diffusion sampling | Uses PIL & torchvision; warns if torchmetrics missing |
 | 🟡 | Testing / CI | Pytests for FFT, TinyUNet, Taguchi, training pipeline, CLI smoke tests, sampler registry | Next: (c) evaluate CLI suite with real metrics, baseline equivalence + CI workflow | Pipeline architecture | Reuse synthetic configs; keep CPU-only path fast |
 | ⬜ | Logging polish | Console logging ready; log-level flags available | Add JSONL logs & richer diagnostics for long runs | Independent | Consider optional `--json-log` flag emitting structured entries |

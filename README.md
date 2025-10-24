@@ -119,7 +119,7 @@ scripts/run_taguchi_comparison.sh   # spectral vs baseline comparison
 ## Usage Notes
 - Toggle spectral adapters: `spectral.enabled: true` with weighting `none | radial | bandpass`.
 - Model types: `baseline`, `unet_tiny`, `unet_spectral`.
-- Samplers: registry includes `ddpm`, `ddim`, `dpm_solver++` (more planned).
+- Samplers: `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2` (extend via `register_sampler`).
 - Evaluation CLI supports `--use-fid`, `--use-lpips` when torchmetrics is installed.
 
 ---
