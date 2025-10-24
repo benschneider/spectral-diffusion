@@ -23,8 +23,9 @@ def test_compute_dataset_metrics_identity(tmp_path):
     rng = np.random.default_rng(seed=0)
     for idx in range(3):
         array = rng.random((32, 32, 3))
-        _write_image(gen_dir / f"img_{idx}.png", array)
-        _write_image(ref_dir / f"img_{idx}.png", array)
+        name = f"img_{idx}.png"
+        _write_image(gen_dir / name, array)
+        _write_image(ref_dir / name, array)
 
     metrics = compute_dataset_metrics(gen_dir, ref_dir)
     assert metrics["mse"] == pytest.approx(0.0, abs=1e-8)
