@@ -266,6 +266,25 @@ flowchart TD
 
 ---
 
+
+
+
+## Spectral vs Spatial Benchmarks
+
+
+- Synthetic benchmark summary: `results/spectral_benchmark/summary.csv` (SpectralUNet vs TinyUNet).
+- CIFAR-10 benchmark summary: `results/spectral_benchmark_cifar/summary.csv` with highlights in `summary_metrics.md`.
+## Taguchi Analysis
+
+Automated S/N reports are emitted by `run_experiment` whenever `--report-metric` is provided. See `docs/taguchi_tips.md` for usage tips and examples using `results/taguchi_spectral_docs`.
+
+## Showcase
+
+- Synthetic SpectralUNet vs TinyUNet: `results/spectral_benchmark/summary.csv` (run via `scripts/run_spectral_benchmark.sh`).
+- CIFAR-10 SpectralUNet vs TinyUNet: `results/spectral_benchmark_cifar/summary.csv` with highlights in `summary_metrics.md`.
+- Taguchi spectral sweep: `results/taguchi_spectral_docs/taguchi_report.csv` (auto-generated S/N rankings).
+
+
 ## Spectral Model Research Plan
 
 Refer to `docs/spectral_model_research.md` for the detailed roadmap covering complex convolution layers, spectral UNet architecture prototypes, experiment stages, and risks/mitigations. The document outlines how upcoming development will extend the current spatial UNet into a native frequency-domain model while reusing the new sampler and evaluation tooling documented above.
@@ -296,5 +315,3 @@ If you use this repository in academic work, please cite it as:
   url = {https://github.com/benschneider/spectral-diffusion}
 }
 ```
-- Spectral vs TinyUNet benchmark (synthetic) → `scripts/run_spectral_benchmark.sh`
-- Spectral vs TinyUNet benchmark (CIFAR-10) → `python scripts/run_spectral_benchmark.sh results/spectral_benchmark_cifar configs/benchmark_spectral_cifar.yaml` (baseline) + rerun with `--variant spectral` or use the generated configs (`configs/benchmark_spectral_cifar*.yaml`)

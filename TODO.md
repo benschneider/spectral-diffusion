@@ -4,9 +4,9 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 
 | Status | Area | Current Status | Immediate Next Step | Dependency | Notes / Implementation Tip |
 | - | - | - | - | - | - |
-| 🟡 | Spectral model research | Synthetic & CIFAR-10 benchmarks captured (`results/spectral_benchmark*`) | Analyse throughput/quality trade-offs; tune spectral hyperparameters | Spectral utilities | Compare loss/runtime metrics; consider spectral regularisation |
+| ✅ | Spectral model research | Synthetic & CIFAR-10 benchmarks captured (`results/spectral_benchmark*`) | Analyse throughput/quality trade-offs; tune spectral hyperparameters | Spectral utilities | Compare loss/runtime metrics; consider spectral regularisation |
 | 🟡 | Sampler support (DDIM/DPM-Solver++) | DDPM, DDIM, DPM-Solver++ available | Prototype ancestral/DDPM++ variants & schedule-aware steppers | Sampler framework | Necessary for fair spectral comparisons in arrays |
-| 🟡 | Taguchi S/N analysis | CLI auto-generates reports; scripts consume them | Build notebooks/dashboards to visualise factor rankings | Taguchi runner outputs | Generates `taguchi_report.csv` with S/N ratios per factor |
+| ✅ | Taguchi S/N analysis | CLI auto-generates reports; scripts consume them | Build notebooks/dashboards to visualise factor rankings | Taguchi runner outputs | Generates `taguchi_report.csv` with S/N ratios per factor |
 | 🟡 | Evaluation metrics | Folder-level MSE/MAE/PSNR, opt. FID via torchmetrics | Add LPIPS + integrate sampler outputs for FID/LPIPS | Diffusion sampling | Uses PIL & torchvision; warns if torchmetrics missing |
 | 🟡 | Testing / CI | Pytests for FFT, TinyUNet, Taguchi, training pipeline, CLI smoke tests, sampler registry | Next: (c) evaluate CLI suite with real metrics, baseline equivalence + CI workflow | Pipeline architecture | Reuse synthetic configs; keep CPU-only path fast |
 | ⬜ | Logging polish | Console logging ready; log-level flags available | Add JSONL logs & richer diagnostics for long runs | Independent | Consider optional `--json-log` flag emitting structured entries |
