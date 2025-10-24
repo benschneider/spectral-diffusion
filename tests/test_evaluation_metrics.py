@@ -51,8 +51,9 @@ def test_compute_dataset_metrics_fid_optional(tmp_path):
     ref_dir.mkdir()
     for idx in range(2):
         array = np.zeros((16, 16, 3)) + idx * 0.25
-        _write_image(gen_dir / f"g{idx}.png", array)
-        _write_image(ref_dir / f"r{idx}.png", array)
+        name = f"img_{idx}.png"
+        _write_image(gen_dir / name, array)
+        _write_image(ref_dir / name, array)
 
     if FID_AVAILABLE:
         metrics = compute_dataset_metrics(gen_dir, ref_dir, use_fid=True)

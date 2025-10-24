@@ -82,6 +82,13 @@ def compute_dataset_metrics(
     gen_paths = _collect_image_paths(generated_dir)
     ref_paths = _collect_image_paths(reference_dir)
 
+    if set(p.name for p in gen_paths) != set(p.name for p in ref_paths):
+        missing = set(p.name for p in gen_paths) ^ set(p.name for p in ref_paths)
+        raise ValueError(
+            "Generated and reference directories must contain the same filenames; mismatches: "
+            f"{sorted(missing)}"
+        )
+
     if len(gen_paths) != len(ref_paths):
         raise ValueError("Generated and reference directories must contain the same number of images")
 
