@@ -276,33 +276,6 @@ class TrainingPipeline:
         images_dir = self.work_dir / "images"
         images_dir.mkdir(parents=True, exist_ok=True)
 
-        if sampler_type not in {"ddpm", "ddim"}:
-            self.logger.warning("Sampler '%s' not supported; falling back to ddim", sampler_type)
-            sampler_type = "ddim"
-
-        if sampler_type == "ddpm":
-            samples = sample_ddpm(
-                model=self.model,
-                coeffs=coeffs,
-                num_samples=num_samples,
-                shape=shape,
-                num_steps=num_steps,
-                device=self.device,
-            )
-        elif sampler_type == "ddim":
-        reverse_timesteps = _make_timesteps(num_steps, coeffs.betas.shape[0], self.device)
-            x = torch.randn(num_samples, *shape, device=self.device)
-            for t in reverse_timesteps:
-                t_batch = torch.full((num_samples,), t, device=self.device, dtype=torch.long)
-                eps = self.model(x, t_batch)
-                alpha_bar_t = coeffs.alphas_cumprod[t]
-                alpha_bar_prev = coeffs.alphas_cumprod_prev[t]
-                sqrt_alpha_bar_prev = torch.sqrt(alpha_bar_prev)
-                sqrt_one_minus_prev = torch.sqrt(1.0 - alpha_bar_prev)
-                x0_pred = (x - torch.sqrt(1.0 - alpha_bar_t) * eps) / torch.sqrt(alpha_bar_t)
-                x = sqrt_alpha_bar_prev * x0_pred + sqrt_one_minus_prev * eps
-            samples = torch.clamp(x, -1.0, 1.0)
-
         samples = sample_ddpm(
             model=self.model,
             coeffs=coeffs,
