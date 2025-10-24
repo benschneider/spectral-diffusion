@@ -136,6 +136,7 @@ Results are rooted at `results/` by default:
 - **Spectral factors in Taguchi arrays:** see `configs/taguchi_spectral_array.csv` + `configs/taguchi_spectral_array.yaml.md` for how factors `A..D` map to `spectral.enabled`, `spectral.weighting`, `loss.spectral_weighting`, and `sampling.sampler_type`.
 - **Generate samples:** after training, run `sample.py --run-dir results/runs/<run_id> --sampler-type <ddpm|ddim|dpm_solver++>` to write images and metadata under `samples/<tag>/`.
 - **Evaluate samples:** use `evaluate.py --generated-dir ... --reference-dir ... --use-fid --use-lpips` to compute pixel metrics plus FID/LPIPS (when torchmetrics is installed). The metrics JSON is stored alongside the samples and, when `--update-metadata` is set, persisted in `metadata.json`.
+- **Try the spectral UNet:** set `model.type: unet_spectral` (optionally adjust `base_channels`) to train the complex-valued SpectralUNet prototype described in `docs/spectral_model_research.md`.
 - **Analyze Taguchi batches:** once `results/summary.csv` has multiple runs, generate factor S/N rankings with `python -m src.analysis.taguchi_stats --summary results/summary.csv --metric loss_drop_per_second --mode larger --output results/taguchi_report.csv`.
 - **Tune diffusion behaviour:** edit the `diffusion` block (`num_timesteps`, `beta_schedule`, `prediction_type`, `snr_weighting`, `loss_threshold`, `time_embed_dim`).
 - **Run Taguchi sweeps:** keep base settings in `configs/baseline.yaml`, adjust factors in `configs/L8_array.csv`, and execute `python -m src.experiments.run_experiment`.
@@ -203,14 +204,16 @@ Each design-row produces its own run ID, config snapshot, metrics JSON, and an e
 flowchart TD
     X["model.type<br/>(YAML)"] -->|baseline / baseline_conv| Y["BaselineConvModel<br/>src/core/model.py"]
     X -->|unet_tiny| Z["TinyUNet<br/>src/core/model_unet_tiny.py"]
+    X -->|unet_spectral| W["SpectralUNet<br/>src/core/model_unet_spectral.py"]
     Y --> R["MODEL_REGISTRY<br/>src/core/model.py"]
     Z --> R
+    W --> R
     R --> S["build_model()<br/>nn.Module"]
 ```
 
 - `train.py` (and the legacy alias `train_model.py`) passes the full config to `build_model()` (`src/core/model.py`).
 - `MODEL_REGISTRY` maps type strings to constructors. Register additional architectures here.
-- `BaselineConvModel` suits synthetic smoke tests; `TinyUNet` targets 32×32 CIFAR-10 reconstructions.
+- `BaselineConvModel` suits synthetic smoke tests; `TinyUNet` targets 32×32 CIFAR-10 reconstructions; `SpectralUNet` operates directly on frequency-domain representations using complex convolutions.
 
 ### Data Source Selection
 
@@ -259,6 +262,10 @@ flowchart TD
 | Goal | Stability + quick testing    | Probe spectral benefits, Taguchi optimization |
 
 ---
+
+## Spectral Model Research Plan
+
+Refer to `docs/spectral_model_research.md` for the detailed roadmap covering complex convolution layers, spectral UNet architecture prototypes, experiment stages, and risks/mitigations. The document outlines how upcoming development will extend the current spatial UNet into a native frequency-domain model while reusing the new sampler and evaluation tooling documented above.
 
 ## 🧠 Research Questions
 - Does learning in frequency space reduce redundancy in denoising trajectories?
