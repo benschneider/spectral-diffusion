@@ -89,3 +89,9 @@ The project's central experiment is a comparison between two different architect
     ```text
     Input -> [FFT] -> [ComplexConv] -> [ComplexBlock] -> [ComplexConv] -> [iFFT] -> Output
     ```
+
+*   **`SpectralUNetDeep` (Frequency Hierarchy):** Extends the purist model into a full encoder/decoder with complex strided downsampling, transposed convolutions for upsampling, and skip connections mirroring TinyUNet—but every operation stays in the frequency domain. This is our “next-wave” architecture for probing whether spectral processing benefits compound across scales.
+
+    ```text
+    FFT -> [Encoder (ComplexResidual + Downsample)xL] -> Bottleneck -> [Decoder (Upsample + Skip)xL] -> iFFT
+    ```
