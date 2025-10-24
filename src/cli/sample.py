@@ -56,6 +56,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override sampler type (defaults to ddpm).",
     )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
     return parser
 
 
@@ -74,6 +80,7 @@ def sample_from_run(
     num_samples: Optional[int] = None,
     num_steps: Optional[int] = None,
     sampler_type: Optional[str] = None,
+    log_level: str = "INFO",
 ) -> Dict[str, Any]:
     run_dir = run_dir.resolve()
     if not run_dir.exists():
@@ -92,7 +99,7 @@ def sample_from_run(
     sample_dir.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger("spectral_diffusion.sample")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
     pipeline = TrainingPipeline(config=config, work_dir=sample_dir, logger=logger)
     pipeline.load_checkpoint(checkpoint_path)
@@ -130,7 +137,7 @@ def sample_from_run(
 def main(argv: Optional[Any] = None) -> None:
     parser = build_arg_parser()
     args = parser.parse_args(args=argv)
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
     result = sample_from_run(
         run_dir=args.run_dir,
         checkpoint=args.checkpoint,
@@ -139,6 +146,7 @@ def main(argv: Optional[Any] = None) -> None:
         num_samples=args.num_samples,
         num_steps=args.num_steps,
         sampler_type=args.sampler_type,
+        log_level=args.log_level,
     )
     logging.getLogger("spectral_diffusion.sample").info(
         "Samples written to %s using checkpoint %s",

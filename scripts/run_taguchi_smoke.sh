@@ -27,12 +27,16 @@ else
   echo "Summary file not found at $SUMMARY"
 fi
 
-echo "[3/3] Generating Taguchi S/N report"
-python -m src.analysis.taguchi_stats \
-  --summary "$SUMMARY" \
-  --metric loss_drop_per_second \
-  --mode larger \
-  --output "$REPORT"
-
-echo "Taguchi report saved to $REPORT"
-cat "$REPORT"
+if [[ -f "$REPORT" ]]; then
+  echo "[3/3] Taguchi report (auto-generated):"
+  cat "$REPORT"
+else
+  echo "[3/3] Generating Taguchi S/N report"
+  python -m src.analysis.taguchi_stats \
+    --summary "$SUMMARY" \
+    --metric loss_drop_per_second \
+    --mode larger \
+    --output "$REPORT"
+  echo "Taguchi report saved to $REPORT"
+  cat "$REPORT"
+fi

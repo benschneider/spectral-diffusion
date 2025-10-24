@@ -30,10 +30,15 @@ else
 fi
 
 echo "[3/3] Generating Taguchi S/N report"
-python -m src.analysis.taguchi_stats \
-  --summary "$SUMMARY" \
-  --metric loss_drop_per_second \
-  --mode larger \
-  --output "$REPORT"
+if [[ -f "$REPORT" ]]; then
+  echo "Using auto-generated report at $REPORT"
+else
+  python -m src.analysis.taguchi_stats \
+    --summary "$SUMMARY" \
+    --metric loss_drop_per_second \
+    --mode larger \
+    --output "$REPORT"
+fi
 
 echo "Report saved to $REPORT"
+cat "$REPORT"

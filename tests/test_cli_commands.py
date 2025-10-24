@@ -46,6 +46,24 @@ def test_train_cli_dry_run(tmp_path):
         assert len(lines) <= 1
 
 
+def test_train_cli_variant_spectral_sets_model(tmp_path):
+    config_path = _write_config(tmp_path, _synthetic_config())
+    result = train_from_config(
+        config_path=config_path,
+        output_dir=tmp_path,
+        variant="spectral",
+        dry_run=False,
+        cleanup=False,
+    )
+    saved_config = yaml.safe_load(Path(result["config_path"]).read_text())
+    assert saved_config["model"]["type"] == "unet_spectral"
+    system_path = Path(result["config_path"]).parent / "system.json"
+    assert system_path.exists()
+    data = json.loads(system_path.read_text())
+    assert data["run_id"] == result["run_id"]
+    shutil.rmtree(Path(result["config_path"]).parent, ignore_errors=True)
+
+
 def test_sample_cli_generates_artifacts(tmp_path):
     config = _synthetic_config()
     config_path = _write_config(tmp_path, config)
@@ -59,6 +77,8 @@ def test_sample_cli_generates_artifacts(tmp_path):
     run_dir = Path(train_result["config_path"]).parent
     checkpoint_path = Path(train_result["checkpoint_path"])
     assert checkpoint_path.exists()
+    system_path = run_dir / "system.json"
+    assert system_path.exists()
 
     sample_result = sample_from_run(
         run_dir=run_dir,
