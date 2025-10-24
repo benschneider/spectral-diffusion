@@ -89,6 +89,11 @@ python -m src.experiments.run_experiment
 python validate_setup.py
 # Benchmark baseline vs spectral throughput
 python benchmarks/benchmark_fft.py --device cpu --batch-size 16
+# Fully automated smoke test (synthetic, fast)
+scripts/run_smoke_test.sh
+# Clean generated run artifacts (preserves summary unless --wipe-summary)
+scripts/clean_results.sh
+# (Set OMP_NUM_THREADS=1 if your environment restricts shared-memory allocs)
 ```
 
 Results and metrics will appear in `results/summary.csv`.
