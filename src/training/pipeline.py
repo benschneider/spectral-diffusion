@@ -276,6 +276,10 @@ class TrainingPipeline:
         images_dir = self.work_dir / "images"
         images_dir.mkdir(parents=True, exist_ok=True)
 
+        if sampler_type != "ddpm":
+            self.logger.warning("Sampler '%s' not supported; falling back to ddpm", sampler_type)
+            sampler_type = "ddpm"
+
         samples = sample_ddpm(
             model=self.model,
             coeffs=coeffs,

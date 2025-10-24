@@ -9,6 +9,7 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 | 🟡 | Diffusion sampling & image metrics | DDPM sampling + evaluation hook (MSE/MAE/PSNR) | Add DDIM/other samplers and compute LPIPS/FID on outputs | Real training components | Images stored in `results/logs/<run_id>/images/`; evaluation block controls scoring |
 | 🟡 | Taguchi S/N analysis | CLI `src.analysis.taguchi_stats` available | Integrate into batch workflow & notebooks | Taguchi runner outputs | Generates `taguchi_report.csv` with S/N ratios per factor |
 | 🟡 | Evaluation metrics | Folder-level MSE/MAE/PSNR, opt. FID via torchmetrics | Add LPIPS + integrate sampler outputs for FID/LPIPS | Diffusion sampling | Uses PIL & torchvision; warns if torchmetrics missing |
+| ⬜ | Sampler support (DDIM/DPM-Solver++) | Fallback to DDPM currently | Implement DDIM solver + add DPM-Solver++ | Diffusion sampling | Necessary for fair spectral comparisons in arrays |
 | ⬜ | Structured logging | Pending | Add JSONL logs & system metadata per run | Logging polish | Capture hardware info in `results/logs/<run_id>/system.txt` |
 | 🟡 | Testing / CI | Pytests for FFT, TinyUNet, Taguchi, metrics | Add import/dry-run tests, baseline equivalence check, CI workflow | Validation automation | Ensure deterministic behavior, spectral toggle off == baseline |
 | ⬜ | Logging polish | Console logging ready | Add CLI log-level flag & structured logs | Independent | Hook into CLI via `--log-level` |
@@ -23,8 +24,9 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 1. Taguchi S/N analysis tooling  
 2. Diffusion sampling metrics (LPIPS/FID)  
 3. Evaluation metrics (LPIPS integration)  
-4. Structured logging & log-level CLI flag  
-5. Testing/CI harness (import, dry-run, baseline equivalence)  
-6. Dataset handling polish  
-7. Spectral adapter tuning (mixing strategies)  
-8. Documentation & analysis notebooks  
+4. Sampler support (true DDIM/DPM-Solver++)  
+5. Structured logging & log-level CLI flag  
+6. Testing/CI harness (import, dry-run, baseline equivalence)  
+7. Dataset handling polish  
+8. Spectral adapter tuning (mixing strategies)  
+9. Documentation & analysis notebooks  

@@ -97,6 +97,9 @@ scripts/clean_results.sh
 scripts/run_taguchi_smoke.sh
 # Taguchi comparison run (CIFAR-10, spectral vs baseline)
 scripts/run_taguchi_comparison.sh
+# Taguchi minimal sweep (tiny synthetic model)
+scripts/run_taguchi_minimal.sh
+# (See configs/taguchi_minimal_base.yaml for the miniature UNet + synthetic data setup)
 # Summarise latest runs (top-5 by loss_drop_per_second)
 scripts/report_summary.py --metric loss_drop_per_second --top 5 --include-factors
 # (Set OMP_NUM_THREADS=1 if your environment restricts shared-memory allocs)
@@ -118,6 +121,7 @@ Results and metrics will appear in `results/summary.csv`.
 
 - **Enable spectral processing:** set `spectral.enabled: true`, choose `spectral.weighting` (`none`, `radial`, `bandpass`), and configure `spectral.apply_to` (`input`, `output`, or both) plus `spectral.per_block` if you want adapters around each UNet block.
 - **Spectral-weighted losses:** set `loss.spectral_weighting` (`none`, `radial`, `bandpass`) to apply weighting in frequency space before the MSE reduction. Adjust `loss.bandpass_inner/outer` to tune the bandpass mask.
+- **Spectral factors in Taguchi arrays:** see `configs/taguchi_spectral_array.csv` + `configs/taguchi_spectral_array.yaml.md` for how factors `A..D` map to `spectral.enabled`, `spectral.weighting`, `loss.spectral_weighting`, and `sampling.sampler_type`.
 - **Generate samples:** set `sampling.enabled: true`, choose `sampling.sampler_type` (`ddpm` today), and specify `num_samples` / `num_steps`. Generated images land in `results/logs/<run_id>/images/` and include a `grid.png` preview.
 - **Evaluate samples:** add an `evaluation` block with `reference_dir`, optional `image_size`, and `use_fid`. After sampling, pixel metrics (MSE/MAE/PSNR) and optional FID are logged and appended to `results/summary.csv`.
 - **Analyze Taguchi batches:** once `results/summary.csv` has multiple runs, generate factor S/N rankings with `python -m src.analysis.taguchi_stats --summary results/summary.csv --metric loss_drop_per_second --mode larger --output results/taguchi_report.csv`.
