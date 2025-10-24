@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -69,6 +70,28 @@ DEFAULT_TAGUCHI_LABELS: dict[str, str] = {
     "C": "Sampler",
     "D": "Spectral adapters",
 }
+
+
+def _extract_level_options(text: str) -> list[str]:
+    if "(" not in text or ")" not in text:
+        return []
+    raw = text[text.find("(") + 1 : text.find(")")]
+    return [opt.strip() for opt in raw.split("/") if opt.strip()]
+
+
+def _taguchi_level_label(
+    factor: str, level: int, choices_map: dict[str, str], default: str = ""
+) -> str:
+    choice_text = choices_map.get(factor, "")
+    if not choice_text and factor.startswith("factor_"):
+        choice_text = choices_map.get(factor.replace("factor_", ""), "")
+    options = _extract_level_options(choice_text)
+    idx = level - 1
+    if options and 0 <= idx < len(options):
+        return options[idx]
+    if choice_text and "(" not in choice_text:
+        return f"{choice_text} #{level}"
+    return default or f"Level {level}"
 
 
 def _safe_ratio(numerator: float, denominator: float) -> Optional[float]:
@@ -316,6 +339,11 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
         positions = np.arange(len(levels))
         any_plotted = True
 
+        x_labels = [
+            _taguchi_level_label(factor, int(level), choices_map, default=f"Level {level}")
+            for level in levels
+        ]
+
         ax.plot(
             positions,
             values_arr,
@@ -325,6 +353,7 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
             markersize=6,
         )
         best_idx = int(np.nanargmax(values_arr))
+        best_label = x_labels[best_idx]
         ax.scatter(
             [positions[best_idx]],
             [values_arr[best_idx]],
@@ -335,7 +364,7 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
             zorder=5,
         )
         ax.annotate(
-            f"best→{levels[best_idx]}",
+            f"best→{best_label}",
             xy=(positions[best_idx], values_arr[best_idx]),
             xytext=(0, -16),
             textcoords="offset points",
@@ -354,14 +383,24 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
         else:
             full_title = desc or factor
         ax.set(title=full_title, xlabel="Level")
-        ax.set_xticks(positions, [str(lvl) for lvl in levels])
+        ax.set_xticks(positions, x_labels)
+        ax.axhline(np.nanmean(values_arr), color="#9e9e9e", linestyle="--", linewidth=0.7, alpha=0.6)
+        ax.grid(True, axis="y", linestyle="--", alpha=0.3)
 
     if any_plotted:
         visible_axes = [ax for ax in axes if ax.get_visible()]
         if visible_axes:
             visible_axes[0].set_ylabel("S/N (dB)")
-    fig.suptitle("Taguchi Signal-to-Noise Ratios (Main Effects)", fontsize=13)
-    fig.tight_layout()
+    fig.suptitle("Taguchi Signal-to-Noise Ratios (Main Effects)", fontsize=13, y=0.99)
+    fig.tight_layout(rect=(0, 0.08, 1, 0.95))
+    fig.text(
+        0.5,
+        0.02,
+        "Higher S/N (less negative) indicates a more robust (better-performing) configuration.",
+        ha="center",
+        fontsize=9,
+        color="#555555",
+    )
     fig.savefig(out_path)
     plt.close(fig)
 
@@ -377,6 +416,7 @@ def plot_taguchi_metric_distribution(
     if descriptions and descriptions.get("taguchi_choices"):
         for key, value in descriptions["taguchi_choices"].items():
             label_map[f"factor_{key}"] = value
+            label_map[key] = value
 
     fig, axes = plt.subplots(1, len(factor_cols), figsize=(4 * len(factor_cols), 4), sharey=True)
     if len(factor_cols) == 1:
@@ -400,9 +440,14 @@ def plot_taguchi_metric_distribution(
         letter = factor.replace("factor_", "")
         title = label_map.get(factor, DEFAULT_TAGUCHI_LABELS.get(letter, letter))
         ax.set(title=title, xlabel="Level")
-        ax.set_xticks(positions, [str(lvl) for lvl in levels])
+        level_labels = [
+            _taguchi_level_label(letter, int(level), label_map, default=f"Level {level}")
+            for level in levels
+        ]
+        ax.set_xticks(positions, level_labels)
         if ax is axes[0]:
             ax.set_ylabel(metric)
+        ax.grid(True, axis="y", linestyle="--", alpha=0.3)
 
     fig.suptitle(f"{metric} Distribution by Taguchi Factor", fontsize=13)
     fig.tight_layout()
@@ -416,12 +461,19 @@ def write_summary_markdown(
     taguchi_report: Optional[pd.DataFrame],
     out_path: Path,
     descriptions: dict[str, str],
+    generated_at: Optional[str] = None,
 ) -> None:
     base_dir = out_path.parent
     choices_map = {
         **DEFAULT_TAGUCHI_LABELS,
         **(descriptions.get("taguchi_choices", {}) or {}),
     }
+    extended_choices: dict[str, str] = {}
+    for key, value in choices_map.items():
+        extended_choices[key] = value
+        if len(key) == 1:
+            extended_choices[f"factor_{key}"] = value
+    choices_map = extended_choices
 
     def _embed_image(filename: str, alt: str) -> None:
         path = base_dir / filename
@@ -430,19 +482,21 @@ def write_summary_markdown(
             lines.append("")
 
     def _factor_label(letter: str) -> str:
-        return choices_map.get(letter, letter)
+        text = choices_map.get(letter, choices_map.get(f"factor_{letter}", letter))
+        if "(" in text:
+            return text.split("(")[0].strip() or letter
+        return text
 
     def _level_label(letter: str, level: int) -> str:
-        desc = choices_map.get(letter, "")
-        if "(" in desc and ")" in desc:
-            raw = desc[desc.find("(") + 1 : desc.find(")")]
-            options = [opt.strip() for opt in raw.split("/")]
-            idx = level - 1
-            if 0 <= idx < len(options):
-                return options[idx]
-        return f"Level {level}"
+        return _taguchi_level_label(letter, level, choices_map, default=f"Level {level}")
 
     lines = ["# Results Summary", ""]
+    if generated_at:
+        lines.append(f"_Generated {generated_at}_")
+        source_root = base_dir.parent
+        if source_root != base_dir:
+            lines.append(f"_Source: {source_root}_")
+        lines.append("")
     if synthetic_df is not None:
         title = descriptions.get("synthetic_title", "Synthetic Benchmark")
         desc = descriptions.get("synthetic_text", "")
@@ -530,30 +584,39 @@ def write_summary_markdown(
         if desc:
             lines.extend([desc, ""])
         top = taguchi_report.sort_values("rank").head(5)
-        lines.extend(
-            [
-                "| Rank | Factor | Level | S/N (dB) |",
-                "| --- | --- | --- | --- |",
-            ]
-        )
+        has_runtime = "mean_runtime_seconds" in taguchi_report.columns
+        has_throughput = "mean_images_per_second" in taguchi_report.columns
+        has_loss_final = "mean_loss_final" in taguchi_report.columns
+        headers = ["Rank", "Factor", "Level", "S/N (dB)"]
+        if has_runtime:
+            headers.append("Runtime (s)")
+        if has_throughput:
+            headers.append("Images/s")
+        if has_loss_final:
+            headers.append("Final Loss")
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
         for _, row in top.iterrows():
             factor = str(row["factor"])
             level = int(row["level"])
-            lines.append(
-                "| "
-                + " | ".join(
-                    [
-                        str(int(row["rank"])),
-                        _factor_label(factor),
-                        _level_label(factor, level),
-                        f"{row['snr']:.2f}",
-                    ]
-                )
-                + " |"
-        )
+            cells = [
+                str(int(row["rank"])),
+                _factor_label(factor),
+                _level_label(factor, level),
+                f"{row['snr']:.2f}",
+            ]
+            if has_runtime:
+                cells.append(f"{row['mean_runtime_seconds']:.3f}")
+            if has_throughput:
+                cells.append(f"{row['mean_images_per_second']:.2f}")
+            if has_loss_final:
+                cells.append(f"{row['mean_loss_final']:.3f}")
+            lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
         _embed_image("taguchi_snr.png", "Taguchi S/N main effects")
         _embed_image("taguchi_loss_drop_per_second.png", "Taguchi loss_drop_per_second distributions")
+        lines.append("_Higher S/N (less negative) indicates a more robust configuration. Secondary columns show per-level averages for runtime, throughput, and final loss when available._")
+        lines.append("")
         lines.append("**Quick takeaways**")
         taguchi_lines: list[str] = []
         factors_seen: set[str] = set()
@@ -568,10 +631,24 @@ def write_summary_markdown(
             best_row = factor_df.loc[best_idx]
             worst_row = factor_df.loc[worst_idx]
             delta = best_row["snr"] - worst_row["snr"]
+            runtime_text = ""
+            throughput_text = ""
+            loss_text = ""
+            if "mean_runtime_seconds" in factor_df.columns:
+                runtime_text = f", runtime {best_row['mean_runtime_seconds']:.3f}s vs {worst_row['mean_runtime_seconds']:.3f}s"
+            if "mean_images_per_second" in factor_df.columns:
+                throughput_text = (
+                    f", images/s {best_row['mean_images_per_second']:.2f} vs {worst_row['mean_images_per_second']:.2f}"
+                )
+            if "mean_loss_final" in factor_df.columns:
+                loss_text = (
+                    f", final loss {best_row['mean_loss_final']:.3f} vs {worst_row['mean_loss_final']:.3f}"
+                )
             taguchi_lines.append(
                 "- "
                 + f"{_factor_label(factor)} best at {_level_label(factor, int(best_row['level']))} "
-                + f"({best_row['snr']:.2f} dB, Δ {delta:+.2f} dB vs. { _level_label(factor, int(worst_row['level'])) })"
+                + f"({best_row['snr']:.2f} dB, Δ {delta:+.2f} dB vs. {_level_label(factor, int(worst_row['level']))}"
+                + f"{runtime_text}{throughput_text}{loss_text})"
             )
             factors_seen.add(factor)
             if len(taguchi_lines) >= 3:
@@ -592,6 +669,7 @@ def generate_figures(
     taguchi_dir: Path,
     output_dir: Path,
     descriptions_path: Optional[Path] = None,
+    generated_at: Optional[str] = None,
 ) -> None:
     """Load benchmark data, render plots, and write markdown summary."""
     _setup_style()
@@ -697,10 +775,13 @@ def generate_figures(
             descriptions=descriptions,
         )
 
+    timestamp = generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+
     write_summary_markdown(
         synthetic_df,
         cifar_df,
         taguchi_report,
         output_dir / "summary.md",
         descriptions,
+        generated_at=timestamp,
     )
