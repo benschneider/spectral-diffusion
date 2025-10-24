@@ -26,6 +26,13 @@ class SpectralAdapter(nn.Module):
 
         self._total_calls: int = 0
         self._total_time: float = 0.0
+        self._use_cuda_timer = torch.cuda.is_available()
+        if self._use_cuda_timer:
+            self._start_evt = torch.cuda.Event(enable_timing=True)
+            self._end_evt = torch.cuda.Event(enable_timing=True)
+        else:
+            self._start_evt = None
+            self._end_evt = None
 
     def _weight(self, h: int, w_fft: int, device: torch.device) -> torch.Tensor:
         key = (
@@ -66,14 +73,27 @@ class SpectralAdapter(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if not self.enabled:
             return x
-        start = time.perf_counter()
+        cuda_timing = self._use_cuda_timer and x.device.type == "cuda"
+        if cuda_timing:
+            self._start_evt.record()
+        else:
+            start = time.perf_counter()
+
         norm = "ortho" if self.normalize else None
         x_fft = torch.fft.rfft2(x, norm=norm)
         weight = self._weight(x_fft.shape[-2], x_fft.shape[-1], x.device)
         x_fft = x_fft * weight
         out = torch.fft.irfft2(x_fft, s=x.shape[-2:], norm=norm)
+
+        if cuda_timing:
+            self._end_evt.record()
+            torch.cuda.synchronize()
+            elapsed = self._start_evt.elapsed_time(self._end_evt) / 1000.0
+        else:
+            elapsed = time.perf_counter() - start
+
         self._total_calls += 1
-        self._total_time += time.perf_counter() - start
+        self._total_time += elapsed
         return out
 
     def stats(self) -> dict:
