@@ -1,6 +1,6 @@
 import torch
 
-from src.training.sampling import sample_ddpm
+from src.training.sampling import build_sampler, sample_ddpm
 from src.training.scheduler import build_diffusion
 
 
@@ -23,3 +23,17 @@ def test_sample_ddpm_shapes():
     assert samples.shape == (4, 3, 8, 8)
     assert samples.min() >= -1.0
     assert samples.max() <= 1.0
+
+
+def test_sampler_registry_returns_ddpm():
+    coeffs = build_diffusion(T=10, kind="linear")
+    model = DummyModel()
+    sampler = build_sampler("ddpm", model=model, coeffs=coeffs)
+    samples = sampler.sample(
+        num_samples=2,
+        shape=(1, 4, 4),
+        num_steps=3,
+        device=torch.device("cpu"),
+    )
+    assert samples.shape == (2, 1, 4, 4)
+    assert samples.mean().abs() <= 1.0

@@ -7,14 +7,14 @@ from typing import Any, Dict, List, Optional, Sequence
 import pandas as pd
 import yaml
 
-from src.training import TrainingPipeline
-from train_model import (
+from src.cli.common import (
     append_run_summary,
     configure_run_logger,
     ensure_directories,
     save_config_snapshot,
     save_metrics,
 )
+from src.training import TrainingPipeline
 
 
 class TaguchiExperimentRunner:
@@ -44,7 +44,7 @@ class TaguchiExperimentRunner:
             save_config_snapshot(config=run_config, destination=config_copy_path)
 
             run_logger = logger or logging.getLogger(f"spectral_diffusion.taguchi.{run_id}")
-            configure_run_logger(run_logger, dirs["run_dir"] / "run.log")
+            configure_run_logger(run_logger, dirs["logs_dir"] / "train.log")
 
             pipeline = TrainingPipeline(config=run_config, work_dir=dirs["run_dir"], logger=run_logger)
             metrics = pipeline.run()
