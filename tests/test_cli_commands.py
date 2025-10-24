@@ -64,6 +64,28 @@ def test_train_cli_variant_spectral_sets_model(tmp_path):
     shutil.rmtree(Path(result["config_path"]).parent, ignore_errors=True)
 
 
+def test_train_cli_json_log_writes_jsonl(tmp_path):
+    config_path = _write_config(tmp_path, _synthetic_config())
+    result = train_from_config(
+        config_path=config_path,
+        output_dir=tmp_path,
+        dry_run=False,
+        cleanup=False,
+        json_log=True,
+    )
+    run_dir = Path(result["config_path"]).parent
+    json_log_path = run_dir / "logs" / "train.jsonl"
+    assert json_log_path.exists()
+    lines = [line for line in json_log_path.read_text().splitlines() if line.strip()]
+    assert lines
+    record = json.loads(lines[0])
+    assert record["level"] in {"INFO", "WARNING", "ERROR"}
+    shutil.rmtree(run_dir.parent, ignore_errors=True)
+    summary_path = tmp_path / "summary.csv"
+    if summary_path.exists():
+        summary_path.unlink()
+
+
 def test_sample_cli_generates_artifacts(tmp_path):
     config = _synthetic_config()
     config_path = _write_config(tmp_path, config)

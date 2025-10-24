@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -55,6 +56,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Skip intensive work; useful for testing the pipeline setup.",
     )
     parser.add_argument(
+        "--json-log",
+        action="store_true",
+        help="Emit structured JSONL logs alongside the plain text train.log.",
+    )
+    parser.add_argument(
         "--cleanup",
         action="store_true",
         help="Remove generated artifacts after completion (useful for dry runs).",
@@ -88,6 +94,7 @@ def train_from_config(
     dry_run: bool = False,
     cleanup: bool = False,
     log_level: str = "INFO",
+    json_log: bool = False,
 ) -> Dict[str, Any]:
     """Load configuration, execute training, and log artifacts."""
     logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
@@ -113,7 +120,24 @@ def train_from_config(
     )
 
     train_log_path = dirs["logs_dir"] / "train.log"
-    configure_run_logger(logger, train_log_path)
+    json_log_path = dirs["logs_dir"] / "train.jsonl" if json_log else None
+    configure_run_logger(logger, train_log_path, json_log_file=json_log_path)
+    if json_log_path is not None:
+        json_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with json_log_path.open("a", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "level": "INFO",
+                    "name": "train",
+                    "event": "run_start",
+                    "run_id": run_identifier,
+                },
+                handle,
+                ensure_ascii=False,
+            )
+            handle.write("\n")
+    logger.info("Starting training run %s", run_identifier)
 
     pipeline = TrainingPipeline(config=config, work_dir=dirs["run_dir"], logger=logger)
     if dry_run:
@@ -145,6 +169,10 @@ def train_from_config(
         )
         checkpoint_path = None
 
+    for handler in logger.handlers:  # pragma: no cover - harmless flush
+        if hasattr(handler, "flush"):
+            handler.flush()
+
     return {
         "run_id": run_identifier,
         "config_path": config_copy_path,
@@ -166,6 +194,7 @@ def main(argv: Optional[Any] = None) -> None:
         dry_run=args.dry_run,
         cleanup=args.cleanup,
         log_level=args.log_level,
+        json_log=args.json_log,
     )
     logging.getLogger("spectral_diffusion.train").info(
         "Completed run %s with metrics at %s", result["run_id"], result["metrics_path"]
