@@ -9,6 +9,7 @@ from torchvision.utils import save_image
 from src.cli.evaluate import evaluate_directory
 from src.cli.sample import sample_from_run
 from src.cli.train import train_from_config
+from src.evaluation.metrics import LPIPS_AVAILABLE
 
 
 def _write_config(tmp_path: Path, config: dict) -> Path:
@@ -64,6 +65,7 @@ def test_sample_cli_generates_artifacts(tmp_path):
         checkpoint=checkpoint_path,
         num_samples=2,
         num_steps=3,
+        sampler_type="ddim",
         tag="unittest",
     )
     images_dir = Path(sample_result["images_dir"])
@@ -77,7 +79,7 @@ def test_sample_cli_generates_artifacts(tmp_path):
     assert metadata["checkpoint_path"] == str(checkpoint_path)
     assert metadata["num_samples"] == 2
     assert metadata["num_steps"] == 3
-    assert metadata["sampler_type"] == "ddpm"
+    assert metadata["sampler_type"] == "ddim"
 
     # cleanup artifacts
     shutil.rmtree(run_dir.parent, ignore_errors=True)
@@ -114,15 +116,22 @@ def test_evaluate_cli_metrics(tmp_path):
         reference_dir=reference_dir,
         image_size=None,
         use_fid=False,
+        use_lpips=LPIPS_AVAILABLE,
         strict_filenames=False,
         update_metadata=True,
     )
     assert result["metrics"]["mse"] == 0.0
     assert result["metrics_path"].exists()
+    if LPIPS_AVAILABLE:
+        assert "lpips" in result["metrics"]
 
     metadata_path = Path(sample_result["metadata_path"])
     metadata = json.loads(metadata_path.read_text())
     assert "evaluation" in metadata
-    assert metadata["evaluation"]["metrics_path"] == str(result["metrics_path"])
+    evaluation_meta = metadata["evaluation"]
+    assert evaluation_meta["metrics_path"] == str(result["metrics_path"])
+    assert "metrics" in evaluation_meta
+    if LPIPS_AVAILABLE:
+        assert "lpips" in evaluation_meta["metrics"]
 
     shutil.rmtree((tmp_path / "runs"), ignore_errors=True)

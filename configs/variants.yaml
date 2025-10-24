@@ -1,54 +1,54 @@
-model:
-  type: unet_tiny
-  channels: 3
-  base_channels: 32
-  depth: 2
 data:
-  source: cifar10
-  root: data
   channels: 3
-  height: 32
-  width: 32
   download: false
+  height: 32
+  root: data
+  source: cifar10
+  width: 32
+diffusion:
+  beta_schedule: cosine
+  loss_threshold: null
+  num_timesteps: 1000
+  prediction_type: eps
+  snr_transform: snr
+  snr_weighting: false
+  time_embed_dim: 128
+evaluation:
+  image_size: null
+  reference_dir: null
+  use_fid: false
+loss:
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+  reduction: mean
+  spectral_weighting: none
+model:
+  base_channels: 32
+  channels: 3
+  depth: 2
+  type: unet_tiny
+optim:
+  lr: 0.0001
+  weight_decay: 0.0
+sampling:
+  enabled: false
+  num_samples: 16
+  num_steps: 1000
+  sampler_type: dpm_solver++
+spectral:
+  apply_to:
+  - input
+  - output
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+  enabled: true
+  freq_attention: true
+  freq_equalized_noise: true
+  normalize: true
+  per_block: false
+  weighting: radial
 training:
   batch_size: 32
   epochs: 1
-  num_batches: null
   log_every: 100
-optim:
-  lr: 1.0e-4
-  weight_decay: 0.0
-spectral:
-  enabled: true
-  normalize: true
-  weighting: radial
-  freq_equalized_noise: true
-  freq_attention: true
-  apply_to:
-    - input
-    - output
-  per_block: false
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
-diffusion:
-  num_timesteps: 1000
-  beta_schedule: cosine
-  prediction_type: eps
-  snr_weighting: false
-  snr_transform: snr
-  loss_threshold: null
-  time_embed_dim: 128
-loss:
-  reduction: mean
-  spectral_weighting: none
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
-sampling:
-  enabled: false
-  sampler_type: dpm-solver
-  num_samples: 16
-  num_steps: 1000
-evaluation:
-  reference_dir: null
-  use_fid: false
-  image_size: null
+  num_batches: null

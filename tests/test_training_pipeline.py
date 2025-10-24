@@ -88,3 +88,14 @@ def test_training_pipeline_reports_spectral_stats(tmp_path):
     assert metrics["loss_mean"] is not None
     assert metrics["spectral_calls"] >= 1.0
     assert metrics["spectral_time_seconds"] >= 0.0
+
+
+def test_generate_samples_falls_back_to_ddpm(tmp_path):
+    torch.manual_seed(0)
+    config = copy.deepcopy(_build_base_config())
+    config["sampling"]["sampler_type"] = "not_a_sampler"
+    pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
+
+    result = pipeline.generate_samples()
+    assert result["sampler_type"] == "ddpm"
+    assert result["images_dir"].exists()

@@ -59,8 +59,8 @@ def _run_training(
     result = train_from_config(config_path=effective_config, dry_run=dry_run)
     run_id = result["run_id"]
     metrics_path = Path(result["metrics_path"])
-    log_dir = Path(result["config_path"]).parent
-    run_log = log_dir / "run.log"
+    run_dir = Path(result["config_path"]).parent
+    run_log = run_dir / "logs" / "train.log"
 
     _assert_exists(metrics_path, run_id)
     _assert_exists(run_log, run_id)
@@ -122,7 +122,7 @@ def validate(cleanup_temp: bool = True, cleanup_runs: bool = True) -> Dict[str, 
             temp_configs=temp_configs,
         )
 
-        summary_path = Path("results/summary.csv")
+        summary_path = Path(result["metrics_path"]).parents[3] / "summary.csv"
         _assert_exists(summary_path)
 
         print("Validation metrics:", result["metrics"])
@@ -133,6 +133,7 @@ def validate(cleanup_temp: bool = True, cleanup_runs: bool = True) -> Dict[str, 
                 run_id=dry_result["run_id"],
                 run_dir=run_dir,
                 metrics_path=Path(dry_result["metrics_path"]),
+                summary_path=Path(dry_result["metrics_path"]).parents[3] / "summary.csv",
             )
             print(f"Removed dry-run artifacts for run: {dry_result['run_id']}")
 
