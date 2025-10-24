@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional, Type
 import torch
 from torch import nn
 
+from .model_unet_spectral import SpectralUNet
 from .model_unet_tiny import TinyUNet
 
 
@@ -38,6 +39,7 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "baseline": BaselineConvModel,
     "baseline_conv": BaselineConvModel,
     "unet_tiny": TinyUNet,
+    "unet_spectral": SpectralUNet,
 }
 
 
