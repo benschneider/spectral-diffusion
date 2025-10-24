@@ -87,7 +87,7 @@ def train_from_config(
 ) -> Dict[str, Any]:
     """Load configuration, execute training, and log artifacts."""
     logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
-    logger = logging.getLogger("spectral_diffusion.train")
+    logger = logging.getLogger("train")
 
     config = load_config(config_path=config_path)
     apply_variant_override(config=config, variant=variant)

@@ -92,6 +92,7 @@ Curious about the spectral weighting, FFT/iFFT flow, or why we track high-freque
 | Synthetic vs Spectral benchmark | `scripts/run_spectral_benchmark.sh` |
 | CIFAR-10 benchmark | `python train.py --config configs/benchmark_spectral_cifar.yaml ...` |
 | Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` |
+| Smoke report (fast check) | `scripts/run_smoke_report.sh` |
 | Make plots & summary | `python scripts/figures/generate_figures.py` |
 | Full pipeline (benchmarks + Taguchi + figures) | `scripts/run_full_report.sh` |
 
@@ -112,6 +113,7 @@ Looking to extend the project? See **`docs/spectral_model_research.md`** for the
 ## Documentation bundle
 - **[`docs/theory.md`](docs/theory.md)** – Layperson-friendly explanation of spectral diffusion concepts.
 - **[`docs/architecture.md`](docs/architecture.md)** – How configs, pipelines, samplers, and reports connect.
+- **[`docs/config_reference.md`](docs/config_reference.md)** – CLI flags, YAML fields, and automation scripts at a glance.
 - **[`docs/spectral_model_research.md`](docs/spectral_model_research.md)** – Roadmap, experiments, next hypotheses.
 - **[`docs/taguchi_tips.md`](docs/taguchi_tips.md)** – How to read the Taguchi S/N reports.
 - **[`docs/figures/summary.md`](docs/figures/summary.md)** – Latest benchmark narrative after running the full report.

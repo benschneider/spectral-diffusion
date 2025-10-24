@@ -5,14 +5,35 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 export PYTHONPATH="$ROOT_DIR"
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 
-SYN_DIR="$ROOT_DIR/results/spectral_benchmark"
-CIFAR_DIR="$ROOT_DIR/results/spectral_benchmark_cifar"
-TAG_DIR="$ROOT_DIR/results/taguchi_full"
-FIG_DIR="$ROOT_DIR/docs/figures"
+if [[ $# -ge 1 ]]; then
+  BASE_DIR="$1"
+else
+  BASE_DIR="$ROOT_DIR/results/full_report_$(date +%Y%m%d_%H%M%S)"
+fi
+
+SYN_DIR="$BASE_DIR/synthetic"
+CIFAR_DIR="$BASE_DIR/cifar"
+TAG_DIR="$BASE_DIR/taguchi"
+FIG_DIR="$BASE_DIR/figures"
+
+mkdir -p "$SYN_DIR" "$CIFAR_DIR" "$TAG_DIR" "$FIG_DIR"
 
 run_synthetic() {
   echo "[1/4] Synthetic benchmark (TinyUNet vs SpectralUNet)"
-  bash "$ROOT_DIR/scripts/run_spectral_benchmark.sh"
+  rm -f "$SYN_DIR/summary.csv"
+  rm -rf "$SYN_DIR/runs"
+  mkdir -p "$SYN_DIR"
+
+  python "$ROOT_DIR/train.py" \
+    --config "$ROOT_DIR/configs/benchmark_spectral.yaml" \
+    --output-dir "$SYN_DIR" \
+    --run-id "synthetic_tiny"
+
+  python "$ROOT_DIR/train.py" \
+    --config "$ROOT_DIR/configs/benchmark_spectral.yaml" \
+    --output-dir "$SYN_DIR" \
+    --run-id "synthetic_spectral" \
+    --variant spectral
 }
 
 run_cifar() {

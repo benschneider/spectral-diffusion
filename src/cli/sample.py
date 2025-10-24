@@ -98,7 +98,7 @@ def sample_from_run(
     sample_dir = run_dir / "samples" / sample_tag
     sample_dir.mkdir(parents=True, exist_ok=True)
 
-    logger = logging.getLogger("spectral_diffusion.sample")
+    logger = logging.getLogger("sample")
     logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
     pipeline = TrainingPipeline(config=config, work_dir=sample_dir, logger=logger)

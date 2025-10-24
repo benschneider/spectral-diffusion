@@ -1,0 +1,60 @@
+model:
+  type: unet_tiny
+  channels: 3
+  base_channels: 16
+  depth: 1
+
+data:
+  source: cifar10
+  root: data
+  channels: 3
+  height: 32
+  width: 32
+  download: false
+
+training:
+  batch_size: 32
+  epochs: 1
+  num_batches: 3
+  log_every: 1
+
+optim:
+  lr: 2.0e-4
+  weight_decay: 0.0
+
+diffusion:
+  num_timesteps: 300
+  beta_schedule: cosine
+  prediction_type: eps
+  snr_weighting: false
+  snr_transform: snr
+  loss_threshold: null
+  time_embed_dim: 64
+
+loss:
+  reduction: mean
+  spectral_weighting: none
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+
+spectral:
+  enabled: false
+  normalize: true
+  weighting: none
+  freq_equalized_noise: false
+  freq_attention: false
+  apply_to: [input, output]
+  per_block: false
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+
+sampling:
+  enabled: false
+  sampler_type: ddpm
+  num_samples: 8
+  num_steps: 20
+
+evaluation:
+  reference_dir: null
+  use_fid: false
+  image_size: null
