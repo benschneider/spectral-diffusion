@@ -126,6 +126,16 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
     choices_map = descriptions.get("taguchi_choices", {})
     labels = [f"{factor}\n{choices_map.get(factor, '')}".strip() for factor in factors]
 
+    for idx, level in enumerate(levels):
+        values = []
+        for factor in factors:
+            row = df[(df["factor"] == factor) & (df["level"] == level)]
+            values.append(row["snr"].values[0] if not row.empty else np.nan)
+        offsets = x + (idx - (len(levels) - 1) / 2) * width
+        ax.scatter(offsets, values, color=colors[idx], label=f"Level {level}")
+        for xv, yv in zip(offsets, values):
+            ax.annotate(f"{yv:.1f}", (xv, yv), textcoords="offset points", xytext=(0, 4), ha="center", fontsize=8)
+
     ax.set(title="Taguchi Signal-to-Noise Ratios", xlabel="Factor", ylabel="S/N (dB)")
     ax.set_xticks(x, labels, rotation=12, ha="right")
     ax.legend(title="Level", loc="best")

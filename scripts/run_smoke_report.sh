@@ -55,9 +55,9 @@ run_taguchi() {
 
 generate_report() {
   echo "[4/4] Generating smoke report"
-  python "$ROOT_DIR/scripts/figures/clean_summaries.py" \
-    "$SYN_DIR/summary.csv" \
-    "$CIFAR_DIR/summary.csv"
+python "$ROOT_DIR/scripts/figures/clean_summaries.py" \
+  "$SYN_DIR/summary.csv" \
+  "$CIFAR_DIR/summary.csv"
   python "$ROOT_DIR/scripts/figures/generate_figures.py" \
     --synthetic-dir "$SYN_DIR" \
     --cifar-dir "$CIFAR_DIR" \
