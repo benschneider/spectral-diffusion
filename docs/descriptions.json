@@ -1,0 +1,14 @@
+{
+  "synthetic_benchmark": {
+    "title": "Synthetic Benchmark (8\u00d78 random images)",
+    "description": "We compare how quickly the spatial TinyUNet and the spectral version learn to reconstruct tiny synthetic images."
+  },
+  "cifar_benchmark": {
+    "title": "CIFAR-10 Reconstruction Benchmark",
+    "description": "Same comparison on real CIFAR-10 data to show the accuracy vs. training speed trade-off."
+  },
+  "taguchi_analysis": {
+    "title": "Taguchi Factor Sweep",
+    "description": "We run a Taguchi orthogonal array to see which frequency-processing settings and sampler choices matter most for convergence speed."
+  }
+}

@@ -4,9 +4,7 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 
 | Status | Area | Current Status | Immediate Next Step | Dependency | Notes / Implementation Tip |
 | - | - | - | - | - | - |
-| ✅ | Spectral model research | Synthetic & CIFAR-10 benchmarks captured (`results/spectral_benchmark*`) | Analyse throughput/quality trade-offs; tune spectral hyperparameters | Spectral utilities | Compare loss/runtime metrics; consider spectral regularisation |
 | 🟡 | Sampler support (DDIM/DPM-Solver++) | DDPM, DDIM, DPM-Solver++ available | Prototype ancestral/DDPM++ variants & schedule-aware steppers | Sampler framework | Necessary for fair spectral comparisons in arrays |
-| ✅ | Taguchi S/N analysis | CLI auto-generates reports; scripts consume them | Build notebooks/dashboards to visualise factor rankings | Taguchi runner outputs | Generates `taguchi_report.csv` with S/N ratios per factor |
 | 🟡 | Evaluation metrics | Folder-level MSE/MAE/PSNR, opt. FID via torchmetrics | Add LPIPS + integrate sampler outputs for FID/LPIPS | Diffusion sampling | Uses PIL & torchvision; warns if torchmetrics missing |
 | 🟡 | Testing / CI | Pytests for FFT, TinyUNet, Taguchi, training pipeline, CLI smoke tests, sampler registry | Next: (c) evaluate CLI suite with real metrics, baseline equivalence + CI workflow | Pipeline architecture | Reuse synthetic configs; keep CPU-only path fast |
 | ⬜ | Logging polish | Console logging ready; log-level flags available | Add JSONL logs & richer diagnostics for long runs | Independent | Consider optional `--json-log` flag emitting structured entries |
@@ -15,6 +13,8 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 | 🟡 | Diffusion sampling & image metrics | DDPM/DDIM/DPM-Solver++ samplers callable post-training; evaluation CLI writes FID/LPIPS metrics JSON | Integrate FID/LPIPS into reporting dashboards; explore batch inference tooling | Real training components | Samples now live under `results/runs/<run_id>/samples/<tag>/`; evaluation updates metadata when requested |
 | ⬜ | Documentation | README updated | Add `docs/theory.md` & `docs/experiments.md` with focused guides | None | Keep README concise, document flow-matching roadmap |
 | 🟡 | Spectral utilities | SpectralAdapter integrated (input/output/per-block) | Expand weighting options & adapter strength mixing | None | Adapter handles FFT/iFFT; timing & loss weighting tracked separately |
+| ✅ | Spectral model research | Synthetic & CIFAR-10 benchmarks captured (`results/spectral_benchmark*`) | Analyse throughput/quality trade-offs; tune spectral hyperparameters | Spectral utilities | Compare loss/runtime metrics; consider spectral regularisation |
+| ✅ | Taguchi S/N analysis | CLI auto-generates reports; scripts consume them | Build notebooks/dashboards to visualise factor rankings | Taguchi runner outputs | Generates `taguchi_report.csv` with S/N ratios per factor |
 | ✅ | FFT timing instrumentation | CPU/CUDA timing captured per adapter; metrics recorded | Report sampling/training breakdown in analysis scripts | Spectral utilities | Exposed as `spectral_*_time_seconds` and sampling counterparts |
 | ✅ | Pipeline architecture | Training/sampling/evaluation split with run-dir layout documented; scripts & validation updated | Monitor downstream tooling and consolidate legacy aliases when safe | None | `results/runs/<run_id>/...` now hosts configs/logs/metrics/checkpoints/samples; smoke + Taguchi scripts target new paths |
 | ✅ | Real training components | Diffusion training loop active (ε-pred, cosine schedule) | Next: v/x0 prediction, sampling utilities | Spectral utilities | Baseline-conv path remains for synthetic smoke tests |
