@@ -52,6 +52,10 @@ sampling:
   num_samples: 8
   num_steps: 20
 
+initialization:
+  strategy: default
+  scale: 0.02
+
 evaluation:
   reference_dir: null
   use_fid: false

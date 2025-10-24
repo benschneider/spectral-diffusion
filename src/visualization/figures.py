@@ -69,6 +69,7 @@ DEFAULT_TAGUCHI_LABELS: dict[str, str] = {
     "B": "Spectral attention",
     "C": "Sampler",
     "D": "Spectral adapters",
+    "E": "Cross-domain init",
 }
 
 

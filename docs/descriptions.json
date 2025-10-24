@@ -15,6 +15,7 @@
     "A": "Freq-equalized noise (off/on)",
     "B": "Spectral attention (off/on)",
     "C": "Sampler (DDIM/DPM-Solver++)",
-    "D": "Spectral adapters enabled (off/on)"
+    "D": "Spectral adapters enabled (off/on)",
+    "E": "Cross-domain init (random/GPT-2)"
   }
 }
