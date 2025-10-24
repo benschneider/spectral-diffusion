@@ -11,6 +11,7 @@ from torchvision import datasets, transforms
 from src.core import build_model, get_loss_fn
 from src.core.functional import compute_snr_weight, compute_target
 from src.evaluation.metrics import compute_basic_metrics
+from src.training.sampling import sample_ddpm
 from src.training.scheduler import build_diffusion, sample_timesteps
 
 
@@ -222,8 +223,51 @@ class TrainingPipeline:
         )
         if hasattr(self.model, "spectral_stats"):
             metrics.update(self.model.spectral_stats())
+
+        # Sampling (optional)
+        data_cfg = self.config.get("data", {})
+        model_cfg = self.config.get("model", {})
+        channels = int(model_cfg.get("channels") or data_cfg.get("channels", 3))
+        height = int(data_cfg.get("height", 32))
+        width = int(data_cfg.get("width", 32))
+        self.run_sampling(coeffs, (channels, height, width), metrics)
+
         self.logger.info("Training metrics: %s", metrics)
         return metrics
+
+    def run_sampling(self, coeffs, shape, metrics: Dict[str, Any]) -> None:
+        sampling_cfg = self.config.get("sampling", {})
+        if not sampling_cfg.get("enabled", False):
+            return
+
+        sampler_type = sampling_cfg.get("sampler_type", "ddpm").lower()
+        num_samples = int(sampling_cfg.get("num_samples", 16))
+        num_steps = int(sampling_cfg.get("num_steps", coeffs.betas.shape[0]))
+
+        images_dir = self.work_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        if sampler_type != "ddpm":
+            raise ValueError(f"Sampler '{sampler_type}' not supported yet")
+
+        samples = sample_ddpm(
+            model=self.model,
+            coeffs=coeffs,
+            num_samples=num_samples,
+            shape=shape,
+            num_steps=num_steps,
+            device=self.device,
+        )
+
+        from torchvision.utils import save_image
+
+        grid_path = images_dir / "grid.png"
+        save_image((samples + 1) / 2.0, grid_path, nrow=int(num_samples**0.5), clamp=True)
+
+        for idx, img in enumerate(samples):
+            save_image((img + 1) / 2.0, images_dir / f"sample_{idx:03d}.png", clamp=True)
+
+        metrics["sampling_images_dir"] = str(images_dir)
 
     def save_checkpoint(self, step: int) -> Path:
         checkpoint_dir = self.work_dir / "checkpoints"
