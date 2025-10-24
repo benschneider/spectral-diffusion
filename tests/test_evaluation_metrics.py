@@ -6,7 +6,7 @@ import pytest
 import torch
 from PIL import Image
 
-from src.evaluation.metrics import FID_AVAILABLE, compute_dataset_metrics
+from src.evaluation.metrics import FID_AVAILABLE, LPIPS_AVAILABLE, compute_dataset_metrics
 
 
 def _write_image(path: Path, array: np.ndarray) -> None:
@@ -62,3 +62,22 @@ def test_compute_dataset_metrics_fid_optional(tmp_path):
     else:
         with pytest.raises(RuntimeError):
             compute_dataset_metrics(gen_dir, ref_dir, use_fid=True, strict_filenames=False)
+
+
+def test_compute_dataset_metrics_lpips_optional(tmp_path):
+    gen_dir = tmp_path / "gen"
+    ref_dir = tmp_path / "ref"
+    gen_dir.mkdir()
+    ref_dir.mkdir()
+
+    array = np.zeros((16, 16, 3))
+    _write_image(gen_dir / "img.png", array)
+    _write_image(ref_dir / "img.png", array)
+
+    if LPIPS_AVAILABLE:
+        metrics = compute_dataset_metrics(gen_dir, ref_dir, use_lpips=True)
+        assert "lpips" in metrics
+        assert metrics["lpips"] == pytest.approx(0.0, abs=1e-5)
+    else:
+        with pytest.raises(RuntimeError):
+            compute_dataset_metrics(gen_dir, ref_dir, use_lpips=True)

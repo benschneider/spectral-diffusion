@@ -16,6 +16,11 @@ from src.cli.common import (
 )
 from src.training import TrainingPipeline
 
+try:  # pragma: no cover - optional dependency already handled downstream
+    from src.analysis.taguchi_stats import generate_taguchi_report
+except Exception:  # pragma: no cover
+    generate_taguchi_report = None  # type: ignore
+
 
 class TaguchiExperimentRunner:
     """Automate Taguchi design experiments across spectral diffusion variants."""
@@ -29,11 +34,19 @@ class TaguchiExperimentRunner:
         """Load the Taguchi orthogonal array describing the experiment batch."""
         return pd.read_csv(self.design_matrix_path)
 
-    def run_batch(self, output_dir: Path, logger=None) -> List[Dict[str, Any]]:
+    def run_batch(
+        self,
+        output_dir: Path,
+        logger=None,
+        report_metric: Optional[str] = None,
+        report_mode: str = "larger",
+        report_path: Optional[Path] = None,
+    ) -> List[Dict[str, Any]]:
         """Run a batch of experiments defined by the Taguchi design."""
         results: List[Dict[str, Any]] = []
         output_dir = Path(output_dir)
         summary_path = output_dir / "summary.csv"
+        log = logger or logging.getLogger("spectral_diffusion.taguchi")
 
         for idx, row in self.design.iterrows():
             run_id = self._make_run_id(index=idx)
@@ -67,6 +80,21 @@ class TaguchiExperimentRunner:
                     "metrics": metrics,
                 }
             )
+
+        if report_metric and generate_taguchi_report is not None:
+            report_target = report_path or (output_dir / "taguchi_report.csv")
+            try:
+                generate_taguchi_report(
+                    summary_path=summary_path,
+                    metric=report_metric,
+                    mode=report_mode,
+                    output_path=report_target,
+                )
+                log.info("Taguchi report written to %s", report_target)
+            except ValueError as exc:
+                log.warning("Unable to generate Taguchi report: %s", exc)
+        elif report_metric:
+            log.warning("Taguchi report requested but dependency not available. Install pandas/yaml.")
         return results
 
     def _build_config_from_row(self, row: pd.Series) -> Dict[str, Any]:
@@ -89,7 +117,7 @@ class TaguchiExperimentRunner:
         if "B" in row:
             cfg["spectral"]["freq_attention"] = int(row["B"]) == 2
         if "C" in row:
-            cfg["sampling"]["sampler_type"] = "dpm-solver" if int(row["C"]) == 2 else "ddim"
+            cfg["sampling"]["sampler_type"] = "dpm_solver++" if int(row["C"]) == 2 else "ddim"
 
         taguchi_meta = cfg.setdefault("taguchi", {})
         taguchi_meta["row"] = row.to_dict()
@@ -101,10 +129,22 @@ class TaguchiExperimentRunner:
         return f"taguchi_{index:03d}_{timestamp}"
 
 
-def run_experiments(design_matrix: Path, config: Dict[str, Any], output_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+def run_experiments(
+    design_matrix: Path,
+    config: Dict[str, Any],
+    output_dir: Optional[Path] = None,
+    report_metric: Optional[str] = None,
+    report_mode: str = "larger",
+    report_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
     """Convenience wrapper function for running a Taguchi batch."""
     runner = TaguchiExperimentRunner(design_matrix_path=design_matrix, base_config=config)
-    return runner.run_batch(output_dir=output_dir or Path("results"))
+    return runner.run_batch(
+        output_dir=output_dir or Path("results"),
+        report_metric=report_metric,
+        report_mode=report_mode,
+        report_path=report_path,
+    )
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
@@ -120,6 +160,24 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         help="Directory to store run artifacts",
     )
     parser.add_argument("--log-level", default="INFO", help="Logging level")
+    parser.add_argument(
+        "--report-metric",
+        type=str,
+        default="loss_drop_per_second",
+        help="Metric column to analyze for Taguchi S/N reporting",
+    )
+    parser.add_argument(
+        "--report-mode",
+        choices=["larger", "smaller"],
+        default="larger",
+        help="S/N mode for Taguchi report",
+    )
+    parser.add_argument(
+        "--report-path",
+        type=Path,
+        default=None,
+        help="Optional override for Taguchi report output path",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
@@ -131,6 +189,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         design_matrix=args.array,
         config=base_config,
         output_dir=args.output_dir,
+        report_metric=args.report_metric,
+        report_mode=args.report_mode,
+        report_path=args.report_path,
     )
 
     print(f"Completed {len(results)} Taguchi runs. Summary stored in {args.output_dir}/summary.csv")

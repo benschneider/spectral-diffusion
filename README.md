@@ -81,8 +81,13 @@ pip install -r requirements.txt
 mkdir -p data
 curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz -o data/cifar-10-python.tar.gz
 tar -xzf data/cifar-10-python.tar.gz -C data
-python train_model.py --config configs/baseline.yaml --dry-run   # sanity check
-python train_model.py --config configs/baseline.yaml              # diffusion training (ε-pred)
+RUN_ID=quickstart
+python train.py --config configs/baseline.yaml --run-id "$RUN_ID" --dry-run   # sanity check
+python train.py --config configs/baseline.yaml --run-id "$RUN_ID"             # diffusion training (ε-pred)
+python sample.py --run-dir results/runs/"$RUN_ID" --sampler-type dpm_solver++ --tag quickstart_solver --num-samples 8 --num-steps 50
+# Optional: evaluate samples against a reference folder
+python evaluate.py --generated-dir results/runs/"$RUN_ID"/samples/quickstart_solver --reference-dir path/to/reference --use-lpips
+# Legacy alias (still supported): python train_model.py ...
 # Optional Taguchi batch
 python -m src.experiments.run_experiment
 # Validation helper (removes dry-run artifacts unless --keep-artifacts is provided)
@@ -105,7 +110,14 @@ scripts/report_summary.py --metric loss_drop_per_second --top 5 --include-factor
 # (Set OMP_NUM_THREADS=1 if your environment restricts shared-memory allocs)
 ```
 
-Results and metrics will appear in `results/summary.csv`.
+Results are rooted at `results/` by default:
+
+- `results/summary.csv` – append-only ledger of run metrics.
+- `results/runs/<run_id>/config.yaml` – frozen config snapshot.
+- `results/runs/<run_id>/logs/train.log` – per-run log.
+- `results/runs/<run_id>/metrics/<run_id>.json` – structured metrics.
+- `results/runs/<run_id>/checkpoints/*.pt` – saved model weights.
+- `results/runs/<run_id>/samples/<tag>/` – generated images, `grid.png`, and `metadata.json` describing sampler parameters and evaluation results.
 
 ---
 
@@ -122,12 +134,12 @@ Results and metrics will appear in `results/summary.csv`.
 - **Enable spectral processing:** set `spectral.enabled: true`, choose `spectral.weighting` (`none`, `radial`, `bandpass`), and configure `spectral.apply_to` (`input`, `output`, or both) plus `spectral.per_block` if you want adapters around each UNet block.
 - **Spectral-weighted losses:** set `loss.spectral_weighting` (`none`, `radial`, `bandpass`) to apply weighting in frequency space before the MSE reduction. Adjust `loss.bandpass_inner/outer` to tune the bandpass mask.
 - **Spectral factors in Taguchi arrays:** see `configs/taguchi_spectral_array.csv` + `configs/taguchi_spectral_array.yaml.md` for how factors `A..D` map to `spectral.enabled`, `spectral.weighting`, `loss.spectral_weighting`, and `sampling.sampler_type`.
-- **Generate samples:** set `sampling.enabled: true`, choose `sampling.sampler_type` (`ddpm` today), and specify `num_samples` / `num_steps`. Generated images land in `results/logs/<run_id>/images/` and include a `grid.png` preview.
-- **Evaluate samples:** add an `evaluation` block with `reference_dir`, optional `image_size`, and `use_fid`. After sampling, pixel metrics (MSE/MAE/PSNR) and optional FID are logged and appended to `results/summary.csv`.
+- **Generate samples:** after training, run `sample.py --run-dir results/runs/<run_id> --sampler-type <ddpm|ddim|dpm_solver++>` to write images and metadata under `samples/<tag>/`.
+- **Evaluate samples:** use `evaluate.py --generated-dir ... --reference-dir ... --use-fid --use-lpips` to compute pixel metrics plus FID/LPIPS (when torchmetrics is installed). The metrics JSON is stored alongside the samples and, when `--update-metadata` is set, persisted in `metadata.json`.
 - **Analyze Taguchi batches:** once `results/summary.csv` has multiple runs, generate factor S/N rankings with `python -m src.analysis.taguchi_stats --summary results/summary.csv --metric loss_drop_per_second --mode larger --output results/taguchi_report.csv`.
 - **Tune diffusion behaviour:** edit the `diffusion` block (`num_timesteps`, `beta_schedule`, `prediction_type`, `snr_weighting`, `loss_threshold`, `time_embed_dim`).
 - **Run Taguchi sweeps:** keep base settings in `configs/baseline.yaml`, adjust factors in `configs/L8_array.csv`, and execute `python -m src.experiments.run_experiment`.
-- **Inspect results:** per-run metrics live in `results/metrics/<run_id>.json`; `results/summary.csv` aggregates efficiency data for notebooks.
+- **Inspect results:** per-run artifacts live in `results/runs/<run_id>/...`; `results/summary.csv` aggregates efficiency data for notebooks and dashboards.
 - **Benchmarks & tests:** run `python benchmarks/benchmark_fft.py ...` for forward throughput and `python -m pytest tests/test_*` for unit coverage.
 - **Evaluate image quality:** call `compute_dataset_metrics` from `src.evaluation.metrics` to score generated vs reference folders (MSE/MAE/PSNR, optional FID when torchmetrics is installed).
 
@@ -157,7 +169,7 @@ This highlights the shared diffusion loop. Spectral toggles route data through F
 
 ```mermaid
 flowchart LR
-    A["Config YAML"] --> B["train_model.py"]
+    A["Config YAML"] --> B["train.py / train_model.py (alias)"]
     B --> C["TrainingPipeline"]
     C --> D["Diffusion Loop"]
     D --> E["metrics JSON"]
@@ -196,7 +208,7 @@ flowchart TD
     R --> S["build_model()<br/>nn.Module"]
 ```
 
-- `train_model.py` passes the full config to `build_model()` (`src/core/model.py`).
+- `train.py` (and the legacy alias `train_model.py`) passes the full config to `build_model()` (`src/core/model.py`).
 - `MODEL_REGISTRY` maps type strings to constructors. Register additional architectures here.
 - `BaselineConvModel` suits synthetic smoke tests; `TinyUNet` targets 32×32 CIFAR-10 reconstructions.
 
@@ -217,16 +229,18 @@ flowchart TD
 
 ### What Gets Logged & How to Read It
 
-- `results/logs/<run_id>/run.log` – chronological training messages (loss snapshots, runtime).
-- `results/logs/<run_id>/config.yaml` – frozen effective configuration.
-- `results/metrics/<run_id>.json` – structured metrics:
+- `results/runs/<run_id>/config.yaml` – frozen effective configuration (exactly what the run saw).
+- `results/runs/<run_id>/logs/train.log` – chronological training messages (loss snapshots, runtime, warnings).
+- `results/runs/<run_id>/metrics/<run_id>.json` – structured metrics:
   - `loss_mean`, `loss_last`, `mae_mean` → reconstruction quality proxies.
   - `runtime_seconds`, `num_steps`, `epochs` → throughput and coverage.
   - `steps_per_second`, `images_per_second`, `runtime_per_epoch` → throughput/efficiency.
   - `loss_initial`, `loss_final`, `loss_drop`, `loss_drop_per_second` → convergence speed indicators.
-  - `loss_threshold_*` entries (optional) record when a configured target loss is reached.
+  - `loss_threshold_*` entries record when a configured target loss is reached (if provided).
   - `spectral_calls`, `spectral_time_seconds` → FFT usage/overhead when spectral mode is enabled.
-- `results/summary.csv` – append-only ledger linking run IDs to config/metrics; Taguchi batches now append here automatically.
+- `results/runs/<run_id>/checkpoints/` – model weights saved during/after training.
+- `results/runs/<run_id>/samples/<tag>/` – generated images (`grid.png`, `sample_*.png`) plus `metadata.json` describing sampler settings and evaluation results.
+- `results/summary.csv` – append-only ledger linking run IDs to config/metrics; Taguchi batches append here automatically.
 - `validate_setup.py` removes its dry-run artifacts by default; pass `--keep-artifacts` to inspect them.
 
 > ❗️Still in progress:

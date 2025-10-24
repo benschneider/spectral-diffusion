@@ -18,6 +18,14 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - optional dependency
     FrechetInceptionDistance = None  # type: ignore
 
+LPIPS_AVAILABLE = False
+try:  # pragma: no cover - optional dependency
+    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+
+    LPIPS_AVAILABLE = True
+except Exception:  # pragma: no cover - optional dependency
+    LearnedPerceptualImagePatchSimilarity = None  # type: ignore
+
 
 def compute_basic_metrics(
     loss_history: Iterable[float],
@@ -75,6 +83,7 @@ def compute_dataset_metrics(
     reference_dir: Path | str,
     image_size: Optional[Sequence[int]] = None,
     use_fid: bool = False,
+    use_lpips: bool = False,
     strict_filenames: bool = True,
 ) -> Dict[str, Any]:
     """Compute pixel-wise metrics across image folders, optionally FID."""
@@ -103,6 +112,11 @@ def compute_dataset_metrics(
         if not FID_AVAILABLE:
             raise RuntimeError("torchmetrics not installed. Install torchmetrics to compute FID.")
         fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=False)
+    lpips_metric = None
+    if use_lpips:
+        if not LPIPS_AVAILABLE:
+            raise RuntimeError("torchmetrics not installed. Install torchmetrics to compute LPIPS.")
+        lpips_metric = LearnedPerceptualImagePatchSimilarity(net_type="vgg")
 
     for gen_path, ref_path in paired:
         fake = _load_image_tensor(gen_path, image_size=image_size)
@@ -119,11 +133,18 @@ def compute_dataset_metrics(
             fake_uint8 = (fake * 255.0).clamp(0, 255).to(torch.uint8)
             fid_metric.update(real_uint8.unsqueeze(0), real=True)
             fid_metric.update(fake_uint8.unsqueeze(0), real=False)
+        if lpips_metric is not None:
+            real_lpips = real.mul(2.0).sub(1.0).unsqueeze(0)
+            fake_lpips = fake.mul(2.0).sub(1.0).unsqueeze(0)
+            lpips_metric.update(fake_lpips, real_lpips)
 
     summary = {key: float(np.mean(values)) for key, values in pair_metrics.items()}
     if fid_metric is not None:
         fid_value = fid_metric.compute().item()
         summary["fid"] = fid_value
+    if lpips_metric is not None:
+        lpips_value = lpips_metric.compute().item()
+        summary["lpips"] = lpips_value
     return summary
 
 
@@ -134,7 +155,9 @@ def compute_fid(generated_path: str, reference_path: str) -> Optional[float]:
 
 
 def compute_lpips(generated_path: str, reference_path: str) -> Optional[float]:
-    raise NotImplementedError("LPIPS computation not yet implemented")
+    raise NotImplementedError(
+        "Use compute_dataset_metrics(..., use_lpips=True) with image folders to compute LPIPS."
+    )
 
 
 def compute_runtime_stats(runtime_seconds: float, num_steps: int) -> Dict[str, Any]:

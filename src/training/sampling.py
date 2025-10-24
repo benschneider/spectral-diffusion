@@ -83,8 +83,93 @@ class DDPMSampler(Sampler):
         return x
 
 
+class DDIMSampler(Sampler):
+    """Deterministic DDIM sampler (eta=0)."""
+
+    @torch.no_grad()
+    def sample(
+        self,
+        num_samples: int,
+        shape: Sequence[int],
+        num_steps: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        self.model.eval()
+        coeffs = self.coeffs
+        total_steps = coeffs.betas.shape[0]
+        timesteps = _make_timesteps(num_steps, total_steps, device)
+        t_list = timesteps.tolist()
+
+        x = torch.randn(num_samples, *shape, device=device)
+
+        for idx, t in enumerate(t_list):
+            next_t = t_list[idx + 1] if idx + 1 < len(t_list) else -1
+            t_batch = torch.full((num_samples,), t, device=device, dtype=torch.long)
+            eps = self.model(x, t_batch)
+
+            alpha_t = coeffs.alphas_cumprod[t].to(device=device).view(1, 1, 1, 1)
+            sqrt_alpha_t = torch.sqrt(alpha_t)
+            sqrt_one_minus_t = torch.sqrt(1.0 - alpha_t)
+
+            pred_x0 = (x - sqrt_one_minus_t * eps) / sqrt_alpha_t
+
+            if next_t >= 0:
+                alpha_next = coeffs.alphas_cumprod[next_t].to(device=device).view(1, 1, 1, 1)
+                sqrt_alpha_next = torch.sqrt(alpha_next)
+                sqrt_one_minus_next = torch.sqrt(1.0 - alpha_next)
+                x = sqrt_alpha_next * pred_x0 + sqrt_one_minus_next * eps
+            else:
+                x = pred_x0
+            x = torch.clamp(x, -1.0, 1.0)
+        return x
+
+
+class DPMSolverPlusPlusSampler(Sampler):
+    """First-order DPM-Solver++ in data (x0) parameterization."""
+
+    @torch.no_grad()
+    def sample(
+        self,
+        num_samples: int,
+        shape: Sequence[int],
+        num_steps: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        self.model.eval()
+        coeffs = self.coeffs
+        total_steps = coeffs.betas.shape[0]
+        timesteps = _make_timesteps(num_steps, total_steps, device)
+        t_list = timesteps.tolist()
+
+        x = torch.randn(num_samples, *shape, device=device)
+
+        for idx, t in enumerate(t_list):
+            next_t = t_list[idx + 1] if idx + 1 < len(t_list) else -1
+            t_batch = torch.full((num_samples,), t, device=device, dtype=torch.long)
+            eps = self.model(x, t_batch)
+
+            alpha_t = coeffs.alphas_cumprod[t].to(device=device).view(1, 1, 1, 1)
+            sqrt_alpha_t = torch.sqrt(alpha_t)
+            sigma_t = torch.sqrt(1.0 - alpha_t)
+            pred_x0 = (x - sigma_t * eps) / sqrt_alpha_t
+
+            if next_t >= 0:
+                alpha_next = coeffs.alphas_cumprod[next_t].to(device=device).view(1, 1, 1, 1)
+                sqrt_alpha_next = torch.sqrt(alpha_next)
+                sigma_next = torch.sqrt(1.0 - alpha_next)
+                # Use epsilon re-scaled for first-order DPM-Solver++
+                eps_prime = eps * (sigma_next / sigma_t.clamp_min(1e-8))
+                x = sqrt_alpha_next * pred_x0 + sigma_next * eps_prime
+            else:
+                x = pred_x0
+            x = torch.clamp(x, -1.0, 1.0)
+        return x
+
+
 SAMPLER_REGISTRY: Dict[str, Type[Sampler]] = {
     "ddpm": DDPMSampler,
+    "ddim": DDIMSampler,
+    "dpm_solver++": DPMSolverPlusPlusSampler,
 }
 
 

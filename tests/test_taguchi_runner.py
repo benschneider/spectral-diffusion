@@ -86,3 +86,20 @@ def test_build_config_does_not_mutate_base(tmp_path):
 
     cfg2 = runner._build_config_from_row(first_row)
     assert cfg2.get("spectral", {}).get("freq_attention") is False
+
+
+def test_run_batch_generates_taguchi_report(tmp_path):
+    design_path = tmp_path / "design.csv"
+    _write_design_csv(design_path)
+    runner = TaguchiExperimentRunner(design_matrix_path=design_path, base_config=_base_config())
+
+    results = runner.run_batch(
+        output_dir=tmp_path,
+        report_metric="loss_drop_per_second",
+    )
+
+    assert results
+    report_path = tmp_path / "taguchi_report.csv"
+    assert report_path.exists()
+    df = pd.read_csv(report_path)
+    assert not df.empty

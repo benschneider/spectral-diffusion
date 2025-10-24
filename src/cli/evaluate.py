@@ -38,6 +38,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Compute FID using torchmetrics if available.",
     )
     parser.add_argument(
+        "--use-lpips",
+        action="store_true",
+        help="Compute LPIPS using torchmetrics if available.",
+    )
+    parser.add_argument(
         "--strict-filenames",
         action="store_true",
         help="Require generated/ref directories to share identical filenames.",
@@ -61,6 +66,7 @@ def evaluate_images(
     reference_dir: Path,
     image_size: Optional[Sequence[int]] = None,
     use_fid: bool = False,
+    use_lpips: bool = False,
     strict_filenames: bool = False,
 ) -> Dict[str, Any]:
     return compute_dataset_metrics(
@@ -68,6 +74,7 @@ def evaluate_images(
         reference_dir=reference_dir,
         image_size=image_size,
         use_fid=use_fid,
+        use_lpips=use_lpips,
         strict_filenames=strict_filenames,
     )
 
@@ -77,6 +84,7 @@ def evaluate_directory(
     reference_dir: Path,
     image_size: Optional[Sequence[int]] = None,
     use_fid: bool = False,
+    use_lpips: bool = False,
     strict_filenames: bool = False,
     output_path: Optional[Path] = None,
     update_metadata: bool = False,
@@ -86,6 +94,7 @@ def evaluate_directory(
         reference_dir=reference_dir,
         image_size=image_size,
         use_fid=use_fid,
+        use_lpips=use_lpips,
         strict_filenames=strict_filenames,
     )
     metrics_path = output_path or generated_dir / "metrics.json"
@@ -131,6 +140,7 @@ def main(argv: Optional[Any] = None) -> None:
         reference_dir=args.reference_dir,
         image_size=args.image_size,
         use_fid=args.use_fid,
+        use_lpips=args.use_lpips,
         strict_filenames=args.strict_filenames,
         output_path=args.output,
         update_metadata=args.update_metadata,
