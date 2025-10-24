@@ -2,9 +2,10 @@ import logging
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import pandas as pd
+import yaml
 
 from src.training import TrainingPipeline
 from train_model import (
@@ -104,3 +105,36 @@ def run_experiments(design_matrix: Path, config: Dict[str, Any], output_dir: Opt
     """Convenience wrapper function for running a Taguchi batch."""
     runner = TaguchiExperimentRunner(design_matrix_path=design_matrix, base_config=config)
     return runner.run_batch(output_dir=output_dir or Path("results"))
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run Taguchi experiments")
+    parser.add_argument("--config", type=Path, required=True, help="Base YAML configuration")
+    parser.add_argument("--array", type=Path, required=True, help="Taguchi design CSV")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("results/taguchi_run"),
+        help="Directory to store run artifacts",
+    )
+    parser.add_argument("--log-level", default="INFO", help="Logging level")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+
+    with args.config.open("r", encoding="utf-8") as handle:
+        base_config = yaml.safe_load(handle) or {}
+
+    results = run_experiments(
+        design_matrix=args.array,
+        config=base_config,
+        output_dir=args.output_dir,
+    )
+
+    print(f"Completed {len(results)} Taguchi runs. Summary stored in {args.output_dir}/summary.csv")
+
+
+if __name__ == "__main__":
+    main()
