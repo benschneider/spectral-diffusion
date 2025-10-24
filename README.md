@@ -93,6 +93,8 @@ python benchmarks/benchmark_fft.py --device cpu --batch-size 16
 scripts/run_smoke_test.sh
 # Clean generated run artifacts (preserves summary unless --wipe-summary)
 scripts/clean_results.sh
+# Taguchi smoke batch (synthetic factors + S/N report)
+scripts/run_taguchi_smoke.sh
 # (Set OMP_NUM_THREADS=1 if your environment restricts shared-memory allocs)
 ```
 

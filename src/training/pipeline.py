@@ -277,7 +277,8 @@ class TrainingPipeline:
         images_dir.mkdir(parents=True, exist_ok=True)
 
         if sampler_type != "ddpm":
-            raise ValueError(f"Sampler '{sampler_type}' not supported yet")
+            self.logger.warning("Sampler '%s' not supported; falling back to ddpm", sampler_type)
+            sampler_type = "ddpm"
 
         samples = sample_ddpm(
             model=self.model,
@@ -291,10 +292,10 @@ class TrainingPipeline:
         from torchvision.utils import save_image
 
         grid_path = images_dir / "grid.png"
-        save_image((samples + 1) / 2.0, grid_path, nrow=int(num_samples**0.5), clamp=True)
+        save_image((samples + 1) / 2.0, grid_path, nrow=max(1, int(num_samples**0.5)))
 
         for idx, img in enumerate(samples):
-            save_image((img + 1) / 2.0, images_dir / f"sample_{idx:03d}.png", clamp=True)
+            save_image((img + 1) / 2.0, images_dir / f"sample_{idx:03d}.png")
 
         return images_dir
 
