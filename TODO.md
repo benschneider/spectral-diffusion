@@ -5,7 +5,7 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 | Status | Area | Current Status | Immediate Next Step | Dependency | Notes / Implementation Tip |
 | - | - | - | - | - | - |
 | 🟡 | Spectral utilities | SpectralAdapter integrated (input/output/per-block) | Expand weighting options & adapter strength mixing | None | Adapter handles FFT/iFFT; timing & loss weighting tracked separately |
-| ⬜ | Spectral-weighted losses | Not started | Add `spectral_weighting` option to loss config (radial/bandpass) | Spectral utilities | Compare data shaping vs loss shaping for spectral experiments |
+| ✅ | Spectral-weighted losses | Residual weighting via SpectralAdapter | Consider mixing strategies & per-frequency strength | Spectral utilities | Works with `loss.spectral_weighting` (none/radial/bandpass) |
 | ⬜ | FFT timing instrumentation | Not started | Add CUDA/CPU timers to report precise `spectral_time_seconds` | Spectral Adapter | Use CUDA events + perf_counter fallback |
 | ⬜ | Diffusion sampling & image metrics | Not started | Implement sampler CLI (DDIM/DDPM) writing images for FID/LPIPS | Real training components | Store samples under `results/images/<run_id>/` |
 | ⬜ | Taguchi S/N analysis | Not started | Compute S/N ratios (larger/smaller-the-better) & output `taguchi_report.csv` | Taguchi runner | Use responses like `loss_drop_per_second`, `images_per_second` |
@@ -20,12 +20,12 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 | ✅ | Taguchi runner outputs | Per-run configs/metrics persisted | Next: S/N analysis & factor reporting | Metrics availability | Artifacts mirror single-run structure |
 
 **Execution Order**
-1. Spectral-weighted losses & adapter tuning  
-2. FFT timing instrumentation  
-3. Diffusion sampling & image metrics (FID/LPIPS)  
-4. Taguchi S/N analysis tooling  
-5. Evaluation metrics (LPIPS integration)  
-6. Structured logging & log-level CLI flag  
-7. Testing/CI harness (import, dry-run, baseline equivalence)  
-8. Dataset handling polish  
+1. FFT timing instrumentation  
+2. Diffusion sampling & image metrics (FID/LPIPS)  
+3. Taguchi S/N analysis tooling  
+4. Evaluation metrics (LPIPS integration)  
+5. Structured logging & log-level CLI flag  
+6. Testing/CI harness (import, dry-run, baseline equivalence)  
+7. Dataset handling polish  
+8. Spectral adapter tuning (mixing strategies)  
 9. Documentation & analysis notebooks  
