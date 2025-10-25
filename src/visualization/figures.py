@@ -18,15 +18,24 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("Please install matplotlib to generate figures.") from exc
 
 
+# Font size constants for consistent styling
+TITLE_SIZE = 10
+LABEL_SIZE = 8
+LEGEND_SIZE = 7
+TICK_SIZE = 7
+ANNOT_SIZE = 7
+SUPTITLE_SIZE = 9
+CAPTION_SIZE = 8
+
 def _setup_style() -> None:
     plt.style.use("seaborn-v0_8-paper")
     plt.rcParams.update(
         {
-            "axes.titlesize": 10,
-            "axes.labelsize": 9,
-            "legend.fontsize": 8,
-            "xtick.labelsize": 8,
-            "ytick.labelsize": 8,
+            "axes.titlesize": TITLE_SIZE,
+            "axes.labelsize": LABEL_SIZE,
+            "legend.fontsize": LEGEND_SIZE,
+            "xtick.labelsize": TICK_SIZE,
+            "ytick.labelsize": TICK_SIZE,
             "figure.dpi": 300,
             "figure.constrained_layout.use": True,
         }
@@ -60,7 +69,7 @@ def _bar_ann(ax, bars) -> None:
             textcoords="offset points",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=ANNOT_SIZE,
             color="#555555",
         )
 
@@ -177,7 +186,7 @@ def plot_loss_metrics(df: pd.DataFrame, title: str, out_path: Path) -> None:
     axes[1].set_xticks(x, _label_series(df), rotation=20)
     _bar_ann(axes[1], bars2)
 
-    fig.suptitle(title, fontsize=12)
+    fig.suptitle(title, fontsize=SUPTITLE_SIZE)
     fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
@@ -198,7 +207,7 @@ def plot_runtime_metrics(df: pd.DataFrame, title: str, out_path: Path) -> None:
         ax.set(title=label, xlabel="Model")
         ax.set_xticks(x, _label_series(df), rotation=20)
         _bar_ann(ax, bars)
-    fig.suptitle(title, fontsize=12)
+    fig.suptitle(title, fontsize=11)
     fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
@@ -247,8 +256,8 @@ def plot_loss_curves(
     ax.grid(True, linestyle="--", alpha=0.3)
 
     # Create legend with smaller font and better positioning
-    legend = ax.legend(loc="upper right", fontsize=7, framealpha=0.9, ncol=2 if len(histories) > 6 else 1)
-    legend.set_title("Models", prop={'size': 8})
+    legend = ax.legend(loc="upper right", fontsize=LEGEND_SIZE, framealpha=0.9, ncol=2 if len(histories) > 6 else 1)
+    legend.set_title("Models", prop={'size': LEGEND_SIZE})
 
     fig.tight_layout()
     fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
@@ -292,7 +301,7 @@ def plot_tradeoff_scatter(
                 xy=(row[x_col], row[y_col]),
                 xytext=(5, 5),
                 textcoords="offset points",
-                fontsize=9,
+                fontsize=ANNOT_SIZE,
                 ha="left",
                 va="bottom",
             )
@@ -501,7 +510,7 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
             textcoords="offset points",
             ha="center",
             va="top",
-            fontsize=8,
+            fontsize=ANNOT_SIZE,
         )
 
         desc = choices_map.get(factor, "")
@@ -522,14 +531,14 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
         visible_axes = [ax for ax in axes if ax.get_visible()]
         if visible_axes:
             visible_axes[0].set_ylabel("S/N (dB)")
-    fig.suptitle("Taguchi Signal-to-Noise Ratios (Main Effects)", fontsize=12, y=0.99)
+    fig.suptitle("Taguchi Signal-to-Noise Ratios (Main Effects)", fontsize=SUPTITLE_SIZE, y=0.99)
     fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     fig.text(
         0.5,
         0.02,
         "Higher S/N (less negative) indicates a more robust (better-performing) configuration.",
         ha="center",
-        fontsize=9,
+        fontsize=8,
         color="#555555",
     )
     fig.savefig(out_path)
@@ -590,7 +599,7 @@ def plot_taguchi_metric_distribution(
             ax.set_ylabel(metric.replace("_", " ").title())
         ax.grid(True, axis="y", linestyle="--", alpha=0.3)
 
-    fig.suptitle(f"{metric.replace('_', ' ').title()} Distribution by Taguchi Factor", fontsize=12)
+    fig.suptitle(f"{metric.replace('_', ' ').title()} Distribution by Taguchi Factor", fontsize=SUPTITLE_SIZE)
     fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
