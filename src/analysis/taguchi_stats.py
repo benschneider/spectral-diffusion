@@ -52,7 +52,8 @@ def generate_taguchi_report(
     df = pd.DataFrame(taguchi_rows)
     factor_cols = [col for col in df.columns if col.startswith("factor_")]
     if not factor_cols:
-        raise ValueError("No Taguchi factor information found in configs.")
+        print("DEBUG: No Taguchi factor information found in configs. Skipping report generation.")
+        return None
 
     report_rows: list[dict[str, float]] = []
     factor_deltas: dict[str, float] = {}
@@ -128,7 +129,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         mode=args.mode,
         output_path=args.output,
     )
-    print(report)
+    if report is not None:
+        print(report)
+    else:
+        print("Taguchi report skipped due to insufficient data.")
 
 
 if __name__ == "__main__":

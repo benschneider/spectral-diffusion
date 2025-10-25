@@ -338,7 +338,7 @@ def _load_metrics_json(path: Path) -> Optional[dict[str, Any]]:
     return None
 
 
-def _collect_loss_histhistories(df: Optional[pd.DataFrame]) -> list[dict[str, Any]]:
+def _collect_loss_histories(df: Optional[pd.DataFrame]) -> list[dict[str, Any]]:
     if df is None or df.empty or "metrics_path" not in df.columns:
         return []
     working = df.copy()
