@@ -25,4 +25,4 @@ jobs:
 
       - name: Run unit tests
         run: |
-          python -m pytest tests/test_spectral_fft.py tests/test_tiny_unet_spectral.py tests/test_diffusion_loss.py tests/test_evaluation_metrics.py tests/test_sampling.py tests/test_taguchi_stats.py
+          python -m pytest
