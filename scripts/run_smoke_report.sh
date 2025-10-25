@@ -69,6 +69,20 @@ run_taguchi() {
     --report-mode larger
 }
 
+run_taguchi_optional() {
+  # Check if we have enough runs for meaningful Taguchi analysis
+  if [[ -f "$TAG_DIR/summary.csv" ]]; then
+    RUN_COUNT=$(wc -l < "$TAG_DIR/summary.csv")
+    if [[ $RUN_COUNT -ge 4 ]]; then
+      run_taguchi
+    else
+      echo "[3/4] Skipping Taguchi sweep (only $RUN_COUNT runs, need 4+ for analysis)"
+    fi
+  else
+    run_taguchi
+  fi
+}
+
 generate_report() {
   echo "[4/4] Generating smoke report"
   python "$ROOT_DIR/scripts/figures/generate_figures.py" \
@@ -80,5 +94,5 @@ generate_report() {
 
 run_synthetic
 run_cifar
-run_taguchi
+run_taguchi_optional
 generate_report
