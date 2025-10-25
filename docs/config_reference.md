@@ -24,7 +24,7 @@ python train.py --config configs/baseline.yaml \
 | Section | Fields | Notes |
 |---------|--------|-------|
 | `model` | `type` (`baseline`, `unet_tiny`, `unet_spectral`, `unet_spectral_deep`), `base_channels`, `depth` | Spectral adapters live under `spectral.*`; the deep spectral model mirrors TinyUNet’s encoder/decoder in the frequency domain. |
-| `data` | `source` (`synthetic`, `cifar10`), `height/width`, `download` | Add new loaders in `src/training/builders.py`. |
+| `data` | `source` (`synthetic`, `cifar10`), `height/width`, `download`, `family` (for synthetic) | Synthetic families include `piecewise`, `texture`, `random_field`, or `noise`. |
 | `training` | `batch_size`, `epochs`, `num_batches`, `log_every` | Set `num_batches` to limit steps for smoke tests. |
 | `diffusion` | `num_timesteps`, `beta_schedule`, `prediction_type` | Standard DDPM settings (cosine/linear schedule). |
 | `sampling` | `enabled`, `sampler_type` (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`) | Controls optional sampling after training. |

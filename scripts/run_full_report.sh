@@ -18,17 +18,41 @@ FIG_DIR="$BASE_DIR/figures"
 
 mkdir -p "$SYN_DIR" "$CIFAR_DIR" "$TAG_DIR" "$FIG_DIR"
 
+echo "Full report root: $BASE_DIR"
+
+describe_run() {
+  local config="$1"
+  local run_id="$2"
+  local variant_label="$3"
+  python - "$config" "$run_id" "$variant_label" <<'PY'
+import sys
+import yaml
+
+config_path, run_id, variant = sys.argv[1:4]
+try:
+    with open(config_path, "r", encoding="utf-8") as handle:
+        cfg = yaml.safe_load(handle) or {}
+except FileNotFoundError:
+    cfg = {}
+data = cfg.get("data", {}).get("source", "unknown")
+model = cfg.get("model", {}).get("type", "default")
+print(f"  • Run {run_id}: {config_path} (dataset={data}, base_model={model}, variant={variant})")
+PY
+}
+
 run_synthetic() {
   echo "[1/4] Synthetic benchmark (TinyUNet vs SpectralUNet)"
   rm -f "$SYN_DIR/summary.csv"
   rm -rf "$SYN_DIR/runs"
   mkdir -p "$SYN_DIR"
 
+  describe_run "$ROOT_DIR/configs/benchmark_spectral.yaml" "synthetic_tiny" "config-default"
   python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral.yaml" \
     --output-dir "$SYN_DIR" \
     --run-id "synthetic_tiny"
 
+  describe_run "$ROOT_DIR/configs/benchmark_spectral.yaml" "synthetic_spectral" "spectral"
   python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral.yaml" \
     --output-dir "$SYN_DIR" \
@@ -42,13 +66,13 @@ run_cifar() {
   rm -rf "$CIFAR_DIR/runs"
   mkdir -p "$CIFAR_DIR"
 
-  echo "  • Training TinyUNet baseline"
+  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_baseline" "config-default"
   python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
     --output-dir "$CIFAR_DIR" \
     --run-id "cifar_baseline"
 
-  echo "  • Training SpectralUNet"
+  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_spectral" "spectral"
   python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
     --output-dir "$CIFAR_DIR" \
@@ -60,6 +84,7 @@ run_taguchi() {
   echo "[3/4] Taguchi sweep"
   rm -f "$TAG_DIR/summary.csv" "$TAG_DIR/taguchi_report.csv"
   rm -rf "$TAG_DIR/runs"
+  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_sweep" "array:taguchi_spectral_array.csv"
   python -m src.experiments.run_experiment \
     --config "$ROOT_DIR/configs/taguchi_smoke_base.yaml" \
     --array "$ROOT_DIR/configs/taguchi_spectral_array.csv" \

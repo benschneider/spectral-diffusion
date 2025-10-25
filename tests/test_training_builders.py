@@ -32,3 +32,26 @@ def test_build_optimizer_uses_config_hyperparams():
     group = optimizer.param_groups[0]
     assert group["lr"] == config["optim"]["lr"]
     assert group["weight_decay"] == config["optim"]["weight_decay"]
+
+
+def test_build_dataloader_piecewise_family():
+    config = _synthetic_config()
+    config["data"]["family"] = "piecewise"
+    config["data"]["piecewise"] = {
+        "pattern_types": ["checkerboard", "stripes"],
+        "edge_blur_sigma": 0.5,
+    }
+    loader = build_dataloader(config)
+    xb, yb = next(iter(loader))
+    assert xb.shape == yb.shape == (config["training"]["batch_size"], 3, 8, 8)
+    assert xb.max() <= 1.0 and xb.min() >= -1.0
+
+
+def test_build_dataloader_random_field_family():
+    config = _synthetic_config()
+    config["data"]["family"] = "random_field"
+    config["data"]["random_field"] = {"alpha_range": [0.5, 1.5]}
+    loader = build_dataloader(config)
+    xb, _ = next(iter(loader))
+    assert xb.shape == (config["training"]["batch_size"], 3, 8, 8)
+    assert torch.isfinite(xb).all()
