@@ -5,10 +5,12 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
+import torch
+from time import perf_counter
 
 try:
     import matplotlib.pyplot as plt
@@ -198,6 +200,39 @@ def plot_runtime_metrics(df: pd.DataFrame, title: str, out_path: Path) -> None:
     plt.close(fig)
 
 
+def plot_loss_curves(
+    histories: list[dict[str, Any]],
+    title: str,
+    out_path: Path,
+) -> None:
+    if not histories:
+        logging.warning("Skipping loss curve plot for '%s'; no histories provided", title)
+        return
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    drew_line = False
+    for item in histories:
+        losses = item.get("loss_history")
+        if not losses:
+            continue
+        steps = np.arange(1, len(losses) + 1)
+        label = item.get("label", "run")
+        ax.plot(steps, losses, label=label, linewidth=2)
+        drew_line = True
+
+    if not drew_line:
+        plt.close(fig)
+        logging.warning("No valid loss histories for plot '%s'", title)
+        return
+
+    ax.set(title=title, xlabel="Optimization step", ylabel="Loss")
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
 def plot_tradeoff_scatter(
     df: pd.DataFrame,
     x_col: str,
@@ -247,6 +282,90 @@ def plot_tradeoff_scatter(
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
+
+
+def _fft_benchmark_snapshot(
+    size: int = 256,
+    batch: int = 4,
+    channels: int = 3,
+    runs: int = 10,
+) -> dict[str, float]:
+    tensor = torch.randn(batch, channels, size, size)
+    start = perf_counter()
+    for _ in range(runs):
+        torch.fft.fft2(tensor)
+    torch_cpu = perf_counter() - start
+
+    start = perf_counter()
+    array = tensor.numpy()
+    for _ in range(runs):
+        np.fft.fft2(array)
+    np_cpu = perf_counter() - start
+
+    torch_cuda = None
+    if torch.cuda.is_available():
+        tensor_cuda = tensor.to("cuda")
+        torch.cuda.synchronize()
+        start = perf_counter()
+        for _ in range(runs):
+            torch.fft.fft2(tensor_cuda)
+        torch.cuda.synchronize()
+        torch_cuda = perf_counter() - start
+
+    return {
+        "torch_cpu_total": torch_cpu,
+        "torch_cpu_per_call": torch_cpu / runs,
+        "numpy_cpu_total": np_cpu,
+        "numpy_cpu_per_call": np_cpu / runs,
+        "torch_cuda_total": torch_cuda,
+        "torch_cuda_per_call": (torch_cuda / runs) if torch_cuda is not None else None,
+        "size": size,
+        "batch": batch,
+        "channels": channels,
+        "runs": runs,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _load_metrics_json(path: Path) -> Optional[dict[str, Any]]:
+    try:
+        with Path(path).open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        logging.warning("Metrics file not found for loss history: %s", path)
+    except json.JSONDecodeError as exc:
+        logging.warning("Failed to parse metrics JSON %s: %s", path, exc)
+    return None
+
+
+def _collect_loss_histories(df: Optional[pd.DataFrame]) -> list[dict[str, Any]]:
+    if df is None or df.empty or "metrics_path" not in df.columns:
+        return []
+    working = df.copy()
+    working["_label"] = _label_series(working)
+
+    selections: list[pd.Series] = []
+    baseline = working[working["_label"].str.contains("TinyUNet", case=False, na=False)]
+    if not baseline.empty:
+        selections.append(baseline.iloc[0])
+
+    ranked = working.sort_values("loss_final", ascending=True)
+    if not ranked.empty:
+        best_candidate = ranked.iloc[0]
+        if not any(sel["run_id"] == best_candidate["run_id"] for sel in selections):
+            selections.append(best_candidate)
+
+    histories: list[dict[str, Any]] = []
+    for row in selections:
+        metrics_path = Path(row["metrics_path"])
+        metrics = _load_metrics_json(metrics_path)
+        if not metrics:
+            continue
+        losses = metrics.get("loss_history")
+        if not losses:
+            continue
+        histories.append({"label": row["_label"], "loss_history": losses})
+    return histories
 
 
 def plot_metric_boxplot(
@@ -463,6 +582,7 @@ def write_summary_markdown(
     out_path: Path,
     descriptions: dict[str, str],
     generated_at: Optional[str] = None,
+    fft_snapshot: Optional[dict[str, Any]] = None,
 ) -> None:
     base_dir = out_path.parent
     choices_map = {
@@ -537,6 +657,7 @@ def write_summary_markdown(
             lines.append("")
         _embed_image("tradeoff_loss_vs_speed_synthetic.png", "Synthetic loss vs throughput")
         _embed_image("loss_final_distribution_synthetic.png", "Synthetic final loss distribution")
+        _embed_image("loss_curve_synthetic.png", "Synthetic loss curves")
 
     if cifar_df is not None:
         title = descriptions.get("cifar_title", "CIFAR-10 Benchmark")
@@ -577,6 +698,7 @@ def write_summary_markdown(
             lines.append("")
         _embed_image("tradeoff_loss_vs_speed_cifar.png", "CIFAR-10 loss vs throughput")
         _embed_image("loss_final_distribution_cifar.png", "CIFAR-10 final loss distribution")
+        _embed_image("loss_curve_cifar.png", "CIFAR-10 loss curves")
 
     if taguchi_report is not None:
         title = descriptions.get("taguchi_title", "Taguchi Factors (Top 5)")
@@ -660,6 +782,30 @@ def write_summary_markdown(
             lines.append("- No clear factor preference (insufficient S/N variation).")
         lines.append("")
 
+    if fft_snapshot:
+        lines.append("## FFT Benchmark Snapshot")
+        lines.append(
+            "Parameters: "
+            f"batch={fft_snapshot['batch']}, channels={fft_snapshot['channels']}, size={fft_snapshot['size']}×{fft_snapshot['size']}, runs={fft_snapshot['runs']}"
+        )
+        lines.append(
+            "- torch.fft.fft2 (CPU): "
+            f"{fft_snapshot['torch_cpu_per_call'] * 1e3:.2f} ms per call (total {fft_snapshot['torch_cpu_total']:.3f}s)"
+        )
+        lines.append(
+            "- numpy.fft.fft2: "
+            f"{fft_snapshot['numpy_cpu_per_call'] * 1e3:.2f} ms per call (total {fft_snapshot['numpy_cpu_total']:.3f}s)"
+        )
+        if fft_snapshot.get("torch_cuda_per_call") is not None:
+            lines.append(
+                "- torch.fft.fft2 (CUDA): "
+                f"{fft_snapshot['torch_cuda_per_call'] * 1e3:.2f} ms per call (total {fft_snapshot['torch_cuda_total']:.3f}s)"
+            )
+        else:
+            lines.append("- torch.fft.fft2 (CUDA): not available on this machine")
+        lines.append("_One-off measurement on local hardware; treat as qualitative guidance._")
+        lines.append("")
+
     out_path.write_text("\n".join(lines), encoding="utf-8")
     logging.info("Wrote summary markdown to %s", out_path)
 
@@ -730,6 +876,13 @@ def generate_figures(
             ylabel="Images per Second",
             out_path=output_dir / "images_per_second_distribution_synthetic.png",
         )
+        synthetic_histories = _collect_loss_histories(synthetic_df)
+        if synthetic_histories:
+            plot_loss_curves(
+                synthetic_histories,
+                "Synthetic Benchmark – Loss Curves",
+                output_dir / "loss_curve_synthetic.png",
+            )
 
     if cifar_df is not None:
         plot_loss_metrics(
@@ -765,6 +918,13 @@ def generate_figures(
             ylabel="Images per Second",
             out_path=output_dir / "images_per_second_distribution_cifar.png",
         )
+        cifar_histories = _collect_loss_histories(cifar_df)
+        if cifar_histories:
+            plot_loss_curves(
+                cifar_histories,
+                "CIFAR-10 Benchmark – Loss Curves",
+                output_dir / "loss_curve_cifar.png",
+            )
 
     if taguchi_report is not None:
         plot_taguchi_snr(taguchi_report, output_dir / "taguchi_snr.png", descriptions)
@@ -778,6 +938,8 @@ def generate_figures(
 
     timestamp = generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    fft_snapshot = _fft_benchmark_snapshot()
+
     write_summary_markdown(
         synthetic_df,
         cifar_df,
@@ -785,4 +947,5 @@ def generate_figures(
         output_dir / "summary.md",
         descriptions,
         generated_at=timestamp,
+        fft_snapshot=fft_snapshot,
     )

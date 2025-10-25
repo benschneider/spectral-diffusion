@@ -145,6 +145,8 @@ class TrainingPipeline:
                 "loss_threshold": loss_threshold,
                 "loss_threshold_steps": threshold_steps,
                 "loss_threshold_time": threshold_time,
+                "loss_history": [float(v) for v in loss_history],
+                "mae_history": [float(v) for v in mae_history],
             },
         )
         training_stats = {}
