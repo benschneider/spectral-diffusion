@@ -43,15 +43,15 @@ PY
 }
 
 run_synthetic() {
-  echo "[1/4] Synthetic benchmarks (large: 32x32 images)"
+  echo "[1/4] Synthetic benchmarks (32x32 images)"
   rm -f "$SYN_DIR/summary.csv"
   rm -rf "$SYN_DIR/runs"
   mkdir -p "$SYN_DIR"
 
   SYNTHETIC_CONFIGS=(
-    "benchmark_synthetic_piecewise_large.yaml"
-    "benchmark_synthetic_texture_large.yaml"
-    "benchmark_synthetic_random_field_large.yaml"
+    "benchmark_synthetic_piecewise.yaml"
+    "benchmark_synthetic_texture.yaml"
+    "benchmark_synthetic_random_field.yaml"
   )
 
   for config_file in "${SYNTHETIC_CONFIGS[@]}"; do
@@ -87,6 +87,14 @@ run_synthetic() {
       --output-dir "$SYN_DIR" \
       --run-id "${family_name}_32x32_spectral_deep" \
       --variant spectral_deep
+
+    # Run Pure SpectralUNet (unet_spectral model type)
+    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_32x32_unet_spectral" "unet_spectral"
+    python "$ROOT_DIR/train.py" \
+      --config "$ROOT_DIR/configs/$config_file" \
+      --output-dir "$SYN_DIR" \
+      --run-id "${family_name}_32x32_unet_spectral" \
+      --model-type unet_spectral
   done
 }
 
