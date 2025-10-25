@@ -517,25 +517,35 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
 def plot_taguchi_metric_distribution(
     df: pd.DataFrame, metric: str, out_path: Path, descriptions: Optional[dict[str, str]] = None
 ) -> None:
-    factor_cols = [c for c in df.columns if c.startswith("factor_")]
-    if not factor_cols:
-        logging.warning("No factor columns found for Taguchi distribution plot.")
+    if "factor" not in df.columns or "mean_metric" not in df.columns:
+        logging.warning("Taguchi report missing required columns 'factor' or 'mean_metric'.")
         return
-    label_map = {f"factor_{k}": v for k, v in DEFAULT_TAGUCHI_LABELS.items()}
-    if descriptions and descriptions.get("taguchi_choices"):
-        for key, value in descriptions["taguchi_choices"].items():
-            label_map[f"factor_{key}"] = value
-            label_map[key] = value
 
-    fig, axes = plt.subplots(1, len(factor_cols), figsize=(4 * len(factor_cols), 4), sharey=True)
-    if len(factor_cols) == 1:
+    factors = sorted(df["factor"].unique())
+    if not factors:
+        logging.warning("No factors found in Taguchi report.")
+        return
+
+    label_map = {**DEFAULT_TAGUCHI_LABELS}
+    if descriptions and descriptions.get("taguchi_choices"):
+        label_map.update(descriptions["taguchi_choices"])
+
+    fig, axes = plt.subplots(1, len(factors), figsize=(4 * len(factors), 4), sharey=True)
+    if len(factors) == 1:
         axes = [axes]
 
-    for ax, factor in zip(axes, factor_cols):
-        data = df[[metric, factor]].copy()
-        levels = sorted(data[factor].unique())
+    for ax, factor_name in zip(axes, factors):
+        factor_data = df[df["factor"] == factor_name].copy()
+        if factor_data.empty:
+            continue
+
+        levels = sorted(factor_data["level"].unique())
         positions = np.arange(len(levels))
-        box_data = [data.loc[data[factor] == level, metric].values for level in levels]
+        box_data = [factor_data.loc[factor_data["level"] == level, "mean_metric"].values for level in levels]
+
+        if not any(len(data) > 0 for data in box_data):
+            continue
+
         bp = ax.boxplot(
             box_data,
             positions=positions,
@@ -546,19 +556,19 @@ def plot_taguchi_metric_distribution(
         )
         for patch in bp["boxes"]:
             patch.set_alpha(0.7)
-        letter = factor.replace("factor_", "")
-        title = label_map.get(factor, DEFAULT_TAGUCHI_LABELS.get(letter, letter))
+
+        title = label_map.get(factor_name, factor_name)
         ax.set(title=title, xlabel="Level")
         level_labels = [
-            _taguchi_level_label(letter, int(level), label_map, default=f"Level {level}")
+            _taguchi_level_label(factor_name, int(level), label_map, default=f"Level {level}")
             for level in levels
         ]
         ax.set_xticks(positions, level_labels)
         if ax is axes[0]:
-            ax.set_ylabel(metric)
+            ax.set_ylabel(metric.replace("_", " ").title())
         ax.grid(True, axis="y", linestyle="--", alpha=0.3)
 
-    fig.suptitle(f"{metric} Distribution by Taguchi Factor", fontsize=13)
+    fig.suptitle(f"{metric.replace('_', ' ').title()} Distribution by Taguchi Factor", fontsize=13)
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
@@ -917,9 +927,9 @@ def generate_figures(
 
     if taguchi_report is not None:
         plot_taguchi_snr(taguchi_report, output_dir / "taguchi_snr.png", descriptions)
-    if taguchi_summary is not None and taguchi_report is not None:
+    if taguchi_report is not None:
         plot_taguchi_metric_distribution(
-            taguchi_summary,
+            taguchi_report,
             metric="loss_drop_per_second",
             out_path=output_dir / "taguchi_loss_drop_per_second.png",
             descriptions=descriptions,
