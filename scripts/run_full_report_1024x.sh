@@ -117,11 +117,11 @@ run_cifar() {
     --run-id "cifar_1024x1024_spectral" \
     --variant spectral
 
-  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_32x32_spectral_deep" "spectral_deep"
+  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_1024x1024_spectral_deep" "spectral_deep"
   python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
     --output-dir "$CIFAR_DIR" \
-    --run-id "cifar_32x32_spectral_deep" \
+    --run-id "cifar_1024x1024_spectral_deep" \
     --variant spectral_deep
 }
 
@@ -129,7 +129,7 @@ run_taguchi() {
   echo "[3/4] Taguchi sweep"
   rm -f "$TAG_DIR/summary.csv" "$TAG_DIR/taguchi_report.csv"
   rm -rf "$TAG_DIR/runs"
-  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_32x32_sweep" "array:taguchi_spectral_array.csv"
+  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_1024x1024_sweep" "array:taguchi_spectral_array.csv"
   python -m src.experiments.run_experiment \
     --config "$ROOT_DIR/configs/taguchi_smoke_base.yaml" \
     --array "$ROOT_DIR/configs/taguchi_spectral_array.csv" \
