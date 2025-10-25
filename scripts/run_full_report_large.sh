@@ -59,33 +59,33 @@ run_synthetic() {
     learnable_config_file="benchmark_synthetic_${family_name}_learnable.yaml"
 
     # Run TinyUNet (default)
-    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_tiny" "config-default"
+    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_32x32_tiny" "config-default"
     python "$ROOT_DIR/train.py" \
       --config "$ROOT_DIR/configs/$config_file" \
       --output-dir "$SYN_DIR" \
-      --run-id "${family_name}_tiny"
+      --run-id "${family_name}_32x32_tiny"
 
     # Run TinyUNet + Learnable Adapter
-    describe_run "$ROOT_DIR/configs/$learnable_config_file" "${family_name}_tiny_learnable" "tiny-learnable"
+    describe_run "$ROOT_DIR/configs/$learnable_config_file" "${family_name}_32x32_tiny_learnable" "tiny-learnable"
     python "$ROOT_DIR/train.py" \
       --config "$ROOT_DIR/configs/$learnable_config_file" \
       --output-dir "$SYN_DIR" \
-      --run-id "${family_name}_tiny_learnable"
+      --run-id "${family_name}_32x32_tiny_learnable"
 
     # Run SpectralUNet
-    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_spectral" "spectral"
+    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_32x32_spectral" "spectral"
     python "$ROOT_DIR/train.py" \
       --config "$ROOT_DIR/configs/$config_file" \
       --output-dir "$SYN_DIR" \
-      --run-id "${family_name}_spectral" \
+      --run-id "${family_name}_32x32_spectral" \
       --variant spectral
 
     # Run SpectralUNetDeep
-    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_deep" "spectral_deep"
+    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_32x32_spectral_deep" "spectral_deep"
     python "$ROOT_DIR/train.py" \
       --config "$ROOT_DIR/configs/$config_file" \
       --output-dir "$SYN_DIR" \
-      --run-id "${family_name}_deep" \
+      --run-id "${family_name}_32x32_spectral_deep" \
       --variant spectral_deep
   done
 }
@@ -96,24 +96,24 @@ run_cifar() {
   rm -rf "$CIFAR_DIR/runs"
   mkdir -p "$CIFAR_DIR"
 
-  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_baseline" "config-default"
+  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_32x32_tiny" "config-default"
   python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
     --output-dir "$CIFAR_DIR" \
-    --run-id "cifar_baseline"
+    --run-id "cifar_32x32_tiny"
 
-  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_spectral" "spectral"
+  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_32x32_spectral" "spectral"
   python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
     --output-dir "$CIFAR_DIR" \
-    --run-id "cifar_spectral" \
+    --run-id "cifar_32x32_spectral" \
     --variant spectral
 
-  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_deep" "spectral_deep"
+  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_32x32_spectral_deep" "spectral_deep"
   python "$ROOT_DIR/train.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
     --output-dir "$CIFAR_DIR" \
-    --run-id "cifar_deep" \
+    --run-id "cifar_32x32_spectral_deep" \
     --variant spectral_deep
 }
 
@@ -121,7 +121,7 @@ run_taguchi() {
   echo "[3/4] Taguchi sweep"
   rm -f "$TAG_DIR/summary.csv" "$TAG_DIR/taguchi_report.csv"
   rm -rf "$TAG_DIR/runs"
-  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_sweep" "array:taguchi_spectral_array.csv"
+  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_32x32_sweep" "array:taguchi_spectral_array.csv"
   python -m src.experiments.run_experiment \
     --config "$ROOT_DIR/configs/taguchi_smoke_base.yaml" \
     --array "$ROOT_DIR/configs/taguchi_spectral_array.csv" \
