@@ -1,0 +1,41 @@
+data:
+  channels: 3
+  download: false
+  height: 32
+  root: data
+  source: cifar10
+  width: 32
+diffusion:
+  beta_schedule: cosine
+  loss_threshold: null
+  num_timesteps: 300
+  prediction_type: eps
+  snr_transform: snr
+  snr_weighting: false
+  time_embed_dim: 64
+evaluation:
+  image_size: null
+  reference_dir: null
+  use_fid: false
+initialization:
+  strategy: default
+loss:
+  reduction: mean
+model:
+  base_channels: 16
+  channels: 3
+  depth: 3
+  type: unet_spectral_deep
+optim:
+  lr: 0.0002
+  weight_decay: 0.0
+sampling:
+  enabled: false
+  num_samples: 8
+  num_steps: 20
+  sampler_type: ddpm
+training:
+  batch_size: 32
+  epochs: 1
+  log_every: 1
+  num_batches: 3

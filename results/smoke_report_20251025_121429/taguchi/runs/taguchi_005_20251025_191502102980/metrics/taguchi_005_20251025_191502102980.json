@@ -1,0 +1,33 @@
+{
+  "loss_mean": 1.1203574736913045,
+  "loss_last": 1.0881915092468262,
+  "mae_mean": 0.8442631363868713,
+  "runtime_seconds": 0.5430576249491423,
+  "status": "ok",
+  "num_steps": 3,
+  "epochs": 1,
+  "steps_per_second": 5.524275624121753,
+  "images_per_second": 176.7768199718961,
+  "runtime_per_epoch": 0.5430576249491423,
+  "loss_initial": 1.1569525003433228,
+  "loss_final": 1.0881915092468262,
+  "loss_drop": 0.06876099109649658,
+  "loss_drop_per_second": 0.126618222334943,
+  "loss_threshold": null,
+  "loss_threshold_steps": null,
+  "loss_threshold_time": null,
+  "loss_history": [
+    1.1569525003433228,
+    1.1159284114837646,
+    1.0881915092468262
+  ],
+  "mae_history": [
+    0.8581871390342712,
+    0.8426163792610168,
+    0.8319858908653259
+  ],
+  "spectral_calls": 0.0,
+  "spectral_time_seconds": 0.0,
+  "spectral_cpu_time_seconds": 0.0,
+  "spectral_cuda_time_seconds": 0.0
+}

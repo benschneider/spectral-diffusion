@@ -8,7 +8,7 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 if [[ $# -ge 1 ]]; then
   BASE_DIR="$1"
 else
-  BASE_DIR="$ROOT_DIR/results/full_report_large_$(date +%Y%m%d_%H%M%S)"
+  BASE_DIR="$ROOT_DIR/results/full_report_32x32_$(date +%Y%m%d_%H%M%S)"
 fi
 
 SYN_DIR="$BASE_DIR/synthetic"
@@ -18,7 +18,7 @@ FIG_DIR="$BASE_DIR/figures"
 
 mkdir -p "$SYN_DIR" "$CIFAR_DIR" "$TAG_DIR" "$FIG_DIR"
 
-echo "Full report (large: 32x32) root: $BASE_DIR"
+echo "Full report (32x32) root: $BASE_DIR"
 
 describe_run() {
   local config="$1"

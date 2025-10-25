@@ -1,0 +1,37 @@
+data:
+  channels: 3
+  height: 16
+  source: synthetic
+  width: 16
+diffusion:
+  beta_schedule: linear
+  loss_threshold: null
+  num_timesteps: 100
+  prediction_type: eps
+  snr_transform: snr
+  snr_weighting: false
+  time_embed_dim: 64
+evaluation:
+  image_size: null
+  reference_dir: null
+  use_fid: false
+loss:
+  reduction: mean
+model:
+  base_channels: 16
+  channels: 3
+  depth: 3
+  type: unet_spectral_deep
+optim:
+  lr: 0.0002
+  weight_decay: 0.0
+sampling:
+  enabled: false
+  num_samples: 8
+  num_steps: 50
+  sampler_type: ddpm
+training:
+  batch_size: 32
+  epochs: 2
+  log_every: 2
+  num_batches: 8
