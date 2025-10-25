@@ -94,7 +94,7 @@ run_synthetic() {
       --config "$ROOT_DIR/configs/$config_file" \
       --output-dir "$SYN_DIR" \
       --run-id "${family_name}_1024x1024_unet_spectral" \
-      --model-type unet_spectral
+      --variant unet_spectral
   done
 }
 
