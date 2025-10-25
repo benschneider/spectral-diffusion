@@ -1,0 +1,10 @@
+# @extends configs/benchmark_synthetic_large_base.yaml
+data:
+  family: piecewise
+spectral:
+  enabled: true
+  learnable: true
+  condition: time
+  weighting: bandpass
+  apply_to: [output]
+  per_block: true

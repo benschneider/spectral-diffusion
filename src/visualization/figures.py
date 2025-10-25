@@ -19,13 +19,16 @@ except ImportError as exc:  # pragma: no cover
 
 
 def _setup_style() -> None:
-    plt.style.use("seaborn-v0_8-whitegrid")
+    plt.style.use("seaborn-v0_8-paper")
     plt.rcParams.update(
         {
-            "axes.titlesize": 12,
-            "axes.labelsize": 11,
-            "legend.fontsize": 10,
+            "axes.titlesize": 11,
+            "axes.labelsize": 10,
+            "legend.fontsize": 9,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
             "figure.dpi": 300,
+            "figure.constrained_layout.use": True,
         }
     )
 
@@ -42,8 +45,9 @@ def _ensure_output_dir(path: Path) -> None:
 
 
 def _color_palette(n: int) -> list[str]:
-    cmap = plt.get_cmap("tab10")
-    return [cmap(i % cmap.N) for i in range(n)]
+    # Use a more balanced color palette
+    base_colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+    return base_colors[:n] if n <= len(base_colors) else [f"C{i % 10}" for i in range(n)]
 
 
 def _bar_ann(ax, bars) -> None:
@@ -52,11 +56,12 @@ def _bar_ann(ax, bars) -> None:
         ax.annotate(
             f"{height:.2f}",
             xy=(bar.get_x() + bar.get_width() / 2, height),
-            xytext=(0, 4),
+            xytext=(0, 2),
             textcoords="offset points",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=8,
+            color="#555555",
         )
 
 
@@ -172,9 +177,8 @@ def plot_loss_metrics(df: pd.DataFrame, title: str, out_path: Path) -> None:
     axes[1].set_xticks(x, _label_series(df), rotation=20)
     _bar_ann(axes[1], bars2)
 
-    fig.suptitle(title, fontsize=13)
-    fig.tight_layout()
-    fig.savefig(out_path)
+    fig.suptitle(title, fontsize=12)
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
@@ -194,9 +198,8 @@ def plot_runtime_metrics(df: pd.DataFrame, title: str, out_path: Path) -> None:
         ax.set(title=label, xlabel="Model")
         ax.set_xticks(x, _label_series(df), rotation=20)
         _bar_ann(ax, bars)
-    fig.suptitle(title, fontsize=13)
-    fig.tight_layout()
-    fig.savefig(out_path)
+    fig.suptitle(title, fontsize=12)
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
@@ -500,8 +503,8 @@ def plot_taguchi_snr(df: pd.DataFrame, out_path: Path, descriptions: dict[str, s
         visible_axes = [ax for ax in axes if ax.get_visible()]
         if visible_axes:
             visible_axes[0].set_ylabel("S/N (dB)")
-    fig.suptitle("Taguchi Signal-to-Noise Ratios (Main Effects)", fontsize=13, y=0.99)
-    fig.tight_layout(rect=(0, 0.08, 1, 0.95))
+    fig.suptitle("Taguchi Signal-to-Noise Ratios (Main Effects)", fontsize=12, y=0.99)
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     fig.text(
         0.5,
         0.02,
@@ -563,14 +566,13 @@ def plot_taguchi_metric_distribution(
             _taguchi_level_label(factor_name, int(level), label_map, default=f"Level {level}")
             for level in levels
         ]
-        ax.set_xticks(positions, level_labels)
+        ax.set_xticks(positions, level_labels, rotation=0, ha="center")
         if ax is axes[0]:
             ax.set_ylabel(metric.replace("_", " ").title())
         ax.grid(True, axis="y", linestyle="--", alpha=0.3)
 
-    fig.suptitle(f"{metric.replace('_', ' ').title()} Distribution by Taguchi Factor", fontsize=13)
-    fig.tight_layout()
-    fig.savefig(out_path)
+    fig.suptitle(f"{metric.replace('_', ' ').title()} Distribution by Taguchi Factor", fontsize=12)
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
