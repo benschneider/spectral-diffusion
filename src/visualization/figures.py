@@ -72,11 +72,11 @@ def _label_series(df: pd.DataFrame) -> pd.Series:
 
 
 DEFAULT_TAGUCHI_LABELS: dict[str, str] = {
-    "A": "Freq-equalized noise",
-    "B": "Spectral attention",
-    "C": "Sampler",
-    "D": "Spectral adapters",
-    "E": "Cross-domain init",
+    "A": "Freq-equalized noise (on/off)",
+    "B": "Spectral attention (on/off)",
+    "C": "Sampler (ddim/dpm_solver++)",
+    "D": "Spectral adapters (off/on)",
+    "E": "Cross-domain init (random/GPT-2)",
 }
 
 
@@ -214,13 +214,28 @@ def plot_loss_curves(
 
     fig, ax = plt.subplots(figsize=(7, 4))
     drew_line = False
-    for item in histories:
+
+    # Use a more distinguishable color palette for many curves
+    colors = plt.cm.tab20(np.linspace(0, 1, len(histories)))
+
+    for i, item in enumerate(histories):
         losses = item.get("loss_history")
         if not losses:
             continue
         steps = np.arange(1, len(losses) + 1)
-        label = item.get("label", "run")
-        ax.plot(steps, losses, label=label, linewidth=2)
+        label = item.get("label", f"run_{i+1}")
+
+        # Shorten labels for readability - extract key parts
+        if "_32x32_" in label:
+            # For large benchmark: "piecewise_32x32_tiny" -> "piecewise_tiny"
+            parts = label.split("_32x32_")
+            if len(parts) == 2:
+                label = f"{parts[0]}_{parts[1]}"
+        elif len(label) > 15:
+            # Truncate very long labels
+            label = label[:12] + "..."
+
+        ax.plot(steps, losses, label=label, linewidth=1.5, color=colors[i])
         drew_line = True
 
     if not drew_line:
@@ -230,9 +245,13 @@ def plot_loss_curves(
 
     ax.set(title=title, xlabel="Optimization step", ylabel="Loss")
     ax.grid(True, linestyle="--", alpha=0.3)
-    ax.legend(loc="best")
+
+    # Create legend with smaller font and better positioning
+    legend = ax.legend(loc="upper right", fontsize=7, framealpha=0.9, ncol=2 if len(histories) > 6 else 1)
+    legend.set_title("Models", prop={'size': 8})
+
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
@@ -625,6 +644,12 @@ def write_summary_markdown(
         lines.append(f"## {title}")
         if desc:
             lines.extend([desc, ""])
+        # Add data family explanations
+        lines.append("**Data families tested:**")
+        lines.append("- **Piecewise**: Structured patterns (checkerboards, stripes, circles) - tests discrete spatial feature learning")
+        lines.append("- **Texture**: Parametric gratings (oriented, controlled frequency/bandwidth) - tests directional frequency sensitivity")
+        lines.append("- **Random field**: Power-law spectra (1/f^α falloff) - tests natural image frequency statistics")
+        lines.append("")
         headers = ["Run", "Loss Drop", "Final Loss", "Images/s", "Runtime (s)"]
         if "eval_fid" in synthetic_df.columns:
             headers.append("FID")

@@ -1,7 +1,7 @@
 {
   "synthetic_benchmark": {
-    "title": "Synthetic Benchmark (8\u00d78 random images)",
-    "description": "We compare how quickly the spatial TinyUNet and the spectral version learn to reconstruct tiny synthetic images."
+    "title": "Synthetic Benchmark (generate different type of images, piecewise, parametric textures, random fields)",
+    "description": "We compare how quickly the spatial TinyUNet and the spectral version learn to reconstruct tiny synthetic images. "
   },
   "cifar_benchmark": {
     "title": "CIFAR-10 Reconstruction Benchmark",
