@@ -1,6 +1,7 @@
 import copy
 
 import torch
+import pytest
 
 from src.training.pipeline import TrainingPipeline
 
@@ -99,3 +100,25 @@ def test_generate_samples_falls_back_to_ddpm(tmp_path):
     result = pipeline.generate_samples()
     assert result["sampler_type"] == "ddpm"
     assert result["images_dir"].exists()
+
+
+def test_training_pipeline_regression_baseline(tmp_path):
+    torch.manual_seed(1337)
+    config = copy.deepcopy(_build_base_config())
+    config["training"] = {
+        "batch_size": 4,
+        "epochs": 2,
+        "num_batches": 6,
+        "log_every": 10,
+    }
+    config["diffusion"]["num_timesteps"] = 16
+    config["optim"]["lr"] = 5e-4
+
+    pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
+    metrics = pipeline.run()
+
+    expected_loss = 9.3600
+    expected_loss_drop = -0.4518
+    assert metrics["status"] == "ok"
+    assert pytest.approx(metrics["loss_mean"], rel=0.05) == expected_loss
+    assert pytest.approx(metrics["loss_drop"], rel=0.1) == expected_loss_drop
