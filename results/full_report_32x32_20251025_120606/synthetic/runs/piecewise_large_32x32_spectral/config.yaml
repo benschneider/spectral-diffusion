@@ -1,4 +1,0 @@
-data:
-  family: piecewise
-model:
-  type: unet_spectral

@@ -1,4 +1,0 @@
-data:
-  family: texture
-model:
-  type: unet_spectral

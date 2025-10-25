@@ -1,4 +1,0 @@
-data:
-  family: random_field
-model:
-  type: unet_spectral_deep
