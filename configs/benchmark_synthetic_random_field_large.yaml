@@ -1,0 +1,3 @@
+# @extends configs/benchmark_synthetic_large_base.yaml
+data:
+  family: random_field
