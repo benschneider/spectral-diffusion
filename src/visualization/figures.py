@@ -22,11 +22,11 @@ def _setup_style() -> None:
     plt.style.use("seaborn-v0_8-paper")
     plt.rcParams.update(
         {
-            "axes.titlesize": 11,
-            "axes.labelsize": 10,
-            "legend.fontsize": 9,
-            "xtick.labelsize": 9,
-            "ytick.labelsize": 9,
+            "axes.titlesize": 10,
+            "axes.labelsize": 9,
+            "legend.fontsize": 8,
+            "xtick.labelsize": 8,
+            "ytick.labelsize": 8,
             "figure.dpi": 300,
             "figure.constrained_layout.use": True,
         }
