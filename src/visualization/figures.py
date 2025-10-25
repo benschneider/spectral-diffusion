@@ -338,25 +338,14 @@ def _load_metrics_json(path: Path) -> Optional[dict[str, Any]]:
     return None
 
 
-def _collect_loss_histories(df: Optional[pd.DataFrame]) -> list[dict[str, Any]]:
+def _collect_loss_histhistories(df: Optional[pd.DataFrame]) -> list[dict[str, Any]]:
     if df is None or df.empty or "metrics_path" not in df.columns:
         return []
     working = df.copy()
     working["_label"] = _label_series(working)
 
-    selections: list[pd.Series] = []
-    baseline = working[working["_label"].str.contains("TinyUNet", case=False, na=False)]
-    if not baseline.empty:
-        selections.append(baseline.iloc[0])
-
-    ranked = working.sort_values("loss_final", ascending=True)
-    if not ranked.empty:
-        best_candidate = ranked.iloc[0]
-        if not any(sel["run_id"] == best_candidate["run_id"] for sel in selections):
-            selections.append(best_candidate)
-
     histories: list[dict[str, Any]] = []
-    for row in selections:
+    for _, row in working.iterrows():
         metrics_path = Path(row["metrics_path"])
         metrics = _load_metrics_json(metrics_path)
         if not metrics:
