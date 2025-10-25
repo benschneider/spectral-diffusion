@@ -1,0 +1,10 @@
+data:
+  family: random_field
+spectral:
+  apply_to:
+  - output
+  condition: time
+  enabled: true
+  learnable: true
+  per_block: true
+  weighting: bandpass
