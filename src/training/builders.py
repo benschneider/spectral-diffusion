@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torchvision import datasets, transforms
 
+from src.data.synthetic import generate_synthetic_samples
 
 def build_dataloader(config: Dict[str, Any]) -> DataLoader:
     """Construct a training dataloader based on configuration."""
@@ -29,8 +30,8 @@ def _build_synthetic_dataloader(
     c = int(data_cfg.get("channels", 3))
     h = int(data_cfg.get("height", 32))
     w = int(data_cfg.get("width", 32))
-    x = torch.randn(n * bs, c, h, w)
-    y = torch.randn_like(x)
+    x = generate_synthetic_samples(n * bs, c, h, w, data_cfg)
+    y = x.clone()
     dataset = TensorDataset(x, y)
     return DataLoader(dataset, batch_size=bs, shuffle=True, drop_last=True)
 
