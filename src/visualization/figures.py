@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import torch
 from time import perf_counter
+from scipy.optimize import curve_fit
 
 try:
     import matplotlib.pyplot as plt
@@ -240,11 +241,22 @@ def plot_loss_curves(
             parts = label.split("_32x32_")
             if len(parts) == 2:
                 label = f"{parts[0]}_{parts[1]}"
+        elif "_1024x1024_" in label:
+            # For 1024x benchmark: "piecewise_1024x1024_tiny" -> "piecewise_tiny"
+            parts = label.split("_1024x1024_")
+            if len(parts) == 2:
+                label = f"{parts[0]}_{parts[1]}"
         elif len(label) > 15:
             # Truncate very long labels
             label = label[:12] + "..."
 
         ax.plot(steps, losses, label=label, linewidth=1.5, color=colors[i])
+
+        # Add fitted exponential curve if available
+        if "fit_k" in item and not np.isnan(item["fit_k"]):
+            fitted_curve = exp_decay(steps, item["fit_Linf"], losses[0] - item["fit_Linf"], item["fit_k"])
+            ax.plot(steps, fitted_curve, '--', linewidth=1, alpha=0.7, color=colors[i])
+
         drew_line = True
 
     if not drew_line:
@@ -257,7 +269,7 @@ def plot_loss_curves(
 
     # Create legend with smaller font and better positioning
     legend = ax.legend(loc="upper right", fontsize=LEGEND_SIZE, framealpha=0.9, ncol=2 if len(histories) > 6 else 1)
-    legend.set_title("Models", prop={'size': LEGEND_SIZE})
+    legend.set_title("Models (solid=actual, dashed=fit)", prop={'size': LEGEND_SIZE})
 
     fig.tight_layout()
     fig.savefig(out_path, bbox_inches="tight", pad_inches=0.1)
@@ -369,6 +381,29 @@ def _load_metrics_json(path: Path) -> Optional[dict[str, Any]]:
     return None
 
 
+def exp_decay(t, Linf, A, k):
+    """Exponential decay function: L(t) = Linf + A * exp(-k * t)"""
+    return Linf + A * np.exp(-k * t)
+
+def fit_loss_curve(steps, losses):
+    """Fit exponential decay to loss vs. step data."""
+    try:
+        popt, _ = curve_fit(
+            exp_decay, steps, losses,
+            p0=[losses[-1], losses[0]-losses[-1], 0.05],
+            maxfev=2000
+        )
+        Linf, A, k = popt
+        residuals = losses - exp_decay(steps, *popt)
+        ss_res = np.sum(residuals ** 2)
+        ss_tot = np.sum((losses - np.mean(losses)) ** 2)
+        R2 = 1 - (ss_res / ss_tot)
+        t_half = np.log(2) / k if k > 0 else np.inf
+        return dict(Linf=Linf, k=k, R2=R2, t_half=t_half)
+    except Exception as e:
+        logging.warning(f"Exponential fit failed: {e}")
+        return dict(Linf=np.nan, k=np.nan, R2=0.0, t_half=np.nan)
+
 def _collect_loss_histories(df: Optional[pd.DataFrame]) -> list[dict[str, Any]]:
     if df is None or df.empty or "metrics_path" not in df.columns:
         return []
@@ -384,7 +419,19 @@ def _collect_loss_histories(df: Optional[pd.DataFrame]) -> list[dict[str, Any]]:
         losses = metrics.get("loss_history")
         if not losses:
             continue
-        histories.append({"label": row["_label"], "loss_history": losses})
+
+        # Fit exponential decay curve
+        steps = np.arange(len(losses))
+        fit = fit_loss_curve(steps, losses)
+
+        histories.append({
+            "label": row["_label"],
+            "loss_history": losses,
+            "fit_Linf": fit["Linf"],
+            "fit_k": fit["k"],
+            "fit_R2": fit["R2"],
+            "fit_t_half": fit["t_half"]
+        })
     return histories
 
 
@@ -643,9 +690,12 @@ def write_summary_markdown(
     lines = ["# Results Summary", ""]
     if generated_at:
         lines.append(f"_Generated {generated_at}_")
+        # Use relative path from results/ directory
         source_root = base_dir.parent
-        if source_root != base_dir:
-            lines.append(f"_Source: {source_root}_")
+        if source_root != base_dir and source_root.name == "results":
+            lines.append("_Source: ../_")
+        elif source_root != base_dir:
+            lines.append(f"_Source: {source_root.name}_")
         lines.append("")
     if synthetic_df is not None:
         title = descriptions.get("synthetic_title", "Synthetic Benchmark")
@@ -659,7 +709,20 @@ def write_summary_markdown(
         lines.append("- **Texture**: Parametric gratings (oriented, controlled frequency/bandwidth) - tests directional frequency sensitivity")
         lines.append("- **Random field**: Power-law spectra (1/f^α falloff) - tests natural image frequency statistics")
         lines.append("")
-        headers = ["Run", "Loss Drop", "Final Loss", "Images/s", "Runtime (s)"]
+        # Add FFT performance context
+        if fft_snapshot:
+            lines.append("**FFT Performance Context:**")
+            lines.append(f"- torch.fft.fft2 (CPU): {fft_snapshot['torch_cpu_per_call'] * 1e3:.1f}ms per 256×256 image")
+            lines.append(f"- numpy.fft.fft2: {fft_snapshot['numpy_cpu_per_call'] * 1e3:.1f}ms per 256×256 image")
+            if fft_snapshot.get("torch_cuda_per_call"):
+                lines.append(f"- torch.fft.fft2 (CUDA): {fft_snapshot['torch_cuda_per_call'] * 1e3:.1f}ms per 256×256 image")
+            lines.append("")
+
+        # Add implementation caveat
+        lines.append("**⚠️ Implementation Caveat:**")
+        lines.append("Spectral adapters currently rely on Python-level FFT calls, causing host-device sync overhead. Wall-time results are implementation-limited. Step-based fit-rate metrics (k, t½) are the primary indicators of convergence efficiency. We benchmark the FFT performance in isolation.")
+        lines.append("")
+        headers = ["Run", "Loss Drop", "Final Loss", "Images/s", "Runtime (s)", "Fit k", "Fit R²", "t½"]
         if "eval_fid" in synthetic_df.columns:
             headers.append("FID")
         if "eval_lpips" in synthetic_df.columns:
@@ -674,6 +737,9 @@ def write_summary_markdown(
                 f"{row['loss_final']:.3f}",
                 f"{row['images_per_second']:.1f}",
                 f"{row['runtime_seconds']:.1f}",
+                f"{row.get('fit_k', np.nan):.3f}" if not pd.isna(row.get('fit_k')) else "–",
+                f"{row.get('fit_R2', np.nan):.2f}" if not pd.isna(row.get('fit_R2')) else "–",
+                f"{row.get('fit_t_half', np.nan):.1f}" if not pd.isna(row.get('fit_t_half')) and np.isfinite(row.get('fit_t_half', np.nan)) else "–",
             ]
             if "eval_fid" in synthetic_df.columns:
                 values.append(
@@ -690,6 +756,19 @@ def write_summary_markdown(
             lines.append("**Quick takeaways**")
             lines.extend(takeaways)
             lines.append("")
+        # Add fit-based ranking
+        if "fit_k" in synthetic_df.columns and synthetic_df["fit_k"].notna().any():
+            lines.append("**Convergence Analysis (Exponential Fit):**")
+            best_fit = synthetic_df.loc[synthetic_df["fit_k"].idxmax()]
+            lines.append(f"- Fastest convergence rate: {_label_series(synthetic_df).iloc[synthetic_df['fit_k'].idxmax()]} (k={best_fit['fit_k']:.3f}, t½={best_fit.get('fit_t_half', 'N/A')})")
+
+            # Add efficiency index ranking (k / runtime)
+            if "runtime_seconds" in synthetic_df.columns:
+                synthetic_df_copy = synthetic_df.copy()
+                synthetic_df_copy["efficiency_index"] = synthetic_df_copy["fit_k"] / synthetic_df_copy["runtime_seconds"]
+                best_eff = synthetic_df_copy.loc[synthetic_df_copy["efficiency_index"].idxmax()]
+                lines.append(f"- Highest efficiency (k/runtime): {_label_series(synthetic_df).iloc[synthetic_df_copy['efficiency_index'].idxmax()]} ({best_eff['efficiency_index']:.4f})")
+            lines.append("")
         _embed_image("tradeoff_loss_vs_speed_synthetic.png", "Synthetic loss vs throughput")
         _embed_image("loss_final_distribution_synthetic.png", "Synthetic final loss distribution")
         _embed_image("loss_curve_synthetic.png", "Synthetic loss curves")
@@ -700,7 +779,7 @@ def write_summary_markdown(
         lines.append(f"## {title}")
         if desc:
             lines.extend([desc, ""])
-        headers = ["Run", "Loss Drop", "Final Loss", "Images/s", "Runtime (s)"]
+        headers = ["Run", "Loss Drop", "Final Loss", "Images/s", "Runtime (s)", "Fit k", "Fit R²", "t½"]
         if "eval_fid" in cifar_df.columns:
             headers.append("FID")
         if "eval_lpips" in cifar_df.columns:
@@ -715,6 +794,9 @@ def write_summary_markdown(
                 f"{row['loss_final']:.3f}",
                 f"{row['images_per_second']:.1f}",
                 f"{row['runtime_seconds']:.1f}",
+                f"{row.get('fit_k', np.nan):.3f}" if not pd.isna(row.get('fit_k')) else "–",
+                f"{row.get('fit_R2', np.nan):.2f}" if not pd.isna(row.get('fit_R2')) else "–",
+                f"{row.get('fit_t_half', np.nan):.1f}" if not pd.isna(row.get('fit_t_half')) and np.isfinite(row.get('fit_t_half', np.nan)) else "–",
             ]
             if "eval_fid" in cifar_df.columns:
                 values.append(
@@ -730,6 +812,19 @@ def write_summary_markdown(
         if takeaways:
             lines.append("**Quick takeaways**")
             lines.extend(takeaways)
+            lines.append("")
+        # Add fit-based ranking
+        if "fit_k" in cifar_df.columns and cifar_df["fit_k"].notna().any():
+            lines.append("**Convergence Analysis (Exponential Fit):**")
+            best_fit = cifar_df.loc[cifar_df["fit_k"].idxmax()]
+            lines.append(f"- Fastest convergence rate: {_label_series(cifar_df).iloc[cifar_df['fit_k'].idxmax()]} (k={best_fit['fit_k']:.3f}, t½={best_fit.get('fit_t_half', 'N/A')})")
+
+            # Add efficiency index ranking (k / runtime)
+            if "runtime_seconds" in cifar_df.columns:
+                cifar_df_copy = cifar_df.copy()
+                cifar_df_copy["efficiency_index"] = cifar_df_copy["fit_k"] / cifar_df_copy["runtime_seconds"]
+                best_eff = cifar_df_copy.loc[cifar_df_copy["efficiency_index"].idxmax()]
+                lines.append(f"- Highest efficiency (k/runtime): {_label_series(cifar_df).iloc[cifar_df_copy['efficiency_index'].idxmax()]} ({best_eff['efficiency_index']:.4f})")
             lines.append("")
         _embed_image("tradeoff_loss_vs_speed_cifar.png", "CIFAR-10 loss vs throughput")
         _embed_image("loss_final_distribution_cifar.png", "CIFAR-10 final loss distribution")
@@ -973,6 +1068,7 @@ def generate_figures(
 
     timestamp = generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    # Run FFT benchmark for performance comparison
     fft_snapshot = _fft_benchmark_snapshot()
 
     write_summary_markdown(
