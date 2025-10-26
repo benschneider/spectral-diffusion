@@ -197,7 +197,7 @@ class TestFigureStyling:
         _setup_style()
 
         # Check that our custom settings were applied
-        assert plt.rcParams["axes.titlesize"] == 11
+        assert plt.rcParams["axes.titlesize"] == 10
         assert plt.rcParams["figure.dpi"] == 300
         assert plt.rcParams["figure.constrained_layout.use"] == True
 
