@@ -1,0 +1,7 @@
+{
+  "size": 256,
+  "batch": 8,
+  "fft_time": 0.014087832998484373,
+  "device": "cpu",
+  "dtype": "torch.float32"
+}
