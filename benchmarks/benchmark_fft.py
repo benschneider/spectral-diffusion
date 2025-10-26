@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import statistics
 import sys
 import time
@@ -17,6 +19,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.core.model_unet_tiny import TinyUNet  # noqa: E402
+
+
+# =============================================================
+# FFT Benchmark Module — Spectral Diffusion v0.2
+# -------------------------------------------------------------
+# Measures FFT/iFFT overhead and compares to model runtime.
+# Adds support for runtime fraction metrics and file export.
+# =============================================================
 
 
 def build_config(spectral_enabled: bool, weighting: str, shape: Tuple[int, int, int]) -> Dict:
@@ -41,10 +51,11 @@ def benchmark_model(
     input_shape: Tuple[int, int, int],
     iterations: int,
     warmup: int,
+    dtype: torch.dtype = torch.float32,
 ) -> Dict[str, float]:
     model.eval()
     channels, height, width = input_shape
-    x = torch.randn(batch_size, channels, height, width, device=device)
+    x = torch.randn(batch_size, channels, height, width, device=device, dtype=dtype)
 
     timings = []
     for i in range(iterations + warmup):
@@ -74,16 +85,16 @@ def benchmark_model(
 
 def benchmark_fft(size: int = 512, batch: int = 8, device: str = "cuda", dtype: torch.dtype = torch.float32) -> Dict[str, float]:
     """Benchmark pure FFT operations."""
-    device = torch.device(device)
-    x = torch.randn(batch, 3, size, size, device=device, dtype=dtype)
+    device_obj = torch.device(device)
+    x = torch.randn(batch, 3, size, size, device=device_obj, dtype=dtype)
 
-    if device.type == "cuda":
+    if device_obj.type == "cuda":
         torch.cuda.synchronize()
 
     start = time.perf_counter()
     X = torch.fft.fft2(x)
     y = torch.fft.ifft2(X)
-    if device.type == "cuda":
+    if device_obj.type == "cuda":
         torch.cuda.synchronize()
     fft_time = time.perf_counter() - start
 
@@ -91,41 +102,51 @@ def benchmark_fft(size: int = 512, batch: int = 8, device: str = "cuda", dtype: 
         "size": size,
         "batch": batch,
         "fft_time": fft_time,
-        "device": device.type,
+        "device": device_obj.type,
         "dtype": str(dtype),
     }
 
 
-def benchmark_fft_over_model(model: TinyUNet, size: int = 512, batch: int = 8, device: str = "cuda") -> Dict[str, float]:
-    """Benchmark FFT overhead within a full model forward pass."""
-    device = torch.device(device)
-    x = torch.randn(batch, 3, size, size, device=device, requires_grad=True)
-
-    if device.type == "cuda":
+def benchmark_fft_over_model(
+    model: TinyUNet,
+    size: int = 512,
+    batch: int = 8,
+    device: str = "cuda",
+    dtype: torch.dtype = torch.float32,
+) -> Dict[str, float]:
+    """Measure total model runtime and compute FFT overhead fraction."""
+    device_obj = torch.device(device)
+    x = torch.randn(batch, 3, size, size, device=device_obj, dtype=dtype, requires_grad=True)
+    if device_obj.type == "cuda":
         torch.cuda.synchronize()
-
-    start = time.perf_counter()
-    out = model(x, t=None)
+    t0 = time.time()
+    out = model(x)
     out.mean().backward()
-    if device.type == "cuda":
+    if device_obj.type == "cuda":
         torch.cuda.synchronize()
-    total_time = time.perf_counter() - start
+    total_t = time.time() - t0
 
-    # Get spectral stats from model
-    stats = getattr(model, "spectral_stats", lambda: {})()
-    fft_time = stats.get("spectral_time_seconds", 0.0)
-    fft_fraction = fft_time / total_time if total_time > 0 else 0.0
+    fft_info = benchmark_fft(size=size, batch=batch, device=device, dtype=dtype)
+    fft_fraction = fft_info["fft_time"] / total_t if total_t > 0 else 0.0
+    fft_info.update({
+        "model_time": total_t,
+        "fft_fraction_runtime": fft_fraction,
+        "device": device_obj.type,
+        "dtype": str(dtype),
+    })
 
-    print(".2%")
+    print(f"Model total time: {total_t:.6f} seconds")
+    print(f"FFT time: {fft_info['fft_time']:.6f} seconds")
+    print(f"FFT fraction of runtime: {fft_fraction:.4f}")
 
-    return {
-        "size": size,
-        "batch": batch,
-        "model_time": total_time,
-        "fft_time": fft_time,
-        "fft_fraction": fft_fraction,
-        "device": device.type,
-    }
+    return fft_info
+
+
+def save_json(result, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(result, f, indent=2)
+    print(f"Saved results to {path}")
 
 
 def main() -> None:
@@ -151,24 +172,22 @@ def main() -> None:
         help="Which configurations to benchmark.",
     )
     parser.add_argument("--size", type=int, help="Image size for FFT-only benchmark.")
+    parser.add_argument("--dtype", default="float32", choices=["float16", "float32", "float64"], help="Data type for benchmarking.")
     parser.add_argument("--save", type=str, help="Save FFT benchmark results to JSON file.")
     args = parser.parse_args()
 
     device = torch.device(args.device)
     shape = (args.channels, args.height, args.width)
+    dtype = getattr(torch, args.dtype)
 
     # Handle FFT-only benchmark
     if args.size is not None:
-        result = benchmark_fft(size=args.size, batch=args.batch_size, device=args.device)
-        print(f"FFT-only benchmark: size={args.size}, batch={args.batch_size}")
-        print(".6f")
-        print(".2f")
+        result = benchmark_fft(size=args.size, batch=args.batch_size, device=args.device, dtype=dtype)
+        print(f"FFT-only benchmark: size={args.size}, batch={args.batch_size}, dtype={args.dtype}, device={args.device}")
+        print(f"FFT time: {result['fft_time']:.6f} seconds")
 
         if args.save:
-            import json
-            with open(args.save, 'w') as f:
-                json.dump(result, f, indent=2)
-            print(f"Results saved to {args.save}")
+            save_json(result, args.save)
         return
 
     # Original model benchmarking
@@ -176,7 +195,7 @@ def main() -> None:
     for mode in args.modes:
         spectral_enabled = mode == "spectral"
         config = build_config(spectral_enabled, args.spectral_weighting, shape)
-        model = TinyUNet(config).to(device)
+        model = TinyUNet(config).to(device).to(dtype)
         metrics = benchmark_model(
             model=model,
             device=device,
@@ -184,6 +203,7 @@ def main() -> None:
             input_shape=shape,
             iterations=args.iterations,
             warmup=args.warmup,
+            dtype=dtype,
         )
         results.append((mode, metrics))
 
@@ -194,6 +214,26 @@ def main() -> None:
             f"{metrics['images_per_second']:.2f}\t{metrics['spectral_calls']:.0f}\t"
             f"{metrics['spectral_time_seconds']:.6f}"
         )
+
+    # Additionally benchmark FFT overhead over model for spectral mode if present
+    if "spectral" in args.modes:
+        spectral_enabled = True
+        config = build_config(spectral_enabled, args.spectral_weighting, shape)
+        model = TinyUNet(config).to(device).to(dtype)
+        fft_over_model_result = benchmark_fft_over_model(
+            model=model,
+            size=max(shape[1], shape[2]),
+            batch=args.batch_size,
+            device=args.device,
+            dtype=dtype,
+        )
+        print("\nFFT overhead over model runtime:")
+        print(json.dumps(fft_over_model_result, indent=2))
+
+        if args.save:
+            base, ext = os.path.splitext(args.save)
+            fft_save_path = f"{base}_fft_over_model{ext}"
+            save_json(fft_over_model_result, fft_save_path)
 
 
 if __name__ == "__main__":
