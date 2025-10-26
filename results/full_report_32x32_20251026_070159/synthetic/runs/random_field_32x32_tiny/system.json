@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-10-26T14:08:34.114046+00:00",
+  "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+  "python_version": "3.13.2",
+  "torch_version": "2.6.0",
+  "cuda_available": false,
+  "cuda_device_count": 0,
+  "mps_available": true,
+  "cpu_count": 10,
+  "config_path": "/Users/benschneider/gitrep/spectral-diffusion/configs/benchmark_synthetic_random_field.yaml",
+  "run_id": "random_field_32x32_tiny"
+}

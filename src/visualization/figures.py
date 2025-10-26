@@ -753,6 +753,17 @@ def write_summary_markdown(
                 )
             lines.append("| " + " | ".join(values) + " |")
         lines.append("")
+        # Add fit results summary
+        if "fit_k" in synthetic_df.columns and synthetic_df["fit_k"].notna().any():
+            lines.append("**Fit Results Summary:**")
+            valid_fits = synthetic_df[synthetic_df["fit_k"].notna()]
+            if len(valid_fits) > 0:
+                avg_k = valid_fits["fit_k"].mean()
+                avg_r2 = valid_fits["fit_R2"].mean()
+                lines.append(f"- Average convergence rate (k): {avg_k:.3f}")
+                lines.append(f"- Average fit quality (R²): {avg_r2:.2f}")
+                lines.append("")
+        lines.append("")
         takeaways = _benchmark_takeaways(synthetic_df)
         if takeaways:
             lines.append("**Quick takeaways**")
@@ -809,6 +820,17 @@ def write_summary_markdown(
                     f"{row['eval_lpips']:.3f}" if not pd.isna(row.get("eval_lpips")) else "–"
                 )
             lines.append("| " + " | ".join(values) + " |")
+        lines.append("")
+        # Add fit results summary
+        if "fit_k" in cifar_df.columns and cifar_df["fit_k"].notna().any():
+            lines.append("**Fit Results Summary:**")
+            valid_fits = cifar_df[cifar_df["fit_k"].notna()]
+            if len(valid_fits) > 0:
+                avg_k = valid_fits["fit_k"].mean()
+                avg_r2 = valid_fits["fit_R2"].mean()
+                lines.append(f"- Average convergence rate (k): {avg_k:.3f}")
+                lines.append(f"- Average fit quality (R²): {avg_r2:.2f}")
+                lines.append("")
         lines.append("")
         takeaways = _benchmark_takeaways(cifar_df)
         if takeaways:
