@@ -1,6 +1,6 @@
 # Results Summary
 
-_Generated 2025-10-26T18:08:45+00:00_
+_Generated 2025-10-26T19:22:06+00:00_
 _Source: full_report_1024x_20251026_084856_
 
 ## Synthetic Benchmark (generate different type of images, piecewise, parametric textures, random fields)
@@ -12,8 +12,8 @@ We compare how quickly the spatial TinyUNet and the spectral version learn to re
 - **Random field**: Power-law spectra (1/f^α falloff) - tests natural image frequency statistics
 
 **FFT Performance Context:**
-- torch.fft.fft2 (CPU): 3.8ms per 256×256 image
-- numpy.fft.fft2: 9.6ms per 256×256 image
+- torch.fft.fft2 (CPU): 3.9ms per 256×256 image
+- numpy.fft.fft2: 10.8ms per 256×256 image
 
 **⚠️ Implementation Caveat:**
 Spectral adapters currently rely on Python-level FFT calls, causing host-device sync overhead.
@@ -22,21 +22,25 @@ indicators of convergence efficiency. We benchmark the FFT performance in isolat
 
 | Run | Loss Drop | Final Loss | Images/s | Runtime (s) | Fit k | Fit R² | t½ | FID |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| piecewise_1024x1024_tiny | 0.126 | 0.888 | 460.7 | 3.5 | – | – | – | – |
-| piecewise_1024x1024_tiny_learnable | 0.126 | 0.888 | 455.1 | 3.5 | – | – | – | – |
-| piecewise_1024x1024_spectral | 2.567 | 0.584 | 41.8 | 38.2 | – | – | – | – |
-| piecewise_1024x1024_spectral_deep | 1.773 | 0.529 | 16.7 | 95.8 | – | – | – | – |
-| piecewise_1024x1024_unet_spectral | 2.567 | 0.584 | 41.6 | 38.4 | – | – | – | – |
-| texture_1024x1024_tiny | 0.133 | 0.879 | 497.6 | 3.2 | – | – | – | – |
-| texture_1024x1024_tiny_learnable | 0.133 | 0.879 | 496.3 | 3.2 | – | – | – | – |
-| texture_1024x1024_spectral | 2.840 | 0.471 | 42.1 | 38.0 | – | – | – | – |
-| texture_1024x1024_spectral_deep | 1.860 | 0.441 | 16.7 | 95.8 | – | – | – | – |
-| texture_1024x1024_unet_spectral | 2.840 | 0.471 | 41.6 | 38.4 | – | – | – | – |
-| random_field_1024x1024_tiny | 0.107 | 0.893 | 496.7 | 3.2 | – | – | – | – |
-| random_field_1024x1024_tiny_learnable | 0.107 | 0.893 | 496.9 | 3.2 | – | – | – | – |
-| random_field_1024x1024_spectral | 2.959 | 0.414 | 42.2 | 37.9 | – | – | – | – |
-| random_field_1024x1024_spectral_deep | 1.824 | 0.416 | 16.7 | 95.6 | – | – | – | – |
-| random_field_1024x1024_unet_spectral | 2.959 | 0.414 | 42.5 | 37.6 | – | – | – | – |
+| piecewise_1024x1024_tiny | 0.126 | 0.888 | 460.7 | 3.5 | 0.000 | 0.94 | 96963.7 | – |
+| piecewise_1024x1024_tiny_learnable | 0.126 | 0.888 | 455.1 | 3.5 | 0.000 | 0.94 | 96963.7 | – |
+| piecewise_1024x1024_spectral | 2.567 | 0.584 | 41.8 | 38.2 | 0.104 | 1.00 | 6.7 | – |
+| piecewise_1024x1024_spectral_deep | 1.773 | 0.529 | 16.7 | 95.8 | 0.126 | 0.99 | 5.5 | – |
+| piecewise_1024x1024_unet_spectral | 2.567 | 0.584 | 41.6 | 38.4 | 0.104 | 1.00 | 6.7 | – |
+| texture_1024x1024_tiny | 0.133 | 0.879 | 497.6 | 3.2 | 0.000 | 0.95 | 90937.8 | – |
+| texture_1024x1024_tiny_learnable | 0.133 | 0.879 | 496.3 | 3.2 | 0.000 | 0.95 | 90937.8 | – |
+| texture_1024x1024_spectral | 2.840 | 0.471 | 42.1 | 38.0 | 0.113 | 1.00 | 6.1 | – |
+| texture_1024x1024_spectral_deep | 1.860 | 0.441 | 16.7 | 95.8 | 0.139 | 0.99 | 5.0 | – |
+| texture_1024x1024_unet_spectral | 2.840 | 0.471 | 41.6 | 38.4 | 0.113 | 1.00 | 6.1 | – |
+| random_field_1024x1024_tiny | 0.107 | 0.893 | 496.7 | 3.2 | 0.000 | 0.96 | 81313.5 | – |
+| random_field_1024x1024_tiny_learnable | 0.107 | 0.893 | 496.9 | 3.2 | 0.000 | 0.96 | 81313.5 | – |
+| random_field_1024x1024_spectral | 2.959 | 0.414 | 42.2 | 37.9 | 0.114 | 1.00 | 6.1 | – |
+| random_field_1024x1024_spectral_deep | 1.824 | 0.416 | 16.7 | 95.6 | 0.140 | 0.99 | 5.0 | – |
+| random_field_1024x1024_unet_spectral | 2.959 | 0.414 | 42.5 | 37.6 | 0.114 | 1.00 | 6.1 | – |
+
+**Fit Results Summary:**
+- Average convergence rate (k): 0.071
+- Average fit quality (R²): 0.98
 
 
 **Quick takeaways**
@@ -44,6 +48,10 @@ indicators of convergence efficiency. We benchmark the FFT performance in isolat
 - Fastest throughput: texture_1024x1024_tiny (497.6) images/s
 - Trade-off: texture_1024x1024_tiny vs random_field_1024x1024_spectral → 11.8× faster, Δ loss -0.464
 - Fastest convergence: random_field_1024x1024_unet_spectral (0.079) loss drop/s
+
+**Convergence Analysis (Exponential Fit):**
+- Fastest convergence rate: random_field_1024x1024_spectral_deep (k=0.140, t½=4.957768547190408)
+- Highest efficiency (k/runtime): random_field_1024x1024_unet_spectral (0.0030)
 
 ![Synthetic loss vs throughput](tradeoff_loss_vs_speed_synthetic.png)
 
@@ -56,15 +64,23 @@ Same comparison on real CIFAR-10 data to show the accuracy vs. training speed tr
 
 | Run | Loss Drop | Final Loss | Images/s | Runtime (s) | Fit k | Fit R² | t½ | FID |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| cifar_1024x1024_tiny | 0.941 | 0.182 | 92.7 | 69.0 | – | – | – | – |
-| cifar_1024x1024_spectral | 2.942 | 0.357 | 42.4 | 151.0 | – | – | – | – |
-| cifar_1024x1024_spectral_deep | 1.699 | 0.278 | 21.8 | 294.1 | – | – | – | – |
+| cifar_1024x1024_tiny | 0.941 | 0.182 | 92.7 | 69.0 | 0.017 | 0.99 | 40.2 | – |
+| cifar_1024x1024_spectral | 2.942 | 0.357 | 42.4 | 151.0 | 0.091 | 0.98 | 7.6 | – |
+| cifar_1024x1024_spectral_deep | 1.699 | 0.278 | 21.8 | 294.1 | 0.090 | 0.94 | 7.7 | – |
+
+**Fit Results Summary:**
+- Average convergence rate (k): 0.066
+- Average fit quality (R²): 0.97
 
 
 **Quick takeaways**
 - Lowest final loss: cifar_1024x1024_tiny (0.182)
 - Fastest throughput: cifar_1024x1024_tiny (92.7) images/s
 - Fastest convergence: cifar_1024x1024_spectral (0.019) loss drop/s
+
+**Convergence Analysis (Exponential Fit):**
+- Fastest convergence rate: cifar_1024x1024_spectral (k=0.091, t½=7.611790969344817)
+- Highest efficiency (k/runtime): cifar_1024x1024_spectral (0.0006)
 
 ![CIFAR-10 loss vs throughput](tradeoff_loss_vs_speed_cifar.png)
 
@@ -96,8 +112,8 @@ _Higher S/N (less negative) indicates a more robust configuration. Secondary col
 
 ## FFT Benchmark Snapshot
 Parameters: batch=4, channels=3, size=256×256, runs=10
-- torch.fft.fft2 (CPU): 3.83 ms per call (total 0.038s)
-- numpy.fft.fft2: 9.58 ms per call (total 0.096s)
+- torch.fft.fft2 (CPU): 3.91 ms per call (total 0.039s)
+- numpy.fft.fft2: 10.82 ms per call (total 0.108s)
 - torch.fft.fft2 (CUDA): not available on this machine
 _One-off measurement on local hardware; treat as qualitative guidance._
 

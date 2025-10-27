@@ -1,6 +1,6 @@
 # Results Summary
 
-_Generated 2025-10-26T15:01:15+00:00_
+_Generated 2025-10-26T19:21:54+00:00_
 _Source: full_report_32x32_20251026_070159_
 
 ## Synthetic Benchmark (generate different type of images, piecewise, parametric textures, random fields)
@@ -12,8 +12,8 @@ We compare how quickly the spatial TinyUNet and the spectral version learn to re
 - **Random field**: Power-law spectra (1/f^α falloff) - tests natural image frequency statistics
 
 **FFT Performance Context:**
-- torch.fft.fft2 (CPU): 3.1ms per 256×256 image
-- numpy.fft.fft2: 8.8ms per 256×256 image
+- torch.fft.fft2 (CPU): 4.3ms per 256×256 image
+- numpy.fft.fft2: 10.8ms per 256×256 image
 
 **⚠️ Implementation Caveat:**
 Spectral adapters currently rely on Python-level FFT calls, causing host-device sync overhead.
@@ -22,27 +22,36 @@ indicators of convergence efficiency. We benchmark the FFT performance in isolat
 
 | Run | Loss Drop | Final Loss | Images/s | Runtime (s) | Fit k | Fit R² | t½ | FID |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| piecewise_32x32_tiny | 0.126 | 0.888 | 501.5 | 3.2 | – | – | – | – |
-| piecewise_32x32_tiny_learnable | 0.126 | 0.888 | 505.5 | 3.2 | – | – | – | – |
-| piecewise_32x32_spectral | 2.567 | 0.584 | 40.1 | 39.9 | – | – | – | – |
-| piecewise_32x32_spectral_deep | 1.773 | 0.529 | 15.7 | 101.9 | – | – | – | – |
-| piecewise_32x32_unet_spectral | 2.567 | 0.584 | 42.8 | 37.4 | – | – | – | – |
-| texture_32x32_tiny | 0.133 | 0.879 | 502.9 | 3.2 | – | – | – | – |
-| texture_32x32_tiny_learnable | 0.133 | 0.879 | 508.8 | 3.1 | – | – | – | – |
-| texture_32x32_spectral | 2.840 | 0.471 | 41.9 | 38.1 | – | – | – | – |
-| texture_32x32_spectral_deep | 1.860 | 0.441 | 15.8 | 101.4 | – | – | – | – |
-| texture_32x32_unet_spectral | 2.840 | 0.471 | 36.4 | 43.9 | – | – | – | – |
-| random_field_32x32_tiny | 0.107 | 0.893 | 479.6 | 3.3 | – | – | – | – |
-| random_field_32x32_tiny_learnable | 0.107 | 0.893 | 476.7 | 3.4 | – | – | – | – |
-| random_field_32x32_spectral | 2.959 | 0.414 | 37.9 | 42.3 | – | – | – | – |
-| random_field_32x32_spectral_deep | 1.824 | 0.416 | 15.4 | 103.9 | – | – | – | – |
-| random_field_32x32_unet_spectral | 2.959 | 0.414 | 37.8 | 42.4 | – | – | – | – |
+| piecewise_32x32_tiny | 0.126 | 0.888 | 501.5 | 3.2 | 0.000 | 0.94 | 96963.7 | – |
+| piecewise_32x32_tiny_learnable | 0.126 | 0.888 | 505.5 | 3.2 | 0.000 | 0.94 | 96963.7 | – |
+| piecewise_32x32_spectral | 2.567 | 0.584 | 40.1 | 39.9 | 0.104 | 1.00 | 6.7 | – |
+| piecewise_32x32_spectral_deep | 1.773 | 0.529 | 15.7 | 101.9 | 0.126 | 0.99 | 5.5 | – |
+| piecewise_32x32_unet_spectral | 2.567 | 0.584 | 42.8 | 37.4 | 0.104 | 1.00 | 6.7 | – |
+| texture_32x32_tiny | 0.133 | 0.879 | 502.9 | 3.2 | 0.000 | 0.95 | 90937.8 | – |
+| texture_32x32_tiny_learnable | 0.133 | 0.879 | 508.8 | 3.1 | 0.000 | 0.95 | 90937.8 | – |
+| texture_32x32_spectral | 2.840 | 0.471 | 41.9 | 38.1 | 0.113 | 1.00 | 6.1 | – |
+| texture_32x32_spectral_deep | 1.860 | 0.441 | 15.8 | 101.4 | 0.139 | 0.99 | 5.0 | – |
+| texture_32x32_unet_spectral | 2.840 | 0.471 | 36.4 | 43.9 | 0.113 | 1.00 | 6.1 | – |
+| random_field_32x32_tiny | 0.107 | 0.893 | 479.6 | 3.3 | 0.000 | 0.96 | 81313.5 | – |
+| random_field_32x32_tiny_learnable | 0.107 | 0.893 | 476.7 | 3.4 | 0.000 | 0.96 | 81313.5 | – |
+| random_field_32x32_spectral | 2.959 | 0.414 | 37.9 | 42.3 | 0.114 | 1.00 | 6.1 | – |
+| random_field_32x32_spectral_deep | 1.824 | 0.416 | 15.4 | 103.9 | 0.140 | 0.99 | 5.0 | – |
+| random_field_32x32_unet_spectral | 2.959 | 0.414 | 37.8 | 42.4 | 0.114 | 1.00 | 6.1 | – |
+
+**Fit Results Summary:**
+- Average convergence rate (k): 0.071
+- Average fit quality (R²): 0.98
+
 
 **Quick takeaways**
 - Lowest final loss: random_field_32x32_spectral (0.414)
 - Fastest throughput: texture_32x32_tiny_learnable (508.8) images/s
 - Trade-off: texture_32x32_tiny_learnable vs random_field_32x32_spectral → 13.4× faster, Δ loss -0.464
 - Fastest convergence: texture_32x32_spectral (0.074) loss drop/s
+
+**Convergence Analysis (Exponential Fit):**
+- Fastest convergence rate: random_field_32x32_spectral_deep (k=0.140, t½=4.957768547190408)
+- Highest efficiency (k/runtime): texture_32x32_spectral (0.0030)
 
 ![Synthetic loss vs throughput](tradeoff_loss_vs_speed_synthetic.png)
 
@@ -55,14 +64,23 @@ Same comparison on real CIFAR-10 data to show the accuracy vs. training speed tr
 
 | Run | Loss Drop | Final Loss | Images/s | Runtime (s) | Fit k | Fit R² | t½ | FID |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| cifar_32x32_tiny | 0.941 | 0.182 | 85.7 | 74.7 | – | – | – | – |
-| cifar_32x32_spectral | 2.942 | 0.357 | 37.4 | 170.9 | – | – | – | – |
-| cifar_32x32_spectral_deep | 1.699 | 0.278 | 21.0 | 304.7 | – | – | – | – |
+| cifar_32x32_tiny | 0.941 | 0.182 | 85.7 | 74.7 | 0.017 | 0.99 | 40.2 | – |
+| cifar_32x32_spectral | 2.942 | 0.357 | 37.4 | 170.9 | 0.091 | 0.98 | 7.6 | – |
+| cifar_32x32_spectral_deep | 1.699 | 0.278 | 21.0 | 304.7 | 0.090 | 0.94 | 7.7 | – |
+
+**Fit Results Summary:**
+- Average convergence rate (k): 0.066
+- Average fit quality (R²): 0.97
+
 
 **Quick takeaways**
 - Lowest final loss: cifar_32x32_tiny (0.182)
 - Fastest throughput: cifar_32x32_tiny (85.7) images/s
 - Fastest convergence: cifar_32x32_spectral (0.017) loss drop/s
+
+**Convergence Analysis (Exponential Fit):**
+- Fastest convergence rate: cifar_32x32_spectral (k=0.091, t½=7.611790969344817)
+- Highest efficiency (k/runtime): cifar_32x32_spectral (0.0005)
 
 ![CIFAR-10 loss vs throughput](tradeoff_loss_vs_speed_cifar.png)
 
@@ -94,8 +112,8 @@ _Higher S/N (less negative) indicates a more robust configuration. Secondary col
 
 ## FFT Benchmark Snapshot
 Parameters: batch=4, channels=3, size=256×256, runs=10
-- torch.fft.fft2 (CPU): 3.10 ms per call (total 0.031s)
-- numpy.fft.fft2: 8.76 ms per call (total 0.088s)
+- torch.fft.fft2 (CPU): 4.30 ms per call (total 0.043s)
+- numpy.fft.fft2: 10.80 ms per call (total 0.108s)
 - torch.fft.fft2 (CUDA): not available on this machine
 _One-off measurement on local hardware; treat as qualitative guidance._
 
