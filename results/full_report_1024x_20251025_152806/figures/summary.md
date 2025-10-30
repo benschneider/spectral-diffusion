@@ -1,6 +1,6 @@
 # Results Summary
 
-_Generated 2025-10-26T19:22:00+00:00_
+_Generated 2025-10-27T19:39:27+00:00_
 _Source: full_report_1024x_20251025_152806_
 
 ## Synthetic Benchmark (generate different type of images, piecewise, parametric textures, random fields)
@@ -112,8 +112,8 @@ _Higher S/N (less negative) indicates a more robust configuration. Secondary col
 
 ## FFT Benchmark Snapshot
 Parameters: batch=4, channels=3, size=256×256, runs=10
-- torch.fft.fft2 (CPU): 3.89 ms per call (total 0.039s)
-- numpy.fft.fft2: 10.84 ms per call (total 0.108s)
+- torch.fft.fft2 (CPU): 3.94 ms per call (total 0.039s)
+- numpy.fft.fft2: 10.76 ms per call (total 0.108s)
 - torch.fft.fft2 (CUDA): not available on this machine
 _One-off measurement on local hardware; treat as qualitative guidance._
 

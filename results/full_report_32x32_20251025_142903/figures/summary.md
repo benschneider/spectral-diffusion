@@ -1,6 +1,6 @@
 # Results Summary
 
-_Generated 2025-10-26T19:22:12+00:00_
+_Generated 2025-10-27T19:39:39+00:00_
 _Source: full_report_32x32_20251025_142903_
 
 ## Synthetic Benchmark (generate different type of images, piecewise, parametric textures, random fields)
@@ -12,8 +12,8 @@ We compare how quickly the spatial TinyUNet and the spectral version learn to re
 - **Random field**: Power-law spectra (1/f^α falloff) - tests natural image frequency statistics
 
 **FFT Performance Context:**
-- torch.fft.fft2 (CPU): 3.7ms per 256×256 image
-- numpy.fft.fft2: 10.8ms per 256×256 image
+- torch.fft.fft2 (CPU): 3.8ms per 256×256 image
+- numpy.fft.fft2: 10.7ms per 256×256 image
 
 **⚠️ Implementation Caveat:**
 Spectral adapters currently rely on Python-level FFT calls, causing host-device sync overhead.
@@ -112,8 +112,8 @@ _Higher S/N (less negative) indicates a more robust configuration. Secondary col
 
 ## FFT Benchmark Snapshot
 Parameters: batch=4, channels=3, size=256×256, runs=10
-- torch.fft.fft2 (CPU): 3.66 ms per call (total 0.037s)
-- numpy.fft.fft2: 10.79 ms per call (total 0.108s)
+- torch.fft.fft2 (CPU): 3.83 ms per call (total 0.038s)
+- numpy.fft.fft2: 10.67 ms per call (total 0.107s)
 - torch.fft.fft2 (CUDA): not available on this machine
 _One-off measurement on local hardware; treat as qualitative guidance._
 

@@ -11,6 +11,7 @@ from torchvision.utils import save_image
 from src.core import build_model, get_loss_fn
 from src.core.functional import compute_snr_weight, compute_target
 from src.evaluation.metrics import compute_basic_metrics
+from src.spectral.fft_adapter import add_uniform_frequency_noise
 from src.training.builders import build_dataloader, build_optimizer
 from src.training.sampling import build_sampler
 from src.training.scheduler import build_diffusion, sample_timesteps
@@ -62,6 +63,7 @@ class TrainingPipeline:
         prediction_type = diffusion_cfg.get("prediction_type", "eps")
         snr_weighting = diffusion_cfg.get("snr_weighting", False)
         snr_transform = diffusion_cfg.get("snr_transform", "snr")
+        uniform_corruption = bool(diffusion_cfg.get("uniform_corruption", False))
 
         coeffs = build_diffusion(T, schedule)
 
@@ -71,19 +73,31 @@ class TrainingPipeline:
                 B = xb.shape[0]
                 t = sample_timesteps(B, T, xb.device)
 
-                alpha_t = coeffs.sqrt_alphas_cumprod[t].view(B, 1, 1, 1).to(self.device)
-                sigma_t = coeffs.sqrt_one_minus_alphas_cumprod[t].view(B, 1, 1, 1).to(self.device)
+                sqrt_alpha_t = coeffs.sqrt_alphas_cumprod[t].view(B, 1, 1, 1).to(self.device)
+                sqrt_one_minus_t = (
+                    coeffs.sqrt_one_minus_alphas_cumprod[t].view(B, 1, 1, 1).to(self.device)
+                )
 
                 eps = torch.randn_like(xb)
-                x_t = alpha_t * xb + sigma_t * eps
+                x_t = add_uniform_frequency_noise(
+                    xb,
+                    eps,
+                    sqrt_alpha_t=sqrt_alpha_t,
+                    sqrt_one_minus_alpha_t=sqrt_one_minus_t,
+                    uniform_corruption=uniform_corruption,
+                )
 
                 pred = self.model(x_t, t)
-                target = compute_target(prediction_type, xb, x_t, eps, alpha_t, sigma_t)
+                target = compute_target(
+                    prediction_type, xb, x_t, eps, sqrt_alpha_t, sqrt_one_minus_t
+                )
 
                 residual = pred - target
                 weight = None
                 if snr_weighting:
-                    weight = compute_snr_weight(alpha_t, sigma_t, transform=snr_transform)
+                    weight = compute_snr_weight(
+                        sqrt_alpha_t, sqrt_one_minus_t, transform=snr_transform
+                    )
 
                 loss = self.loss_fn(residual, weight)
                 mae = F.l1_loss(pred, target)

@@ -163,6 +163,7 @@ def test_evaluate_cli_metrics(tmp_path):
         update_metadata=True,
     )
     assert result["metrics"]["mse"] == 0.0
+    assert "high_freq_psnr" in result["metrics"]
     assert result["metrics_path"].exists()
     if LPIPS_AVAILABLE:
         assert "lpips" in result["metrics"]
@@ -173,6 +174,7 @@ def test_evaluate_cli_metrics(tmp_path):
     evaluation_meta = metadata["evaluation"]
     assert evaluation_meta["metrics_path"] == str(result["metrics_path"])
     assert "metrics" in evaluation_meta
+    assert "high_freq_psnr" in evaluation_meta["metrics"]
     if LPIPS_AVAILABLE:
         assert "lpips" in evaluation_meta["metrics"]
 

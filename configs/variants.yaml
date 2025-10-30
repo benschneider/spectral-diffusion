@@ -10,6 +10,7 @@ diffusion:
   loss_threshold: null
   num_timesteps: 1000
   prediction_type: eps
+  uniform_corruption: false
   snr_transform: snr
   snr_weighting: false
   time_embed_dim: 128
@@ -26,6 +27,10 @@ model:
   base_channels: 32
   channels: 3
   depth: 2
+  enable_amp_residual: false
+  amp_hidden_dim: 64
+  enable_phase_attention: false
+  phase_heads: 4
   type: unet_tiny
 optim:
   lr: 0.0001

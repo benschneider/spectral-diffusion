@@ -60,6 +60,20 @@ def test_sampler_registry_includes_ddim():
     assert samples.abs().max() <= 1.0
 
 
+def test_sampler_registry_includes_masf():
+    coeffs = build_diffusion(T=10, kind="linear")
+    model = DummyModel()
+    sampler = build_sampler("masf", model=model, coeffs=coeffs)
+    samples = sampler.sample(
+        num_samples=2,
+        shape=(1, 4, 4),
+        num_steps=3,
+        device=torch.device("cpu"),
+    )
+    assert samples.shape == (2, 1, 4, 4)
+    assert samples.isfinite().all()
+
+
 def test_build_sampler_unknown_raises():
     coeffs = build_diffusion(T=4, kind="linear")
     model = DummyModel()

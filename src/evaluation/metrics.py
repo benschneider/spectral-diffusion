@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -67,6 +68,34 @@ def _load_image_tensor(path: Path, image_size: Optional[Sequence[int]] = None) -
     return tensor
 
 
+@lru_cache(maxsize=32)
+def _high_freq_mask_cached(height: int, width: int, cutoff_key: float) -> torch.Tensor:
+    fy = torch.fft.fftfreq(height, d=1.0 / float(height))
+    fx = torch.fft.fftfreq(width, d=1.0 / float(width))
+    yy = fy[:, None]
+    xx = fx[None, :]
+    radius = torch.sqrt(xx**2 + yy**2)
+    mask = (radius >= cutoff_key).to(torch.float32)
+    return mask
+
+
+def _apply_high_pass(tensor: torch.Tensor, cutoff: float = 0.4) -> torch.Tensor:
+    height, width = tensor.shape[-2], tensor.shape[-1]
+    cutoff_key = round(float(cutoff), 4)
+    base_mask = _high_freq_mask_cached(height, width, cutoff_key)
+    mask = base_mask.to(device=tensor.device, dtype=tensor.dtype).unsqueeze(0)
+    spectrum = torch.fft.fftn(tensor, dim=(-2, -1))
+    filtered = spectrum * mask
+    return torch.fft.ifftn(filtered, dim=(-2, -1)).real
+
+
+def _compute_high_freq_psnr(fake: torch.Tensor, real: torch.Tensor) -> float:
+    diff = fake - real
+    diff_high = _apply_high_pass(diff)
+    mse = torch.mean(diff_high**2).item()
+    return float("inf") if mse == 0.0 else 10.0 * np.log10(1.0 / mse)
+
+
 def _compute_pair_metrics(fake: torch.Tensor, real: torch.Tensor) -> Dict[str, float]:
     mse = torch.mean((fake - real) ** 2).item()
     mae = torch.mean(torch.abs(fake - real)).item()
@@ -75,6 +104,7 @@ def _compute_pair_metrics(fake: torch.Tensor, real: torch.Tensor) -> Dict[str, f
         "mse": mse,
         "mae": mae,
         "psnr": psnr,
+        "high_freq_psnr": _compute_high_freq_psnr(fake, real),
     }
 
 
@@ -106,7 +136,7 @@ def compute_dataset_metrics(
             raise ValueError("Generated and reference directories must contain the same number of images")
         paired = list(zip(sorted(gen_paths), sorted(ref_paths)))
 
-    pair_metrics: Dict[str, List[float]] = {"mse": [], "mae": [], "psnr": []}
+    pair_metrics: Dict[str, List[float]] = {"mse": [], "mae": [], "psnr": [], "high_freq_psnr": []}
     fid_metric = None
     if use_fid:
         if not FID_AVAILABLE:

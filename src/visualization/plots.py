@@ -1,0 +1,257 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import pandas as pd
+
+def _setup_style():
+    sns.set(style="whitegrid")
+    plt.rcParams.update({
+        "axes.titlesize": 10,
+        "axes.labelsize": 9,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "legend.fontsize": 8,
+        "figure.titlesize": 12,
+        "figure.figsize": (8, 6),
+        "axes.grid": True,
+        "grid.alpha": 0.3,
+    })
+
+def _color_palette():
+    return sns.color_palette("tab10")
+
+def save_figure(fig, out_path):
+    fig.savefig(out_path, bbox_inches='tight', dpi=300)
+
+def plot_loss_metrics(df: pd.DataFrame, title="Loss Drop per Second by Model", out_path=None) -> None:
+    """Plot loss metrics and optionally save to file."""
+    if df is None or df.empty:
+        return
+
+    _setup_style()
+    fig, ax = plt.subplots()
+
+    # Use run_id or display_name for x-axis
+    x_col = 'display_name' if 'display_name' in df.columns else 'run_id'
+    y_col = 'loss_drop_per_second'
+
+    if y_col not in df.columns:
+        plt.close(fig)
+        return
+
+    palette = _color_palette()
+    sns.barplot(data=df, x=x_col, y=y_col, palette=palette, ax=ax)
+    ax.set_title(title)
+    ax.set_xlabel('Model')
+    ax.set_ylabel('Loss Drop per Second')
+    ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.7)
+
+    if out_path:
+        fig.savefig(out_path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+
+
+def plot_metric_boxplot(df: pd.DataFrame, metric: str, title: str, ylabel: str, out_path=None) -> None:
+        """Plot boxplot for a metric."""
+        if df is None or df.empty or metric not in df.columns:
+            return
+    
+        _setup_style()
+        fig, ax = plt.subplots()
+    
+        # Use run_id or display_name for grouping
+        group_col = 'display_name' if 'display_name' in df.columns else 'run_id'
+    
+        # Prepare data for boxplot
+        data = []
+        labels = []
+        for name in df[group_col].unique():
+            subset = df[df[group_col] == name][metric].dropna()
+            if len(subset) > 0:
+                data.append(subset.values)
+                labels.append(name)
+    
+        if data:
+            ax.boxplot(data, labels=labels)
+            ax.set_title(title)
+            ax.set_ylabel(ylabel)
+            ax.grid(True, axis='y', linestyle='--', linewidth=0.7)
+    
+            if out_path:
+                fig.savefig(out_path, bbox_inches='tight', dpi=300)
+                plt.close(fig)
+            else:
+                return fig
+        else:
+            plt.close(fig)
+
+
+def plot_taguchi_snr(taguchi_report, out_path, descriptions=None):
+    """Plot Taguchi S/N ratios."""
+    if taguchi_report is None or taguchi_report.empty:
+        return
+
+    # Check if we have the required columns
+    if 'factor' not in taguchi_report.columns or 'snr' not in taguchi_report.columns:
+        return
+
+    _setup_style()
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Group by factor and plot S/N ratios
+    factors = taguchi_report['factor'].unique()
+    palette = _color_palette()
+
+    x_pos = range(len(factors))
+    snr_values = []
+    factor_labels = []
+
+    for factor in factors:
+        factor_data = taguchi_report[taguchi_report['factor'] == factor]
+        if not factor_data.empty and 'snr' in factor_data.columns:
+            snr_val = factor_data['snr'].iloc[0]  # Take first S/N value for the factor
+            snr_values.append(snr_val)
+            factor_labels.append(factor)
+
+    if snr_values:
+        bars = ax.bar(x_pos, snr_values, color=palette[:len(snr_values)])
+        ax.set_xlabel('Factor')
+        ax.set_ylabel('S/N Ratio (dB)')
+        ax.set_title('Taguchi S/N Ratios by Factor')
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(factor_labels, rotation=45, ha='right')
+        ax.grid(True, axis='y', linestyle='--', linewidth=0.7)
+
+        # Add value labels on bars
+        for bar, val in zip(bars, snr_values):
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                    f'{val:.1f}', ha='center', va='bottom', fontsize=9)
+
+        fig.tight_layout()
+        fig.savefig(out_path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+
+
+def plot_runtime_metrics(df: pd.DataFrame, title="Images Processed per Second by Model", out_path=None) -> None:
+    """Plot runtime metrics and optionally save to file."""
+    if df is None or df.empty:
+        return
+
+    _setup_style()
+    fig, ax = plt.subplots()
+
+    # Use run_id or display_name for x-axis
+    x_col = 'display_name' if 'display_name' in df.columns else 'run_id'
+    y_col = 'images_per_second'
+
+    if y_col not in df.columns:
+        plt.close(fig)
+        return
+
+    palette = _color_palette()
+    sns.barplot(data=df, x=x_col, y=y_col, palette=palette, ax=ax)
+    ax.set_title(title)
+    ax.set_xlabel('Model')
+    ax.set_ylabel('Images per Second')
+    ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.7)
+
+    if out_path:
+        fig.savefig(out_path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+    else:
+        return fig
+
+def plot_tradeoff_scatter(df: pd.DataFrame, x_col: str, y_col: str, title: str, x_label: str, y_label: str, out_path=None) -> None:
+    """Plot tradeoff scatter plot and optionally save to file."""
+    if df is None or df.empty:
+        return
+
+    _setup_style()
+    fig, ax = plt.subplots()
+
+    # Use run_id or display_name for grouping
+    group_col = 'display_name' if 'display_name' in df.columns else 'run_id'
+    palette = dict(zip(df[group_col].unique(), _color_palette()))
+
+    for name in df[group_col].unique():
+        subset = df[df[group_col] == name]
+        if x_col in subset.columns and y_col in subset.columns:
+            ax.scatter(subset[x_col], subset[y_col], label=name, color=palette[name], s=80)
+            for _, row in subset.iterrows():
+                ax.annotate(name, (row[x_col], row[y_col]),
+                           textcoords="offset points", xytext=(5,5), ha='left', fontsize=9)
+
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.legend(title='Model')
+    ax.grid(True, linestyle='--', linewidth=0.7)
+
+    if out_path:
+        fig.savefig(out_path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+    else:
+        return fig
+
+def plot_loss_curves(histories, title, out_path):
+    """Plot loss curves from history data."""
+    _setup_style()
+    fig, ax = plt.subplots()
+
+    palette = _color_palette()
+    colors = palette[:len(histories)]
+
+    for i, history in enumerate(histories):
+        label = history.get('label', f'Run {i+1}')
+        loss_history = history.get('loss_history', [])
+        if loss_history:
+            steps = list(range(len(loss_history)))
+            ax.plot(steps, loss_history, label=label, color=colors[i % len(colors)], linewidth=2)
+
+    ax.set_title(title)
+    ax.set_xlabel('Step')
+    ax.set_ylabel('Loss')
+    ax.legend()
+    ax.grid(True, linestyle='--', linewidth=0.7)
+
+    fig.savefig(out_path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+
+def plot_taguchi_metric_distribution(taguchi_df, metric, out_path, descriptions=None):
+    """Plot Taguchi metric distribution."""
+    if taguchi_df is None or taguchi_df.empty:
+        return
+
+    # Check if we have factor columns
+    factor_cols = [col for col in taguchi_df.columns if col.startswith("factor_")]
+    if not factor_cols:
+        return
+
+    _setup_style()
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Group by factor and level, plot distributions
+    for factor in factor_cols:
+        factor_data = taguchi_df[taguchi_df[factor].notna()]
+        if factor_data.empty:
+            continue
+
+        levels = factor_data[factor].unique()
+        palette = _color_palette()
+
+        for i, level in enumerate(levels):
+            level_data = factor_data[factor_data[factor] == level]
+            if metric in level_data.columns:
+                values = level_data[metric].dropna()
+                if len(values) > 0:
+                    ax.hist(values, alpha=0.7, label=f'{factor.replace("factor_", "")}={level}',
+                           bins=min(10, len(values)), color=palette[i % len(palette)])
+
+    ax.set_title(f'Taguchi {metric.replace("_", " ").title()} Distribution')
+    ax.set_xlabel(metric.replace('_', ' ').title())
+    ax.set_ylabel('Frequency')
+    ax.legend()
+    ax.grid(True, linestyle='--', linewidth=0.7)
+
+    fig.savefig(out_path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
