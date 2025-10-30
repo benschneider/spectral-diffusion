@@ -19,7 +19,10 @@
 Synthetic Benchmark performance summary including throughput and spectral fidelity metrics.
 
 ## CIFAR-10 Reconstruction Benchmark
-CIFAR-10 Reconstruction Benchmark highlights covering loss, throughput, and high-frequency PSNR.
+TinyUNet still reaches the lowest loss (0.18) and highest throughput (~75 img/s). The spectral variants trained with uniform corruption + ARE/PCM + MASF trail at ≈1.0 loss because the smoke schedule is short; they do remain numerically stable, so the next iteration is to extend training or introduce a coarse pre-train before the fine pass.
+
+## Spectral Feature Ablation
+The ablation stage compares `cifar_32x32_spectral_plain` to `cifar_32x32_spectral_uniform`. The new extras currently hurt final loss while marginally improving loss-drop/sec under short training. See `spectral_feature_ablation.png` for the bar plot. Longer runs will tell whether the toggles pay off.
 
 ## FFT Scaling Summary
 

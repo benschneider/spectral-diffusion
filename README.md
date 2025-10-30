@@ -14,6 +14,7 @@ Diffusion models usually operate on raw pixels. Yet many signals (images, audio)
 | Faster convergence | Instrumentation for `loss_drop_per_second`, throughput, and time-to-threshold metrics |
 | More efficient sampling | Extended sampler registry (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`, `masf`) |
 | Better high-frequency detail | Uniform frequency corruption in the forward process, amplitude residual + phase correction modules, high-frequency PSNR metrics in reports |
+| Controlled ablations | Full-report pipeline now trains spectral variants with and without the new toggles and plots the comparison (`spectral_feature_ablation.png`) |
 
 If you just want the bottom line, jump to **[Results at a Glance](#results-at-a-glance)**.
 
@@ -52,7 +53,8 @@ It will:
 2. Train spectral variants with uniform frequency corruption and ARE/PCM modules enabled
 3. Repeat on CIFAR-10 (and emit MASF sampler grids for quick inspection)
 4. Run a Taguchi sweep over spectral settings and samplers
-5. Generate figures + a report in `docs/figures/`
+5. Run a baseline vs toggled spectral ablation (ARE/PCM + uniform corruption + MASF on/off)
+6. Generate figures + a report in `docs/figures/`
 
 ---
 
@@ -95,7 +97,7 @@ Curious about the spectral weighting, FFT/iFFT flow, or why we track high-freque
 | Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` |
 | Smoke report (fast check) | `scripts/run_smoke_report.sh` |
 | Make plots & summary | `python scripts/figures/generate_figures.py` |
-| Full pipeline (benchmarks + Taguchi + figures + MASF samples) | `scripts/run_full_report.sh` (uniform corruption + ARE/PCM toggles baked into spectral variants) |
+| Full pipeline (benchmarks + Taguchi + ablation + figures) | `scripts/run_full_report.sh` (includes spectral-feature ablation figure) |
 
 All generated metrics land under `results/…` and are safe to delete/regenerate.
 
@@ -106,6 +108,7 @@ All generated metrics land under `results/…` and are safe to delete/regenerate
 - **Spectral adapters:** toggle with `spectral.enabled`, choose weighting (`none`, `radial`, `bandpass`), apply to `input/output/per_block`.
 - **Diffusion forward noise:** set `diffusion.uniform_corruption: true` to equalize SNR decay across frequencies.
 - **Samplers:** `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`, `masf` (extend via `register_sampler`).
+- **Ablations:** the full report writes `ablation/summary.csv` and `figures/spectral_feature_ablation.png`, contrasting spectral configs with and without uniform corruption + ARE/PCM + MASF.
 - **Metrics:** dataset metrics include FID/LPIPS (torchmetrics-enabled), high-frequency PSNR, convergence stats (`loss_drop_per_second`), throughput, FFT timing.
 
 Looking to extend the project? See **`docs/spectral_model_research.md`** for the ongoing research plan and ideas for new ablations.

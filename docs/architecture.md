@@ -34,11 +34,14 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 ├── taguchi/
 │   ├── summary.csv
 │   └── taguchi_report.csv
+├── ablation/
+│   └── summary.csv
 └── figures/
     ├── loss_metrics_*.png
     ├── runtime_metrics_*.png
     ├── tradeoff_loss_vs_speed_*.png
     ├── *_distribution_*.png
+    ├── spectral_feature_ablation.png
     └── summary.md
 ```
 - Individual training runs still write `config.yaml`, `system.json`, `metrics/<run_id>.json`, checkpoints, and samples inside `runs/<run_id>/`.
@@ -52,6 +55,7 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 3. `src/visualization.figures.generate_figures` produces:
    - Bar charts, scatter trade-offs, and box plots for loss/throughput metrics
    - `taguchi_snr.png` (with contextual caption) and optional factor distributions
+   - `spectral_feature_ablation.png` when an `ablation/summary.csv` is present (compares spectral toggles on/off)
    - Timestamped `figures/summary.md` inside the chosen report root
 4. README Showcase points to the latest generated artefacts.
 
