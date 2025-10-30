@@ -1,0 +1,14 @@
+data:
+  family: random_field
+diffusion:
+  uniform_corruption: true
+model:
+  amp_hidden_dim: 32
+  enable_amp_residual: true
+  enable_phase_attention: true
+  phase_heads: 1
+  type: unet_spectral_deep
+sampling:
+  num_samples: 8
+  num_steps: 50
+  sampler_type: masf

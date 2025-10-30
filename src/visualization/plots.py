@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
-
 def _setup_style():
     sns.set(style="whitegrid")
     plt.rcParams.update({
@@ -17,8 +16,10 @@ def _setup_style():
         "grid.alpha": 0.3,
     })
 
-def _color_palette():
-    return sns.color_palette("tab10")
+def _color_palette(n_colors: int | None = None):
+    if n_colors is None:
+        return sns.color_palette("tab20")
+    return sns.color_palette("tab20", n_colors=n_colors)
 
 def save_figure(fig, out_path):
     fig.savefig(out_path, bbox_inches='tight', dpi=300)
@@ -39,7 +40,8 @@ def plot_loss_metrics(df: pd.DataFrame, title="Loss Drop per Second by Model", o
         plt.close(fig)
         return
 
-    palette = _color_palette()
+    unique = df[x_col].nunique()
+    palette = _color_palette(unique)
     sns.barplot(data=df, x=x_col, y=y_col, palette=palette, ax=ax)
     ax.set_title(title)
     ax.set_xlabel('Model')
@@ -100,7 +102,7 @@ def plot_taguchi_snr(taguchi_report, out_path, descriptions=None):
 
     # Group by factor and plot S/N ratios
     factors = taguchi_report['factor'].unique()
-    palette = _color_palette()
+    palette = _color_palette(len(factors))
 
     x_pos = range(len(factors))
     snr_values = []
@@ -114,7 +116,8 @@ def plot_taguchi_snr(taguchi_report, out_path, descriptions=None):
             factor_labels.append(factor)
 
     if snr_values:
-        bars = ax.bar(x_pos, snr_values, color=palette[:len(snr_values)])
+        colors = [palette[idx % len(palette)] for idx in range(len(snr_values))]
+        bars = ax.bar(x_pos, snr_values, color=colors)
         ax.set_xlabel('Factor')
         ax.set_ylabel('S/N Ratio (dB)')
         ax.set_title('Taguchi S/N Ratios by Factor')
@@ -148,7 +151,8 @@ def plot_runtime_metrics(df: pd.DataFrame, title="Images Processed per Second by
         plt.close(fig)
         return
 
-    palette = _color_palette()
+    unique = df[x_col].nunique()
+    palette = _color_palette(unique)
     sns.barplot(data=df, x=x_col, y=y_col, palette=palette, ax=ax)
     ax.set_title(title)
     ax.set_xlabel('Model')
@@ -171,7 +175,9 @@ def plot_tradeoff_scatter(df: pd.DataFrame, x_col: str, y_col: str, title: str, 
 
     # Use run_id or display_name for grouping
     group_col = 'display_name' if 'display_name' in df.columns else 'run_id'
-    palette = dict(zip(df[group_col].unique(), _color_palette()))
+    groups = df[group_col].unique()
+    base_colors = _color_palette(len(groups))
+    palette = {name: base_colors[idx % len(base_colors)] for idx, name in enumerate(groups)}
 
     for name in df[group_col].unique():
         subset = df[df[group_col] == name]
@@ -198,8 +204,8 @@ def plot_loss_curves(histories, title, out_path):
     _setup_style()
     fig, ax = plt.subplots()
 
-    palette = _color_palette()
-    colors = palette[:len(histories)]
+    colors_list = _color_palette(max(len(histories), 1))
+    colors = [colors_list[i % len(colors_list)] for i in range(len(histories))]
 
     for i, history in enumerate(histories):
         label = history.get('label', f'Run {i+1}')
@@ -253,5 +259,52 @@ def plot_taguchi_metric_distribution(taguchi_df, metric, out_path, descriptions=
     ax.legend()
     ax.grid(True, linestyle='--', linewidth=0.7)
 
+    fig.savefig(out_path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+
+
+def plot_feature_toggle_ablation(df: pd.DataFrame, out_path, title: str = "Spectral Feature Toggle Ablation") -> None:
+    """Compare spectral feature toggles (on/off) across key metrics."""
+    if df is None or df.empty:
+        return
+
+    label_col = "display_name" if "display_name" in df.columns else "run_id"
+    if label_col not in df.columns:
+        return
+
+    if "loss_final" not in df.columns:
+        return
+
+    secondary_metric = None
+    secondary_label = ""
+    if "loss_drop_per_second" in df.columns:
+        secondary_metric = "loss_drop_per_second"
+        secondary_label = "Loss Drop / Second (Higher is Better)"
+    elif "images_per_second" in df.columns:
+        secondary_metric = "images_per_second"
+        secondary_label = "Images per Second (Higher is Better)"
+    else:
+        return
+
+    _setup_style()
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    palette = _color_palette(df[label_col].nunique())
+
+    sns.barplot(data=df, x=label_col, y="loss_final", palette=palette, ax=axes[0])
+    axes[0].set_title("Final Loss (Lower is Better)")
+    axes[0].set_xlabel("Configuration")
+    axes[0].set_ylabel("Final Loss")
+    axes[0].tick_params(axis="x", rotation=30)
+    axes[0].grid(True, axis="y", linestyle="--", linewidth=0.7)
+
+    sns.barplot(data=df, x=label_col, y=secondary_metric, palette=palette, ax=axes[1])
+    axes[1].set_title(secondary_label)
+    axes[1].set_xlabel("Configuration")
+    axes[1].set_ylabel(secondary_label)
+    axes[1].tick_params(axis="x", rotation=30)
+    axes[1].grid(True, axis="y", linestyle="--", linewidth=0.7)
+
+    fig.suptitle(title, fontsize=12)
+    fig.tight_layout()
     fig.savefig(out_path, bbox_inches='tight', dpi=300)
     plt.close(fig)

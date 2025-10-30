@@ -182,7 +182,7 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
-results/
+#results/
 .DS_Store
 data/cifar-10-python.tar.gz
 data/cifar-10-batches-py/batches.meta

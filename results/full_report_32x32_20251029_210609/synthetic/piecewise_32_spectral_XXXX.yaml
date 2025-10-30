@@ -1,0 +1,13 @@
+data:
+  family: piecewise
+diffusion:
+  uniform_corruption: true
+model:
+  enable_amp_residual: true
+  enable_phase_attention: true
+  amp_hidden_dim: 32
+  phase_heads: 1
+sampling:
+  sampler_type: masf
+  num_steps: 50
+  num_samples: 8

@@ -1,0 +1,59 @@
+data:
+  channels: 3
+  download: false
+  height: 32
+  root: data
+  source: cifar10
+  width: 32
+diffusion:
+  beta_schedule: cosine
+  loss_threshold: null
+  num_timesteps: 1000
+  prediction_type: eps
+  snr_transform: snr
+  snr_weighting: false
+  time_embed_dim: 128
+  uniform_corruption: true
+evaluation:
+  image_size: null
+  reference_dir: null
+  use_fid: false
+loss:
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+  reduction: mean
+  spectral_weighting: none
+model:
+  base_channels: 32
+  channels: 3
+  depth: 2
+  type: unet_tiny
+  enable_amp_residual: true
+  enable_phase_attention: true
+  amp_hidden_dim: 32
+  phase_heads: 1
+optim:
+  lr: 0.0001
+  weight_decay: 0.0
+sampling:
+  enabled: false
+  num_samples: 16
+  num_steps: 1000
+  sampler_type: ddim
+spectral:
+  apply_to:
+  - input
+  - output
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+  enabled: false
+  freq_attention: false
+  freq_equalized_noise: false
+  normalize: true
+  per_block: false
+  weighting: none
+training:
+  batch_size: 32
+  epochs: 1
+  log_every: 50
+  num_batches: 200
