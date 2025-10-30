@@ -41,6 +41,7 @@ def generate_figures(
     output_dir: Path,
     descriptions_path: Optional[Path] = None,
     generated_at: Optional[str] = None,
+    ablation_dir: Optional[Path] = None,
 ) -> None:
     """Load benchmark data, render plots, and write markdown summary."""
     _setup_style()
@@ -50,6 +51,7 @@ def generate_figures(
     synthetic_df = _load_csv(synthetic_dir / "summary.csv") if synthetic_dir else None
     cifar_df = _load_csv(cifar_dir / "summary.csv") if cifar_dir else None
     taguchi_report = _load_csv(taguchi_dir / "taguchi_report.csv") if taguchi_dir else None
+    ablation_df = _load_csv(Path(ablation_dir) / "summary.csv") if ablation_dir else None
 
     # Load descriptions.json if present
     descriptions = {}
@@ -75,6 +77,8 @@ def generate_figures(
         synthetic_df = compute_fft_corrected(synthetic_df)
     if cifar_df is not None:
         cifar_df = compute_fft_corrected(cifar_df)
+    if ablation_df is not None:
+        ablation_df = compute_fft_corrected(ablation_df)
 
     # Plotting map: (function, args, out_filename)
     plot_map = [
@@ -112,6 +116,9 @@ def generate_figures(
                 func(*args, out_path=output_dir / fname, descriptions=descriptions)
                 continue
             func(*args, out_path=output_dir / fname)
+
+    if ablation_df is not None:
+        plot_feature_toggle_ablation(ablation_df, output_dir / "spectral_feature_ablation.png")
 
     # Loss curves (special: need histories)
     for df, label, fname in [

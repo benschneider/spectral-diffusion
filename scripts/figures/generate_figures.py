@@ -51,6 +51,12 @@ def parse_args() -> argparse.Namespace:
         help="Output directory for generated figures",
     )
     parser.add_argument(
+        "--ablation-dir",
+        type=Path,
+        default=None,
+        help="Optional directory containing ablation summary.csv for feature toggles.",
+    )
+    parser.add_argument(
         "--descriptions",
         type=Path,
         default=None,
@@ -85,7 +91,8 @@ def _resolve_paths(
     taguchi_dir: Optional[Path],
     output_dir: Optional[Path],
     descriptions: Optional[Path],
-) -> Tuple[Path, Path, Path, Path, Path]:
+    ablation_dir: Optional[Path],
+) -> Tuple[Path, Path, Path, Path, Path, Path]:
     root = report_root
     if root is None:
         root = _latest_report_root()
@@ -99,21 +106,23 @@ def _resolve_paths(
 
     out = output_dir or (root / "figures" if root else Path("docs/figures"))
     desc = descriptions or (root / "descriptions.json" if root and (root / "descriptions.json").exists() else Path("docs/descriptions.json"))
+    abl = ablation_dir or (root / "ablation" if root else None)
 
-    return syn, cif, tag, out, desc
+    return syn, cif, tag, out, desc, abl
 
 
 def main() -> None:
     args = parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
 
-    synthetic_dir, cifar_dir, taguchi_dir, output_dir, descriptions = _resolve_paths(
+    synthetic_dir, cifar_dir, taguchi_dir, output_dir, descriptions, ablation_dir = _resolve_paths(
         report_root=args.report_root,
         synthetic_dir=args.synthetic_dir,
         cifar_dir=args.cifar_dir,
         taguchi_dir=args.taguchi_dir,
         output_dir=args.output_dir,
         descriptions=args.descriptions,
+        ablation_dir=args.ablation_dir,
     )
 
     logging.info("Synthetic summary root: %s", synthetic_dir)
@@ -121,6 +130,8 @@ def main() -> None:
     logging.info("Taguchi summary root:   %s", taguchi_dir)
     logging.info("Figures output:         %s", output_dir)
     logging.info("Descriptions:           %s", descriptions)
+    if ablation_dir:
+        logging.info("Ablation summary root:  %s", ablation_dir)
 
     for label, directory in [
         ("Synthetic", synthetic_dir),
@@ -135,6 +146,8 @@ def main() -> None:
     collect.clean_summary(synthetic_dir / "summary.csv")
     collect.clean_summary(cifar_dir / "summary.csv")
     collect.clean_summary(taguchi_dir / "summary.csv")
+    if ablation_dir:
+        collect.clean_summary(Path(ablation_dir) / "summary.csv")
     generate_figures(
         synthetic_dir=synthetic_dir,
         cifar_dir=cifar_dir,
@@ -142,6 +155,7 @@ def main() -> None:
         output_dir=output_dir,
         descriptions_path=descriptions,
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        ablation_dir=ablation_dir,
     )
 
 
