@@ -42,6 +42,51 @@ print(f"  • Run {run_id}: {config_path} (source={data_source}, size={data_size
 PY
 }
 
+augment_config() {
+  local source_cfg="$1"
+  local dest_cfg="$2"
+  python - "$source_cfg" "$dest_cfg" <<'PY'
+import sys
+import yaml
+
+src, dst = sys.argv[1:3]
+with open(src, "r", encoding="utf-8") as handle:
+    cfg = yaml.safe_load(handle) or {}
+
+diffusion = cfg.setdefault("diffusion", {})
+diffusion["uniform_corruption"] = True
+
+model = cfg.setdefault("model", {})
+model["enable_amp_residual"] = True
+model["enable_phase_attention"] = True
+model.setdefault("amp_hidden_dim", max(int(model.get("base_channels", 32)), 16))
+model.setdefault("phase_heads", 1)
+
+sampling = cfg.setdefault("sampling", {})
+sampling.setdefault("sampler_type", "masf")
+sampling.setdefault("num_steps", 50)
+sampling.setdefault("num_samples", 8)
+
+with open(dst, "w", encoding="utf-8") as handle:
+    yaml.safe_dump(cfg, handle, sort_keys=False)
+PY
+}
+
+sample_with_masf() {
+  local run_root="$1"
+  local tag="${2:-masf}"
+  if [[ ! -d "$run_root" ]]; then
+    echo "Skipping MASF sampling; run directory not found: $run_root"
+    return
+  fi
+  python "$ROOT_DIR/sample.py" \
+    --run-dir "$run_root" \
+    --sampler-type masf \
+    --tag "$tag" \
+    --num-steps 50 \
+    --num-samples 8
+}
+
 run_synthetic() {
   echo "[1/4] Synthetic benchmarks (1024x1024 images)"
   rm -f "$SYN_DIR/summary.csv"
@@ -73,28 +118,37 @@ run_synthetic() {
       --run-id "${family_name}_1024x1024_tiny_learnable"
 
     # Run SpectralUNet
-    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_1024x1024_spectral" "spectral"
+    tmp_cfg="$(mktemp "$SYN_DIR/${family_name}_1024_spectral_XXXX.yaml")"
+    augment_config "$ROOT_DIR/configs/$config_file" "$tmp_cfg"
+    describe_run "$tmp_cfg" "${family_name}_1024x1024_spectral" "spectral+uniform"
     python "$ROOT_DIR/train.py" \
-      --config "$ROOT_DIR/configs/$config_file" \
+      --config "$tmp_cfg" \
       --output-dir "$SYN_DIR" \
       --run-id "${family_name}_1024x1024_spectral" \
       --variant spectral
+    sample_with_masf "$SYN_DIR/runs/${family_name}_1024x1024_spectral"
 
     # Run SpectralUNetDeep
-    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_1024x1024_spectral_deep" "spectral_deep"
+    tmp_cfg_deep="$(mktemp "$SYN_DIR/${family_name}_1024_deep_XXXX.yaml")"
+    augment_config "$ROOT_DIR/configs/$config_file" "$tmp_cfg_deep"
+    describe_run "$tmp_cfg_deep" "${family_name}_1024x1024_spectral_deep" "spectral_deep+uniform"
     python "$ROOT_DIR/train.py" \
-      --config "$ROOT_DIR/configs/$config_file" \
+      --config "$tmp_cfg_deep" \
       --output-dir "$SYN_DIR" \
       --run-id "${family_name}_1024x1024_spectral_deep" \
       --variant spectral_deep
+    sample_with_masf "$SYN_DIR/runs/${family_name}_1024x1024_spectral_deep" "masf_deep"
 
     # Run Pure SpectralUNet (unet_spectral model type)
-    describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_1024x1024_unet_spectral" "unet_spectral"
+    tmp_cfg_unet="$(mktemp "$SYN_DIR/${family_name}_1024_unet_XXXX.yaml")"
+    augment_config "$ROOT_DIR/configs/$config_file" "$tmp_cfg_unet"
+    describe_run "$tmp_cfg_unet" "${family_name}_1024x1024_unet_spectral" "unet_spectral+uniform"
     python "$ROOT_DIR/train.py" \
-      --config "$ROOT_DIR/configs/$config_file" \
+      --config "$tmp_cfg_unet" \
       --output-dir "$SYN_DIR" \
       --run-id "${family_name}_1024x1024_unet_spectral" \
       --variant unet_spectral
+    sample_with_masf "$SYN_DIR/runs/${family_name}_1024x1024_unet_spectral" "masf_unet"
   done
 }
 
@@ -110,19 +164,25 @@ run_cifar() {
     --output-dir "$CIFAR_DIR" \
     --run-id "cifar_1024x1024_tiny"
 
-  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_1024x1024_spectral" "spectral"
+  tmp_cfg_cifar="$(mktemp "$CIFAR_DIR/cifar_1024_spectral_XXXX.yaml")"
+  augment_config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "$tmp_cfg_cifar"
+  describe_run "$tmp_cfg_cifar" "cifar_1024x1024_spectral" "spectral+uniform"
   python "$ROOT_DIR/train.py" \
-    --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
+    --config "$tmp_cfg_cifar" \
     --output-dir "$CIFAR_DIR" \
     --run-id "cifar_1024x1024_spectral" \
     --variant spectral
+  sample_with_masf "$CIFAR_DIR/runs/cifar_1024x1024_spectral"
 
-  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_1024x1024_spectral_deep" "spectral_deep"
+  tmp_cfg_cifar_deep="$(mktemp "$CIFAR_DIR/cifar_1024_deep_XXXX.yaml")"
+  augment_config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "$tmp_cfg_cifar_deep"
+  describe_run "$tmp_cfg_cifar_deep" "cifar_1024x1024_spectral_deep" "spectral_deep+uniform"
   python "$ROOT_DIR/train.py" \
-    --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
+    --config "$tmp_cfg_cifar_deep" \
     --output-dir "$CIFAR_DIR" \
     --run-id "cifar_1024x1024_spectral_deep" \
     --variant spectral_deep
+  sample_with_masf "$CIFAR_DIR/runs/cifar_1024x1024_spectral_deep" "masf_deep"
 }
 
 run_taguchi() {

@@ -12,8 +12,8 @@ Diffusion models usually operate on raw pixels. Yet many signals (images, audio)
 | Potential gain | What to look for in this repo |
 |----------------|--------------------------------|
 | Faster convergence | Instrumentation for `loss_drop_per_second`, throughput, and time-to-threshold metrics |
-| More efficient sampling | Extended sampler registry (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`…) |
-| Better high-frequency detail | Frequency-domain adapters, spectral UNet prototype, Taguchi sweeps over spectral settings |
+| More efficient sampling | Extended sampler registry (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`, `masf`) |
+| Better high-frequency detail | Uniform frequency corruption in the forward process, amplitude residual + phase correction modules, high-frequency PSNR metrics in reports |
 
 If you just want the bottom line, jump to **[Results at a Glance](#results-at-a-glance)**.
 
@@ -49,9 +49,10 @@ scripts/run_full_report.sh
 ```
 It will:
 1. Benchmark TinyUNet vs. SpectralUNet on synthetic data
-2. Repeat on CIFAR-10
-3. Run a Taguchi sweep over spectral settings and samplers
-4. Generate figures + a report in `docs/figures/`
+2. Train spectral variants with uniform frequency corruption and ARE/PCM modules enabled
+3. Repeat on CIFAR-10 (and emit MASF sampler grids for quick inspection)
+4. Run a Taguchi sweep over spectral settings and samplers
+5. Generate figures + a report in `docs/figures/`
 
 ---
 
@@ -94,17 +95,18 @@ Curious about the spectral weighting, FFT/iFFT flow, or why we track high-freque
 | Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` |
 | Smoke report (fast check) | `scripts/run_smoke_report.sh` |
 | Make plots & summary | `python scripts/figures/generate_figures.py` |
-| Full pipeline (benchmarks + Taguchi + figures) | `scripts/run_full_report.sh` |
+| Full pipeline (benchmarks + Taguchi + figures + MASF samples) | `scripts/run_full_report.sh` (uniform corruption + ARE/PCM toggles baked into spectral variants) |
 
 All generated metrics land under `results/…` and are safe to delete/regenerate.
 
 ---
 
 ## Usage notes for explorers
-- **Models:** `baseline`, `unet_tiny`, `unet_spectral` (set `model.type` in YAML).
+- **Models:** `baseline`, `unet_tiny`, `unet_spectral` (set `model.type` in YAML). Enable amplitude residuals + phase correction via `model.enable_amp_residual` / `model.enable_phase_attention`.
 - **Spectral adapters:** toggle with `spectral.enabled`, choose weighting (`none`, `radial`, `bandpass`), apply to `input/output/per_block`.
-- **Samplers:** `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2` (extend via `register_sampler`).
-- **Metrics:** dataset metrics include FID/LPIPS (torchmetrics-enabled), convergence stats (`loss_drop_per_second`), throughput, FFT timing.
+- **Diffusion forward noise:** set `diffusion.uniform_corruption: true` to equalize SNR decay across frequencies.
+- **Samplers:** `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`, `masf` (extend via `register_sampler`).
+- **Metrics:** dataset metrics include FID/LPIPS (torchmetrics-enabled), high-frequency PSNR, convergence stats (`loss_drop_per_second`), throughput, FFT timing.
 
 Looking to extend the project? See **`docs/spectral_model_research.md`** for the ongoing research plan and ideas for new ablations.
 
