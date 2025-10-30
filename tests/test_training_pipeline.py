@@ -122,3 +122,22 @@ def test_training_pipeline_regression_baseline(tmp_path):
     assert metrics["status"] == "ok"
     assert pytest.approx(metrics["loss_mean"], rel=0.05) == expected_loss
     assert pytest.approx(metrics["loss_drop"], rel=0.1) == expected_loss_drop
+
+
+def test_training_pipeline_with_uniform_corruption(tmp_path):
+    torch.manual_seed(42)
+    config = copy.deepcopy(_build_base_config())
+    config["diffusion"]["uniform_corruption"] = True
+    pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
+    metrics = pipeline.run()
+    assert metrics["status"] == "ok"
+
+
+def test_generate_samples_with_masf_sampler(tmp_path):
+    torch.manual_seed(7)
+    config = copy.deepcopy(_build_base_config())
+    pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
+    pipeline.run()
+    result = pipeline.generate_samples(sampler_type="masf")
+    assert result["sampler_type"] == "masf"
+    assert result["num_samples"] == config["sampling"]["num_samples"]

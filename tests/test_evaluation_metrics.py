@@ -31,6 +31,8 @@ def test_compute_dataset_metrics_identity(tmp_path):
     assert metrics["mse"] == pytest.approx(0.0, abs=1e-8)
     assert metrics["mae"] == pytest.approx(0.0, abs=1e-8)
     assert np.isinf(metrics["psnr"])
+    assert "high_freq_psnr" in metrics
+    assert np.isinf(metrics["high_freq_psnr"])
 
 
 def test_compute_dataset_metrics_mismatch(tmp_path):

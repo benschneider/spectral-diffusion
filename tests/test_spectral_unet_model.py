@@ -48,3 +48,25 @@ def test_spectral_unet_deep_backward():
     out = model(x, t)
     out.sum().backward()
     assert x.grad is not None
+
+
+def test_spectral_unet_with_are_pcm_modules():
+    cfg = _config()
+    cfg.update(
+        {
+            "enable_amp_residual": True,
+            "enable_phase_attention": True,
+            "phase_heads": 1,
+            "amp_hidden_dim": 8,
+        }
+    )
+    model = SpectralUNet(cfg)
+    assert model.enable_amp_residual is True
+    assert model.enable_phase_attention is True
+    assert model.are is not None
+    assert model.pcm is not None
+
+    x = torch.randn(2, 3, 16, 16)
+    t = torch.randint(0, 10, (2,))
+    out = model(x, t)
+    assert out.shape == x.shape

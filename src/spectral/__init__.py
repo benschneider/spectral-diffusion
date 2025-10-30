@@ -1,6 +1,7 @@
 """Spectral domain utilities for diffusion models."""
 
 from .adapter import SpectralAdapter  # noqa: F401
+from .fft_adapter import add_uniform_frequency_noise  # noqa: F401
 from .complex_layers import (  # noqa: F401
     ComplexBatchNorm2d,
     ComplexConv2d,
@@ -16,4 +17,5 @@ __all__ = [
     "ComplexConvTranspose2d",
     "ComplexSiLU",
     "ComplexResidualBlock",
+    "add_uniform_frequency_noise",
 ]

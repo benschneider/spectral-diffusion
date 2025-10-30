@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, Iterable, Sequence, Type
+from functools import lru_cache
+from typing import Dict, Iterable, Optional, Sequence, Tuple, Type
 
 import torch
 
@@ -18,6 +19,17 @@ def _make_timesteps(num_steps: int, total_steps: int, device: torch.device) -> t
     if step_indices[-1] != 0:
         step_indices = torch.cat([step_indices, torch.zeros(1, device=device, dtype=torch.long)])
     return step_indices
+
+
+@lru_cache(maxsize=32)
+def _frequency_radius(shape: Tuple[int, int]) -> torch.Tensor:
+    height, width = shape
+    fy = torch.fft.fftfreq(height, d=1.0 / float(height))
+    fx = torch.fft.fftfreq(width, d=1.0 / float(width))
+    yy = fy[:, None]
+    xx = fx[None, :]
+    radius = torch.sqrt(xx**2 + yy**2)
+    return radius.to(torch.float32)
 
 
 class Sampler(ABC):
@@ -68,6 +80,99 @@ class DDPMSampler(Sampler):
             sqrt_one_minus = torch.sqrt(1.0 - alpha_bar_t)
 
             pred_x0 = (x - sqrt_one_minus * eps) / torch.sqrt(alpha_bar_t)
+
+            if t > 0:
+                noise = torch.randn_like(x)
+                sigma_t = torch.sqrt(beta_t)
+                x = (
+                    (1.0 / sqrt_alpha_t) * (x - beta_t / sqrt_one_minus * eps)
+                    + sigma_t * noise
+                )
+            else:
+                x = (1.0 / sqrt_alpha_t) * (x - beta_t / sqrt_one_minus * eps)
+
+            x = torch.clamp(x, -1.0, 1.0)
+        return x
+
+
+class MASFSampler(Sampler):
+    """DDPM-style sampler with per-band moving average smoothing in frequency space."""
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        coeffs: DiffusionCoeffs,
+        alpha: float = 0.9,
+        band_limits: Sequence[float] = (0.1, 0.5, 1.0),
+    ) -> None:
+        super().__init__(model, coeffs)
+        self.alpha = float(alpha)
+        limits = tuple(float(v) for v in band_limits)
+        if len(limits) != 3 or sorted(limits) != list(limits):
+            raise ValueError("band_limits must be an increasing three-element sequence.")
+        self.band_limits = limits
+        self._ema_states: Dict[str, Optional[torch.Tensor]] = {}
+
+    def _reset_ema_states(self) -> None:
+        self._ema_states = {"low": None, "mid": None, "high": None}
+
+    def _smooth_frequency(self, x: torch.Tensor) -> torch.Tensor:
+        x_fft = torch.fft.fftn(x, dim=(-2, -1))
+        height, width = x.shape[-2], x.shape[-1]
+        radius = _frequency_radius((height, width)).to(device=x.device, dtype=x.dtype)
+
+        low_cut, mid_cut, high_cut = self.band_limits
+        high_mask = radius >= mid_cut
+        if high_cut < float("inf"):
+            high_mask = high_mask & (radius < high_cut)
+
+        masks = {
+            "low": radius < low_cut,
+            "mid": (radius >= low_cut) & (radius < mid_cut),
+            "high": high_mask,
+        }
+
+        smoothed_fft = torch.zeros_like(x_fft)
+        for band, mask in masks.items():
+            mask_tensor = mask.unsqueeze(0).unsqueeze(0).to(device=x.device, dtype=x.dtype)
+            cur_band = x_fft * mask_tensor
+            prev = self._ema_states.get(band)
+            if prev is None:
+                updated = cur_band
+            else:
+                updated = self.alpha * prev + (1.0 - self.alpha) * cur_band
+            self._ema_states[band] = updated
+            smoothed_fft = smoothed_fft + updated
+        x_smoothed = torch.fft.ifftn(smoothed_fft, dim=(-2, -1)).real
+        return x_smoothed
+
+    @torch.no_grad()
+    def sample(
+        self,
+        num_samples: int,
+        shape: Sequence[int],
+        num_steps: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        self.model.eval()
+        coeffs = self.coeffs
+        total_steps = coeffs.betas.shape[0]
+        timesteps = _make_timesteps(num_steps, total_steps, device)
+
+        x = torch.randn(num_samples, *shape, device=device)
+        self._reset_ema_states()
+
+        for t in timesteps:
+            x = self._smooth_frequency(x)
+            t_batch = torch.full((num_samples,), t, device=device, dtype=torch.long)
+            eps = self.model(x, t_batch)
+
+            beta_t = coeffs.betas[t]
+            alpha_t = coeffs.alphas[t]
+            alpha_bar_t = coeffs.alphas_cumprod[t]
+
+            sqrt_alpha_t = torch.sqrt(alpha_t)
+            sqrt_one_minus = torch.sqrt(1.0 - alpha_bar_t)
 
             if t > 0:
                 noise = torch.randn_like(x)
@@ -260,6 +365,7 @@ class DPMSolver2Sampler(Sampler):
 
 SAMPLER_REGISTRY: Dict[str, Type[Sampler]] = {
     "ddpm": DDPMSampler,
+    "masf": MASFSampler,
     "ddim": DDIMSampler,
     "dpm_solver++": DPMSolverPlusPlusSampler,
     "ancestral": AncestralSampler,

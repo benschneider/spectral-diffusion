@@ -3,6 +3,10 @@ model:
   channels: 3
   base_channels: 16
   depth: 1
+  enable_amp_residual: false
+  amp_hidden_dim: 32
+  enable_phase_attention: false
+  phase_heads: 2
 
 data:
   source: synthetic
@@ -24,6 +28,7 @@ diffusion:
   num_timesteps: 200
   beta_schedule: linear
   prediction_type: eps
+  uniform_corruption: false
   snr_weighting: false
   snr_transform: snr
   loss_threshold: null

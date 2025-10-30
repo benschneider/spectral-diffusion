@@ -101,6 +101,7 @@ SUMMARY_HEADER = [
     "loss_drop",
     "loss_drop_per_second",
     "runtime_seconds",
+    "runtime",
     "steps_per_second",
     "images_per_second",
     "runtime_per_epoch",
@@ -115,6 +116,7 @@ SUMMARY_HEADER = [
     "eval_mse",
     "eval_mae",
     "eval_psnr",
+    "high_freq_psnr",
     "eval_fid",
 ]
 
@@ -140,6 +142,17 @@ def append_run_summary(
     def _metric_value(key: str) -> Any:
         return metrics.get(key) if metrics else None
 
+    high_freq_value = None
+    if metrics:
+        high_freq_value = metrics.get("high_freq_psnr")
+        if high_freq_value is None:
+            high_freq_value = metrics.get("eval_high_freq_psnr")
+
+    runtime_seconds_value = _metric_value("runtime_seconds")
+    runtime_value = _metric_value("runtime")
+    if runtime_value is None:
+        runtime_value = runtime_seconds_value
+
     row.extend(
         [
             _metric_value("loss_mean"),
@@ -147,7 +160,8 @@ def append_run_summary(
             _metric_value("loss_final"),
             _metric_value("loss_drop"),
             _metric_value("loss_drop_per_second"),
-            _metric_value("runtime_seconds"),
+            runtime_seconds_value,
+            runtime_value,
             _metric_value("steps_per_second"),
             _metric_value("images_per_second"),
             _metric_value("runtime_per_epoch"),
@@ -162,6 +176,7 @@ def append_run_summary(
             _metric_value("eval_mse"),
             _metric_value("eval_mae"),
             _metric_value("eval_psnr"),
+            high_freq_value,
             _metric_value("eval_fid"),
         ]
     )

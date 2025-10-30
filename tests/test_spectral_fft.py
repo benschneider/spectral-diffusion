@@ -2,6 +2,7 @@ import math
 
 import torch
 
+from src.spectral.fft_adapter import add_uniform_frequency_noise
 from src.spectral.fft_utils import (
     apply_weight_map,
     fft_transform,
@@ -62,3 +63,23 @@ def test_fft_is_linear():
     fft_y = fft_transform(y)
     fft_combined = fft_transform(alpha * x + y)
     assert torch.allclose(fft_combined, alpha * fft_x + fft_y, atol=1e-6, rtol=1e-6)
+
+
+def test_uniform_frequency_noise_changes_distribution():
+    torch.manual_seed(5)
+    x0 = torch.randn(2, 3, 8, 8)
+    noise = torch.randn_like(x0)
+    sqrt_alpha = torch.full((2, 1, 1, 1), 0.9)
+    sqrt_one_minus = torch.full((2, 1, 1, 1), 0.1)
+
+    standard = add_uniform_frequency_noise(
+        x0, noise, sqrt_alpha, sqrt_one_minus, uniform_corruption=False
+    )
+    uniform = add_uniform_frequency_noise(
+        x0, noise, sqrt_alpha, sqrt_one_minus, uniform_corruption=True
+    )
+
+    assert standard.shape == x0.shape
+    assert uniform.shape == x0.shape
+    assert torch.isfinite(uniform).all()
+    assert not torch.allclose(standard, uniform)

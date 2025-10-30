@@ -3,6 +3,7 @@ torchvision
 numpy
 pandas
 matplotlib
+seaborn
 pyyaml
 pytest
 Pillow
@@ -11,3 +12,4 @@ scipy
 piq
 torch-fidelity
 torchmetrics
+pypandoc
