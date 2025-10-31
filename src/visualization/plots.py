@@ -262,6 +262,103 @@ def plot_taguchi_metric_distribution(taguchi_df, metric, out_path, descriptions=
     fig.savefig(out_path, bbox_inches='tight', dpi=300)
     plt.close(fig)
 
+def plot_taguchi_main_effects(main_df: pd.DataFrame, response_col: str) -> plt.Figure:
+    """
+    Plot mean response per level for each factor.
+
+    Expected columns: factor, level, mean_response, delta_from_global.
+    Returns the Matplotlib Figure (caller is responsible for saving/closing).
+    """
+    if main_df is None or main_df.empty:
+        raise ValueError("main_df must be a non-empty DataFrame.")
+    required_cols = {"factor", "level", "mean_response", "delta_from_global"}
+    if not required_cols.issubset(main_df.columns):
+        missing = required_cols - set(main_df.columns)
+        raise KeyError(f"Missing columns for main effects plot: {sorted(missing)}")
+
+    factors = main_df["factor"].unique()
+    _setup_style()
+    fig, axes = plt.subplots(
+        1, len(factors), figsize=(5 * len(factors), 4), squeeze=False
+    )
+
+    for ax, factor in zip(axes[0], factors):
+        subset = main_df[main_df["factor"] == factor].copy()
+        subset.sort_values("mean_response", ascending=False, inplace=True)
+        palette = _color_palette(len(subset))
+        sns.barplot(data=subset, x="level", y="mean_response", palette=palette, ax=ax)
+        global_mean = subset["mean_response"] - subset["delta_from_global"]
+        if not global_mean.empty:
+            ax.axhline(global_mean.iloc[0], linestyle="--", color="gray", linewidth=1)
+        ax.set_title(f"{factor} main effect on {response_col}")
+        ax.set_xlabel("Level")
+        ax.set_ylabel("Mean response")
+        ax.tick_params(axis="x", rotation=30)
+        ax.grid(True, axis="y", linestyle="--", linewidth=0.7)
+    fig.tight_layout()
+    return fig
+
+
+def plot_taguchi_contributions(contrib_df: pd.DataFrame, response_col: str) -> plt.Figure:
+    """
+    Plot the percentage contribution of each factor to variance in the response.
+
+    Expected columns: factor, contrib_pct.
+    Returns the Matplotlib Figure (caller is responsible for saving/closing).
+    """
+    if contrib_df is None or contrib_df.empty:
+        raise ValueError("contrib_df must be a non-empty DataFrame.")
+    if "factor" not in contrib_df.columns or "contrib_pct" not in contrib_df.columns:
+        raise KeyError("contrib_df must contain 'factor' and 'contrib_pct' columns.")
+
+    df_sorted = contrib_df.sort_values("contrib_pct", ascending=True, na_position="last")
+    _setup_style()
+    fig, ax = plt.subplots(figsize=(6, 4))
+    palette = _color_palette(len(df_sorted))
+    sns.barplot(
+        data=df_sorted,
+        x="contrib_pct",
+        y="factor",
+        palette=palette,
+        ax=ax,
+        orient="h",
+    )
+    ax.set_xlabel(f"Contribution to variance in {response_col} (%)")
+    ax.set_ylabel("Factor")
+    ax.set_title("Taguchi factor contributions")
+    ax.grid(True, axis="x", linestyle="--", linewidth=0.7)
+    fig.tight_layout()
+    return fig
+
+
+def plot_taguchi_interaction_heatmap(
+    pivot: pd.DataFrame, factor_a: str, factor_b: str, response_col: str
+) -> plt.Figure:
+    """
+    Plot a heatmap of the interaction between factor_a and factor_b.
+
+    Args:
+        pivot: DataFrame indexed by factor_a with columns factor_b and values mean response.
+    """
+    if pivot is None or pivot.empty:
+        raise ValueError("pivot must be a non-empty DataFrame.")
+    _setup_style()
+    fig, ax = plt.subplots(figsize=(6, 5))
+    sns.heatmap(
+        pivot,
+        annot=True,
+        fmt=".3f",
+        cmap="viridis",
+        linewidths=0.5,
+        cbar_kws={"shrink": 0.8, "label": response_col},
+        ax=ax,
+    )
+    ax.set_title(f"Interaction: {factor_a} × {factor_b} ({response_col})")
+    ax.set_xlabel(factor_b)
+    ax.set_ylabel(factor_a)
+    fig.tight_layout()
+    return fig
+
 
 def plot_feature_toggle_ablation(df: pd.DataFrame, out_path, title: str = "Spectral Feature Toggle Ablation") -> None:
     """Compare spectral feature toggles (on/off) across key metrics."""

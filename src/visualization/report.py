@@ -155,6 +155,18 @@ def write_summary_markdown(
             lines.append("")
     else:
         lines.append("_No figures found in output directory._")
+
+    insights_path = output_dir / "taguchi_insights.md"
+    if insights_path.exists():
+        lines.append("## Taguchi Insights")
+        lines.append("")
+        insight_lines = insights_path.read_text(encoding="utf-8").splitlines()
+        if insight_lines and insight_lines[0].startswith("#"):
+            insight_lines = insight_lines[1:]
+        lines.extend(insight_lines)
+        if insight_lines and insight_lines[-1].strip():
+            lines.append("")
+
     out_path.write_text("\n".join(lines), encoding="utf-8")
 
     # Generate PDF if pypandoc is available

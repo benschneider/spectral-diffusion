@@ -232,7 +232,8 @@ generate_report() {
     --cifar-dir "$CIFAR_DIR" \
     --taguchi-dir "$TAG_DIR" \
     --output-dir "$FIG_DIR" \
-    --ablation-dir "$ABL_DIR"
+    --ablation-dir "$ABL_DIR" \
+    --include-taguchi-effects
   echo "Report written to $FIG_DIR/summary.md"
 }
 

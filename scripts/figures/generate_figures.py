@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import pandas as pd
+import subprocess
+
 from src.visualization import collect
 from src.visualization.figures import generate_figures
 
@@ -63,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         help="Path to JSON file with section descriptions",
     )
     parser.add_argument(
+        "--include-taguchi-effects",
+        action="store_true",
+        help="Run Taguchi ANOVA/interaction analysis and embed outputs in the report.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         help="Logging level",
@@ -111,6 +119,28 @@ def _resolve_paths(
     return syn, cif, tag, out, desc, abl
 
 
+def _select_response_column(csv_path: Path) -> Optional[str]:
+    """Pick a sensible default response column from the Taguchi CSV."""
+    if not csv_path.exists():
+        return None
+    df = pd.read_csv(csv_path, nrows=1)
+    preferred = [
+        "loss_drop_per_second",
+        "loss_drop_per_sec",
+        "loss_drop_per_s",
+        "images_per_second",
+        "fid",
+        "snr_metric",
+    ]
+    lowered = {col.lower(): col for col in df.columns}
+    for key in preferred:
+        if key in df.columns:
+            return key
+        if key.lower() in lowered:
+            return lowered[key.lower()]
+    return None
+
+
 def main() -> None:
     args = parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
@@ -148,6 +178,30 @@ def main() -> None:
     collect.clean_summary(taguchi_dir / "summary.csv")
     if ablation_dir:
         collect.clean_summary(Path(ablation_dir) / "summary.csv")
+    if args.include_taguchi_effects:
+        taguchi_csv = taguchi_dir / "taguchi_report.csv"
+        response_col = _select_response_column(taguchi_csv)
+        if response_col is None:
+            logging.warning(
+                "Unable to determine response column for Taguchi analysis; skipping."
+            )
+        else:
+            logging.info(
+                "Running Taguchi analysis with response column '%s'.", response_col
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/analyze_taguchi_cli.py"),
+                    "--csv",
+                    str(taguchi_csv),
+                    "--response-col",
+                    response_col,
+                    "--outdir",
+                    str(output_dir),
+                ],
+                check=True,
+            )
     generate_figures(
         synthetic_dir=synthetic_dir,
         cifar_dir=cifar_dir,
