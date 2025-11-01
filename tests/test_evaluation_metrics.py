@@ -72,7 +72,7 @@ def test_compute_dataset_metrics_lpips_optional(tmp_path):
     gen_dir.mkdir()
     ref_dir.mkdir()
 
-    array = np.zeros((16, 16, 3))
+    array = np.zeros((32, 32, 3))
     _write_image(gen_dir / "img.png", array)
     _write_image(ref_dir / "img.png", array)
 

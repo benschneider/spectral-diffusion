@@ -64,6 +64,7 @@ def seed_everything(config: Dict[str, Any]) -> None:
 
 def save_metrics(metrics: Dict[str, Any], destination: Path) -> Path:
     """Store metrics produced by the training pipeline."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, indent=2)
     return destination
