@@ -10,6 +10,7 @@ from src.cli.evaluate import evaluate_directory
 from src.cli.sample import sample_from_run
 from src.cli.train import train_from_config
 from src.evaluation.metrics import LPIPS_AVAILABLE
+from src.cli.common import save_metrics
 
 
 def _write_config(tmp_path: Path, config: dict) -> Path:
@@ -179,3 +180,12 @@ def test_evaluate_cli_metrics(tmp_path):
         assert "lpips" in evaluation_meta["metrics"]
 
     shutil.rmtree((tmp_path / "runs"), ignore_errors=True)
+
+
+def test_save_metrics_creates_missing_directory(tmp_path):
+    destination = tmp_path / "runs" / "unit" / "metrics" / "metrics.json"
+    metrics = {"foo": 1}
+    save_metrics(metrics=metrics, destination=destination)
+    assert destination.exists()
+    saved = json.loads(destination.read_text())
+    assert saved == metrics

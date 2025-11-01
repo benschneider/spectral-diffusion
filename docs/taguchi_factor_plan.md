@@ -22,8 +22,23 @@ The goal is to move from the current L8 (5 binary factors) to an L16 experiment 
 
 > **Optional / Deferred:** FFT backend (CPU vs GPU) can become a future factor once GPU-native FFT is available. Cross-domain weight recycling is left out because the ablations showed little impact compared to the new toggles above.
 
+### Future Research-Driven Candidates
+
+The recent burst of frequency-domain diffusion work (2024–2025) surfaces several promising toggles that could slot into spare L16 columns or replace lower-impact ones. Each entry below keeps the binary Taguchi structure while highlighting why it might be worth piloting.
+
+| Letter | Factor (two-level) | Level 1 | Level 2 | Why It’s Interesting | Status / Comments |
+|--------|--------------------|---------|---------|----------------------|-------------------|
+| **P** | **Fourier phase diffusion** | Implicit phase handling | Training-free phase-only diffusion branch | Enables zero-shot texture/style transfer via phase swaps (IJCAI 2025 reports large qualitative gains). | 🤔 Prototype in sampler; pairs naturally with factor **B**. |
+| **Q** | **Frequency prior filtering** | No frequency refinement | Adaptive magnitude filtering during diffusion | Preserves priors while removing low-frequency artefacts (OpenReview 2025, +15% FID). | 🔬 Needs configurable filter kernel before FFT inverse. |
+| **R** | **Spectral autoregression** | Standard denoising | Autoregressive stepping over frequency bins | Reframes diffusion as causal AR in FFT space (Dieleman 2024 discussions). | ⚠️ Medium-high effort; would stress-test sampler registry. |
+| **S** | **Frequency-aware token selection** | Full token budget | Prune low-energy frequency tokens | 2–3× faster inference without retraining (AAAI 2025). | 🚀 Low effort once energy ranking is exposed; complements **L**. |
+| **T** | **Adaptive spectro-temporal diffusion** | Spatial-only pathway | Joint STFT pathway for audio/time | Extends pipeline to audio while filtering artefacts (EURASIP 2025). | 💤 Defer until audio benchmarks are in place. |
+| **U** | **Frequency-aware denoising loss** | Uniform loss weighting | Band-limited weighting (boost mid/high ω) | Improves low-light/RF denoising (PMC 2025) and refines factor **H**. | ✅ Low effort—loss reweighting already partially implemented. |
+| **V** | **Spectral motion generator** | Static image FFT | 3D FFT over space-time volumes | Targets video diffusion; high buzz for motion synthesis (LinkedIn 2025 demos). | 🟥 High effort—requires dataset & temporal heads. |
+
 ### Next Steps
-1. Generate an L16 orthogonal array with 15 columns (A–O) and add it to `configs/` (e.g., `taguchi_spectral_L16.csv`).
+1. ✅ Generated `configs/taguchi_spectral_L16.csv` containing the 15-factor L16 array; keep an L32 expansion on hold until these toggles are validated.
 2. Extend `src/experiments/run_experiment.py` to interpret new columns and mutate the config accordingly (e.g., set LR schedule, warm-up flag).
 3. Update the reporting pipeline to note the new factors in Taguchi summaries.
 4. Run a pilot L16 batch to verify runtime footprint and metric quality.
+5. Prioritise pilots from the future candidate list above (starting with **P/S/U**) and fold the top performers into the main Taguchi matrix.
