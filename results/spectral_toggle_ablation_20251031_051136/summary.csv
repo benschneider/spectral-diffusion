@@ -1,0 +1,4 @@
+run_id,display_name,variant,loss_final,loss_drop_per_second,loss_drop,images_per_second,runtime_seconds,metrics_path
+baseline_tiny,TinyUNet Baseline,baseline,0.3699497878551483,0.059421424738136684,0.6426320374011993,591.7805154283848,10.81482041592244,/Users/benschneider/gitrep/spectral-diffusion/results/spectral_toggle_ablation_20251031_051136/runs/baseline_tiny/metrics/baseline_tiny.json
+spectral_plain,SpectralUNet Plain,spectral,0.3572157621383667,0.023100735310255208,2.9419604539871216,50.253804664595435,127.35354154207744,/Users/benschneider/gitrep/spectral-diffusion/results/spectral_toggle_ablation_20251031_051136/runs/spectral_plain/metrics/spectral_plain.json
+spectral_uniform,SpectralUNet Uniform+ARE/PCM+MASF,spectral,1.0160516500473022,0.01140893873681042,1.8140233755111694,40.25152536692717,159.0001855000155,/Users/benschneider/gitrep/spectral-diffusion/results/spectral_toggle_ablation_20251031_051136/runs/spectral_uniform/metrics/spectral_uniform.json

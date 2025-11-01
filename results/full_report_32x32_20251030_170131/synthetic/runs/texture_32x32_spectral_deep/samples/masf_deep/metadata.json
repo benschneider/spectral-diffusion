@@ -1,0 +1,9 @@
+{
+  "checkpoint_path": "/Users/benschneider/gitrep/spectral-diffusion/results/full_report_32x32_20251030_170131/synthetic/runs/texture_32x32_spectral_deep/checkpoints/checkpoint_step_50.pt",
+  "config_path": "/Users/benschneider/gitrep/spectral-diffusion/results/full_report_32x32_20251030_170131/synthetic/runs/texture_32x32_spectral_deep/config.yaml",
+  "num_samples": 8,
+  "num_steps": 50,
+  "sampler_type": "masf",
+  "images_dir": "/Users/benschneider/gitrep/spectral-diffusion/results/full_report_32x32_20251030_170131/synthetic/runs/texture_32x32_spectral_deep/samples/masf_deep",
+  "created_at": "2025-10-31T00:19:54.883217+00:00"
+}

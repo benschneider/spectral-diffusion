@@ -10,7 +10,7 @@ configs/ ─► TrainingPipeline ─► results/ ─► visualization/
 
 1. **Configs** describe model, data, spectral options, optimisation.
 2. **TrainingPipeline** (in `src/training/`) builds models/samplers, runs the diffusion loop, logs metrics, checkpoints.
-3. **Automation scripts** (e.g. `scripts/run_full_report.sh`) chain benchmarks + Taguchi sweeps.
+3. **Automation scripts** (e.g. `scripts/run_full_report.sh`, `scripts/run_spectral_toggle_ablation.py`) chain benchmarks, Taguchi sweeps, and focused ablations.
 4. **Visualization library** (`src/visualization/`) cleans summary CSVs and draws figures/markdown reports.
 
 ## 2. Directory map
@@ -48,6 +48,7 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 - Reports now live under timestamped subdirectories so multiple executions never overwrite each other.
 - `figures/summary.md` records the generation timestamp/source and embeds every plot for quick variance checks.
 - Taguchi sweeps enrich `taguchi_report.csv` with S/N plus mean runtime/throughput/final-loss for each factor level.
+- Standalone ablations (via `run_spectral_toggle_ablation.py`) land in `results/spectral_toggle_ablation_<timestamp>/` with their own `summary.csv` and `spectral_toggle_ablation.png` for quick comparisons.
 
 ## 4. Figure/report workflow
 1. Generate runs (manual CLI or `scripts/run_full_report.sh` / `run_smoke_report.sh`). The smoke script now trains TinyUNet, SpectralUNet, and the new deep spectral UNet on both synthetic and CIFAR mini-setups before running the Taguchi sweep.
@@ -67,12 +68,18 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 
 With this modular layout you can import the same components in notebooks, CLI scripts, or experiments without rewriting plumbing.
 
-## 6. Roadmap (next wave)
+## 6. Automation scripts (highlights)
+- `run_full_report_32x32.sh` / `run_full_report_1024x.sh` – full benchmark suites (synthetic, CIFAR, Taguchi, spectral-feature ablation, Taguchi insights).
+- `run_smoke_report.sh` – minimal end-to-end check used in CI.
+- `run_spectral_toggle_ablation.py` – quick comparison of TinyUNet baseline vs SpectralUNet with and without uniform corruption + ARE/PCM + MASF. Produces `summary.csv` and `spectral_toggle_ablation.png` in `results/spectral_toggle_ablation_<timestamp>/`.
+- `scripts/analyze_taguchi_cli.py` – converts Taguchi CSVs into main-effects/contribution tables, interaction heatmaps, and markdown snippets for the report.
+
+## 7. Roadmap (next wave)
 - **Learnable spectral adapters** – replace fixed FFT masks with small MLPs conditioned on timestep embeddings so the model can shift focus across frequency bands automatically.
 - **Deep spectral UNet** – extend the current shallow spectral model into a full encoder/decoder with complex down/upsampling and skip connections to test a frequency-first hierarchy.
 - **Pretrained/cross-domain initialization sweeps** – new Taguchi factor (`E`) already toggles GPT-2 vs random seeding; future work includes curating additional sources and analysing their impact with the richer runtime/throughput metrics now captured.
 
-## 7. Core Model Architectures
+## 8. Core Model Architectures
 
 The project's central experiment is a comparison between two different architectural philosophies for diffusion models, embodied by `TinyUNet` and `SpectralUNet`.
 

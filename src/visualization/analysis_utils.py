@@ -162,6 +162,21 @@ def compute_fft_corrected(df):
     df = df.copy()
     if 'runtime' in df.columns:
         df['runtime_corrected'] = df['runtime'] - df.get('fft_runtime', 0)
+        df['runtime_corrected'] = df['runtime_corrected'].replace(0, np.nan)
+        df['runtime_corrected'] = df['runtime_corrected'].clip(lower=1e-9)
     if 'efficiency' in df.columns:
         df['efficiency_corrected'] = df['efficiency'] - df.get('fft_efficiency', 0)
+
+    if 'runtime' in df.columns and 'runtime_corrected' in df.columns:
+        ratio = df['runtime'] / df['runtime_corrected']
+        ratio = ratio.replace([np.inf, -np.inf], np.nan)
+
+        if 'images_per_second' in df.columns:
+            df['images_per_second_corrected'] = df['images_per_second'] * ratio
+
+        if 'loss_drop_per_second' in df.columns:
+            df['loss_drop_per_second_corrected'] = df['loss_drop_per_second'] * ratio
+        elif {'loss_drop', 'runtime_corrected'}.issubset(df.columns):
+            df['loss_drop_per_second_corrected'] = df['loss_drop'] / df['runtime_corrected']
+
     return df

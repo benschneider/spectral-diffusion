@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-10-31T05:14:00.968261+00:00",
+  "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+  "python_version": "3.13.2",
+  "torch_version": "2.6.0",
+  "cuda_available": false,
+  "cuda_device_count": 0,
+  "mps_available": true,
+  "cpu_count": 10,
+  "config_path": "/var/folders/tx/2gl84p5s6blff5l_vxmx08q80000gn/T/tmprwe4imb6.yaml",
+  "run_id": "spectral_uniform"
+}

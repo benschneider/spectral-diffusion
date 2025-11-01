@@ -143,6 +143,7 @@ def compute_dataset_metrics(
             raise RuntimeError("torchmetrics not installed. Install torchmetrics to compute FID.")
         fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=False)
     lpips_metric = None
+    lpips_disabled = False
     if use_lpips:
         if not LPIPS_AVAILABLE:
             raise RuntimeError("torchmetrics not installed. Install torchmetrics to compute LPIPS.")
@@ -164,9 +165,26 @@ def compute_dataset_metrics(
             fid_metric.update(real_uint8.unsqueeze(0), real=True)
             fid_metric.update(fake_uint8.unsqueeze(0), real=False)
         if lpips_metric is not None:
-            real_lpips = real.mul(2.0).sub(1.0).unsqueeze(0)
-            fake_lpips = fake.mul(2.0).sub(1.0).unsqueeze(0)
-            lpips_metric.update(fake_lpips, real_lpips)
+            height, width = fake.shape[-2:]
+            if min(height, width) < 32:
+                print(
+                    f"[warn] Skipping LPIPS: image size too small ({height}x{width}); "
+                    "requires >=32 pixels on the short side."
+                )
+                lpips_metric = None
+                lpips_disabled = True
+            else:
+                real_lpips = real.mul(2.0).sub(1.0).unsqueeze(0)
+                fake_lpips = fake.mul(2.0).sub(1.0).unsqueeze(0)
+                try:
+                    lpips_metric.update(fake_lpips, real_lpips)
+                except RuntimeError as exc:
+                    if "max_pool2d" in str(exc):
+                        print("[warn] LPIPS failed on tiny images; skipping metric.")
+                        lpips_metric = None
+                        lpips_disabled = True
+                    else:  # pragma: no cover - unexpected torchmetrics issue
+                        raise
 
     summary = {key: float(np.mean(values)) for key, values in pair_metrics.items()}
     if fid_metric is not None:
@@ -175,6 +193,8 @@ def compute_dataset_metrics(
     if lpips_metric is not None:
         lpips_value = lpips_metric.compute().item()
         summary["lpips"] = lpips_value
+    elif lpips_disabled:
+        summary["lpips"] = None
     return summary
 
 
