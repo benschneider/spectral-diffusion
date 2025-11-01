@@ -144,6 +144,18 @@ def write_summary_markdown(
     lines.extend(takeaways)
     lines.append("```")
     lines.append("")
+
+    noise_md = output_dir / "noise_definitions.md"
+    if noise_md.exists():
+        lines.append("## Noise Definitions")
+        lines.append("")
+        snippet = noise_md.read_text(encoding="utf-8").splitlines()
+        if snippet and snippet[0].startswith("##"):
+            snippet = snippet[1:]
+        lines.extend(snippet)
+        if snippet and snippet[-1].strip():
+            lines.append("")
+
     # Figure gallery
     lines.append("## Figure Gallery")
     lines.append("")
