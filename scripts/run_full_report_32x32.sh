@@ -224,6 +224,13 @@ run_taguchi() {
 
 generate_report() {
   echo "[5/5] Generating figures & summary"
+  python "$ROOT_DIR/scripts/visualize_uniform_noise.py" \
+    --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
+    --t-index 500 \
+    --cifar-index 0 \
+    --output-dir "$FIG_DIR" \
+    --modes gaussian uniform \
+    --seed 0
   python "$ROOT_DIR/scripts/figures/clean_summaries.py" \
     "$SYN_DIR/summary.csv" \
     "$CIFAR_DIR/summary.csv"

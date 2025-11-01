@@ -26,7 +26,7 @@ from src.training.scheduler import build_diffusion
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Render original image, noise component, and corrupted result for uniform frequency corruption."
+        description="Render original image, noise components, and corrupted results for different forward-noise modes."
     )
     parser.add_argument(
         "--input",
@@ -53,10 +53,17 @@ def _parse_args() -> argparse.Namespace:
         help="Directory where visualisations will be saved.",
     )
     parser.add_argument(
+        "--modes",
+        nargs="+",
+        default=["gaussian", "uniform"],
+        choices=["gaussian", "uniform"],
+        help="Noise modes to visualise (default: gaussian uniform).",
+    )
+    parser.add_argument(
         "--beta",
         type=float,
         default=None,
-        help="Noise strength beta. Ignored if --config is supplied.",
+        help="Noise strength beta used when no --config is supplied.",
     )
     parser.add_argument(
         "--config",
@@ -168,19 +175,70 @@ def main() -> None:
     sqrt_alpha_t = torch.tensor([sqrt_alpha], dtype=x0.dtype, device=x0.device).view(1, 1, 1, 1)
     sqrt_one_minus_t = torch.tensor([sqrt_one_minus], dtype=x0.dtype, device=x0.device).view(1, 1, 1, 1)
 
-    x_t = add_uniform_frequency_noise(
-        x0,
-        noise,
-        sqrt_alpha_t=sqrt_alpha_t,
-        sqrt_one_minus_alpha_t=sqrt_one_minus_t,
-        uniform_corruption=True,
-    )
-
-    mixed_noise = (x_t - sqrt_alpha * x0) / sqrt_one_minus
-
     save_image(_to_image(x0), output_dir / "input.png")
-    save_image(_to_image(mixed_noise), output_dir / "noise_component.png")
-    save_image(_to_image(x_t), output_dir / "corrupted.png")
+
+    results = {}
+
+    if "gaussian" in args.modes:
+        x_gauss = sqrt_alpha_t * x0 + sqrt_one_minus_t * noise
+        noise_gauss = (x_gauss - sqrt_alpha * x0) / sqrt_one_minus
+        results["gaussian"] = (x_gauss, noise_gauss)
+        save_image(_to_image(noise_gauss), output_dir / "noise_gaussian.png")
+        save_image(_to_image(x_gauss), output_dir / "corrupted_gaussian.png")
+
+    if "uniform" in args.modes:
+        x_uniform = add_uniform_frequency_noise(
+            x0,
+            noise,
+            sqrt_alpha_t=sqrt_alpha_t,
+            sqrt_one_minus_alpha_t=sqrt_one_minus_t,
+            uniform_corruption=True,
+        )
+        noise_uniform = (x_uniform - sqrt_alpha * x0) / sqrt_one_minus
+        results["uniform"] = (x_uniform, noise_uniform)
+        save_image(_to_image(noise_uniform), output_dir / "noise_uniform.png")
+        save_image(_to_image(x_uniform), output_dir / "corrupted_uniform.png")
+
+    if "gaussian" in results and "uniform" in results:
+        diff = results["uniform"][1] - results["gaussian"][1]
+        save_image(_to_image(diff), output_dir / "noise_difference_uniform_minus_gaussian.png")
+        corr_diff = results["uniform"][0] - results["gaussian"][0]
+        save_image(_to_image(corr_diff), output_dir / "corrupted_difference_uniform_minus_gaussian.png")
+
+    height, width = x0.shape[-2], x0.shape[-1]
+    fy = torch.fft.fftfreq(height, d=1.0)
+    fx = torch.fft.fftfreq(width, d=1.0)
+    yy = fy[:, None]
+    xx = fx[None, :]
+    radius = torch.sqrt(xx**2 + yy**2)
+    nonzero = radius[radius > 0]
+    base_radius = float(nonzero.min().item()) if nonzero.numel() > 0 else 0.0
+
+    md_lines = [
+        "## Noise Definitions",
+        "",
+        f"- Image resolution: {height}×{width}",
+        f"- sqrt_alpha = {sqrt_alpha:.6f}",
+        f"- sqrt_one_minus_alpha = {sqrt_one_minus:.6f}",
+        "",
+        "### Gaussian (baseline) noise",
+        "- Formulation: $x_t = \\sqrt{\\alpha_t} \\, x_0 + \\sqrt{1-\\alpha_t} \\, \\varepsilon$, "
+        "with $\\varepsilon \\sim \\mathcal{N}(0, I)$ sampled i.i.d. per pixel.",
+        "",
+        "### Uniform spectral noise",
+        "- For FFT frequency indices $(k, \\ell)$, define $r(k, \\ell) = \\sqrt{(k/H)^2 + (\\ell/W)^2}$.",
+        f"- Let $r_\\text{{min}} = \\min_{{r>0}} r(k, \\ell) = {base_radius:.6e}$. The mask is ",
+        "  $m(k, \\ell) = \\sqrt{\\left(\\frac{r(k, \\ell)}{r_\\text{min}}\\right)^2 + 1}$ with the DC bin "
+        "  $m(0,0)$ set to $1.0$.",
+        "- The noise FFT is scaled by this mask prior to the inverse FFT so that higher frequencies receive "
+        "  proportionally more energy while the DC component remains bounded.",
+        "",
+        "### Saved figures",
+        "- `noise_gaussian.png`, `corrupted_gaussian.png`",
+        "- `noise_uniform.png`, `corrupted_uniform.png`",
+        "- `noise_difference_uniform_minus_gaussian.png`, `corrupted_difference_uniform_minus_gaussian.png`",
+    ]
+    (output_dir / "noise_definitions.md").write_text("\n".join(md_lines), encoding="utf-8")
 
     print(f"Saved visualisations to {output_dir}")
 
