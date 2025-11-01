@@ -20,6 +20,7 @@ Legend: ✅ complete · 🟡 in progress · ⬜ pending
 | 🟡 | Documentation | README & docs updated (architecture, config reference) | Author walkthrough notebook + CONTRIBUTING guide | None | Highlight learnable adapters + SpectralUNetDeep usage |
 | 🟡 | Spectral utilities | Learnable adapters + cross-domain init integrated | Explore adapter strength annealing / learnt masks analytics | None | Adapter stats tracked via `spectral_*` metrics |
 | 🟡 | Taguchi extensions | New factor `E` toggles cross-domain init; reports include runtime/throughput | Add per-factor notebook + scenario templates | Taguchi runner outputs | Consider expanding to cover learnable adapter hyperparameters |
+| 🟡 | Taguchi L16 expansion | Drafted factor plan covering 15 binary toggles (see docs/taguchi_factor_plan.md) | Implement L16 design (CSV + runner mutations + report update) | Taguchi runner outputs | Add ARE/MASF/warm-up/LR schedule, etc. to the design matrix |
 | 🟡 | Logging polish | Console logging ready; optional JSONL logs emitted with `--json-log` | Expand structured payloads (metrics snapshots, step logs) | Independent | JSONL lives at `logs/train.jsonl`; next: richer diagnostics |
 | ⬜ | Dataset handling | Manual CIFAR download documented | Support auto-download flag + checksum validation | Network availability | Document dataset caching for CI/local |
 | ⬜ | Analysis notebooks | Not started | Plot loss vs time, FFT overhead vs efficiency, Taguchi summaries | Metrics & S/N tooling | Consume `results/summary.csv`, `taguchi_report.csv` |
