@@ -59,8 +59,8 @@ def write_summary_markdown(
                 "dataset": "Synthetic",
                 "run_id": row.get("run_id", row.get("display_name", "unknown")),
                 "loss_final": row.get("loss_final", "N/A"),
-                "images_per_second": row.get("images_per_second", "N/A"),
-                "runtime_seconds": row.get("runtime_seconds", row.get("runtime")),
+                "images_per_second": row.get("images_per_second_corrected", row.get("images_per_second", "N/A")),
+                "runtime_seconds": row.get("runtime_corrected", row.get("runtime_seconds", row.get("runtime"))),
                 "runtime": row.get("runtime", row.get("runtime_seconds")),
                 "high_freq_psnr": row.get("high_freq_psnr")
             })
@@ -70,8 +70,8 @@ def write_summary_markdown(
                 "dataset": "CIFAR-10",
                 "run_id": row.get("run_id", row.get("display_name", "unknown")),
                 "loss_final": row.get("loss_final", "N/A"),
-                "images_per_second": row.get("images_per_second", "N/A"),
-                "runtime_seconds": row.get("runtime_seconds", row.get("runtime")),
+                "images_per_second": row.get("images_per_second_corrected", row.get("images_per_second", "N/A")),
+                "runtime_seconds": row.get("runtime_corrected", row.get("runtime_seconds", row.get("runtime"))),
                 "runtime": row.get("runtime", row.get("runtime_seconds")),
                 "high_freq_psnr": row.get("high_freq_psnr")
             })
@@ -216,16 +216,40 @@ def _benchmark_takeaways(synthetic_df, cifar_df):
                 takeaways.append(f"Lowest final loss: {best_loss_row.get('run_id', best_loss_row.get('display_name', 'unknown'))} ({best_loss_row['loss_final']:.3f})")
 
             # Find fastest throughput
-            if "images_per_second" in combined_df.columns:
-                fastest_idx = combined_df["images_per_second"].astype(float).idxmax()
+            throughput_col = None
+            throughput_suffix = "images/s"
+            for candidate in ["images_per_second_corrected", "images_per_second"]:
+                if candidate in combined_df.columns:
+                    throughput_col = candidate
+                    if candidate.endswith("_corrected"):
+                        throughput_suffix = "images/s (FFT-corrected)"
+                    break
+            if throughput_col is not None:
+                fastest_idx = combined_df[throughput_col].astype(float).idxmax()
                 fastest_row = combined_df.loc[fastest_idx]
-                takeaways.append(f"Fastest throughput: {fastest_row.get('run_id', fastest_row.get('display_name', 'unknown'))} ({fastest_row['images_per_second']:.1f} images/s)")
+                takeaways.append(
+                    f"Fastest throughput: "
+                    f"{fastest_row.get('run_id', fastest_row.get('display_name', 'unknown'))} "
+                    f"({fastest_row[throughput_col]:.1f} {throughput_suffix})"
+                )
 
             # Find fastest convergence if available
-            if "loss_drop_per_second" in combined_df.columns:
-                fastest_conv_idx = combined_df["loss_drop_per_second"].astype(float).idxmax()
+            convergence_col = None
+            convergence_label = "loss drop/s"
+            for candidate in ["loss_drop_per_second_corrected", "loss_drop_per_second"]:
+                if candidate in combined_df.columns:
+                    convergence_col = candidate
+                    if candidate.endswith("_corrected"):
+                        convergence_label = "loss drop/s (FFT-corrected)"
+                    break
+            if convergence_col is not None:
+                fastest_conv_idx = combined_df[convergence_col].astype(float).idxmax()
                 fastest_conv_row = combined_df.loc[fastest_conv_idx]
-                takeaways.append(f"Fastest convergence: {fastest_conv_row.get('run_id', fastest_conv_row.get('display_name', 'unknown'))} ({fastest_conv_row['loss_drop_per_second']:.3f} loss drop/s)")
+                takeaways.append(
+                    f"Fastest convergence: "
+                    f"{fastest_conv_row.get('run_id', fastest_conv_row.get('display_name', 'unknown'))} "
+                    f"({fastest_conv_row[convergence_col]:.3f} {convergence_label})"
+                )
             if "high_freq_psnr" in combined_df.columns:
                 hf_values = pd.to_numeric(combined_df["high_freq_psnr"], errors="coerce")
                 if hf_values.notna().any():

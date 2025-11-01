@@ -32,11 +32,10 @@ def plot_loss_metrics(df: pd.DataFrame, title="Loss Drop per Second by Model", o
     _setup_style()
     fig, ax = plt.subplots()
 
-    # Use run_id or display_name for x-axis
     x_col = 'display_name' if 'display_name' in df.columns else 'run_id'
-    y_col = 'loss_drop_per_second'
-
-    if y_col not in df.columns:
+    preferred_cols = ["loss_drop_per_second_corrected", "loss_drop_per_second"]
+    y_col = next((col for col in preferred_cols if col in df.columns), None)
+    if y_col is None:
         plt.close(fig)
         return
 
@@ -45,8 +44,12 @@ def plot_loss_metrics(df: pd.DataFrame, title="Loss Drop per Second by Model", o
     sns.barplot(data=df, x=x_col, y=y_col, palette=palette, ax=ax)
     ax.set_title(title)
     ax.set_xlabel('Model')
-    ax.set_ylabel('Loss Drop per Second')
+    ylabel = 'Loss Drop per Second'
+    if y_col.endswith('_corrected'):
+        ylabel += ' (FFT-corrected)'
+    ax.set_ylabel(ylabel)
     ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.7)
+    ax.tick_params(axis='x', rotation=30, labelsize=8)
 
     if out_path:
         fig.savefig(out_path, bbox_inches='tight', dpi=300)
@@ -54,38 +57,45 @@ def plot_loss_metrics(df: pd.DataFrame, title="Loss Drop per Second by Model", o
 
 
 def plot_metric_boxplot(df: pd.DataFrame, metric: str, title: str, ylabel: str, out_path=None) -> None:
-        """Plot boxplot for a metric."""
-        if df is None or df.empty or metric not in df.columns:
-            return
-    
-        _setup_style()
-        fig, ax = plt.subplots()
-    
-        # Use run_id or display_name for grouping
-        group_col = 'display_name' if 'display_name' in df.columns else 'run_id'
-    
-        # Prepare data for boxplot
-        data = []
-        labels = []
-        for name in df[group_col].unique():
-            subset = df[df[group_col] == name][metric].dropna()
-            if len(subset) > 0:
-                data.append(subset.values)
-                labels.append(name)
-    
-        if data:
-            ax.boxplot(data, labels=labels)
-            ax.set_title(title)
-            ax.set_ylabel(ylabel)
-            ax.grid(True, axis='y', linestyle='--', linewidth=0.7)
-    
-            if out_path:
-                fig.savefig(out_path, bbox_inches='tight', dpi=300)
-                plt.close(fig)
-            else:
-                return fig
-        else:
+    """Plot boxplot for a metric."""
+    if df is None or df.empty:
+        return
+
+    corrected_metric = f"{metric}_corrected"
+    metric_col = metric if metric in df.columns else corrected_metric if corrected_metric in df.columns else None
+    if metric_col is None:
+        return
+
+    _setup_style()
+    fig, ax = plt.subplots()
+
+    group_col = 'display_name' if 'display_name' in df.columns else 'run_id'
+
+    data = []
+    labels = []
+    for name in df[group_col].unique():
+        subset = df[df[group_col] == name][metric_col].dropna()
+        if len(subset) > 0:
+            data.append(subset.values)
+            labels.append(name)
+
+    if data:
+        ax.boxplot(data, labels=labels)
+        ax.set_title(title)
+        ylabel_adj = ylabel
+        if metric_col.endswith("_corrected"):
+            ylabel_adj += " (FFT-corrected)"
+        ax.set_ylabel(ylabel_adj)
+        ax.grid(True, axis='y', linestyle='--', linewidth=0.7)
+        ax.tick_params(axis='x', rotation=30, labelsize=8)
+
+        if out_path:
+            fig.savefig(out_path, bbox_inches='tight', dpi=300)
             plt.close(fig)
+        else:
+            return fig
+    else:
+        plt.close(fig)
 
 
 def plot_taguchi_snr(taguchi_report, out_path, descriptions=None):
@@ -145,9 +155,9 @@ def plot_runtime_metrics(df: pd.DataFrame, title="Images Processed per Second by
 
     # Use run_id or display_name for x-axis
     x_col = 'display_name' if 'display_name' in df.columns else 'run_id'
-    y_col = 'images_per_second'
-
-    if y_col not in df.columns:
+    preferred_cols = ["images_per_second_corrected", "images_per_second"]
+    y_col = next((col for col in preferred_cols if col in df.columns), None)
+    if y_col is None:
         plt.close(fig)
         return
 
@@ -156,12 +166,16 @@ def plot_runtime_metrics(df: pd.DataFrame, title="Images Processed per Second by
     sns.barplot(data=df, x=x_col, y=y_col, palette=palette, ax=ax)
     ax.set_title(title)
     ax.set_xlabel('Model')
-    ax.set_ylabel('Images per Second')
+    ylabel = 'Images per Second'
+    if y_col.endswith('_corrected'):
+        ylabel += ' (FFT-corrected)'
+    ax.set_ylabel(ylabel)
     ax.grid(True, which='both', axis='y', linestyle='--', linewidth=0.7)
+    ax.tick_params(axis='x', rotation=30, labelsize=8)
 
     if out_path:
         fig.savefig(out_path, bbox_inches='tight', dpi=300)
-        plt.close(fig)
+        plt.close(fig) 
     else:
         return fig
 
@@ -173,23 +187,40 @@ def plot_tradeoff_scatter(df: pd.DataFrame, x_col: str, y_col: str, title: str, 
     _setup_style()
     fig, ax = plt.subplots()
 
-    # Use run_id or display_name for grouping
     group_col = 'display_name' if 'display_name' in df.columns else 'run_id'
+
+    x_candidates = [x_col, f"{x_col}_corrected"]
+    y_candidates = [y_col, f"{y_col}_corrected"]
+    x_col_use = next((col for col in x_candidates if col in df.columns), x_col)
+    y_col_use = next((col for col in y_candidates if col in df.columns), y_col)
+
+    if x_col_use not in df.columns or y_col_use not in df.columns:
+        plt.close(fig)
+        return
+
     groups = df[group_col].unique()
     base_colors = _color_palette(len(groups))
     palette = {name: base_colors[idx % len(base_colors)] for idx, name in enumerate(groups)}
 
-    for name in df[group_col].unique():
+    for name in groups:
         subset = df[df[group_col] == name]
-        if x_col in subset.columns and y_col in subset.columns:
-            ax.scatter(subset[x_col], subset[y_col], label=name, color=palette[name], s=80)
+        if x_col_use in subset.columns and y_col_use in subset.columns:
+            ax.scatter(subset[x_col_use], subset[y_col_use], label=name, color=palette[name], s=80)
             for _, row in subset.iterrows():
-                ax.annotate(name, (row[x_col], row[y_col]),
-                           textcoords="offset points", xytext=(5,5), ha='left', fontsize=9)
+                ax.annotate(
+                    name,
+                    (row[x_col_use], row[y_col_use]),
+                    textcoords="offset points",
+                    xytext=(5, 5),
+                    ha='left',
+                    fontsize=9,
+                )
 
     ax.set_title(title)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
+    x_label_adj = x_label + (" (FFT-corrected)" if x_col_use.endswith("_corrected") else "")
+    y_label_adj = y_label + (" (FFT-corrected)" if y_col_use.endswith("_corrected") else "")
+    ax.set_xlabel(x_label_adj)
+    ax.set_ylabel(y_label_adj)
     ax.legend(title='Model')
     ax.grid(True, linestyle='--', linewidth=0.7)
 
@@ -372,15 +403,20 @@ def plot_feature_toggle_ablation(df: pd.DataFrame, out_path, title: str = "Spect
     if "loss_final" not in df.columns:
         return
 
+    metric_options = [
+        ("loss_drop_per_second_corrected", "Loss Drop / Second (FFT-corrected, higher is better)"),
+        ("loss_drop_per_second", "Loss Drop / Second (higher is better)"),
+        ("images_per_second_corrected", "Images per Second (FFT-corrected, higher is better)"),
+        ("images_per_second", "Images per Second (higher is better)"),
+    ]
     secondary_metric = None
     secondary_label = ""
-    if "loss_drop_per_second" in df.columns:
-        secondary_metric = "loss_drop_per_second"
-        secondary_label = "Loss Drop / Second (Higher is Better)"
-    elif "images_per_second" in df.columns:
-        secondary_metric = "images_per_second"
-        secondary_label = "Images per Second (Higher is Better)"
-    else:
+    for col, label in metric_options:
+        if col in df.columns:
+            secondary_metric = col
+            secondary_label = label
+            break
+    if secondary_metric is None:
         return
 
     _setup_style()
@@ -391,14 +427,14 @@ def plot_feature_toggle_ablation(df: pd.DataFrame, out_path, title: str = "Spect
     axes[0].set_title("Final Loss (Lower is Better)")
     axes[0].set_xlabel("Configuration")
     axes[0].set_ylabel("Final Loss")
-    axes[0].tick_params(axis="x", rotation=30)
+    axes[0].tick_params(axis="x", rotation=30, labelsize=8)
     axes[0].grid(True, axis="y", linestyle="--", linewidth=0.7)
 
     sns.barplot(data=df, x=label_col, y=secondary_metric, palette=palette, ax=axes[1])
     axes[1].set_title(secondary_label)
     axes[1].set_xlabel("Configuration")
     axes[1].set_ylabel(secondary_label)
-    axes[1].tick_params(axis="x", rotation=30)
+    axes[1].tick_params(axis="x", rotation=30, labelsize=8)
     axes[1].grid(True, axis="y", linestyle="--", linewidth=0.7)
 
     fig.suptitle(title, fontsize=12)
