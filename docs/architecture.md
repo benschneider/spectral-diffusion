@@ -72,6 +72,7 @@ With this modular layout you can import the same components in notebooks, CLI sc
 - `run_full_report_32x32.sh` / `run_full_report_1024x.sh` – full benchmark suites (synthetic, CIFAR, Taguchi, spectral-feature ablation, Taguchi insights).
 - `run_smoke_report.sh` – minimal end-to-end check used in CI.
 - `run_spectral_toggle_ablation.py` – quick comparison of TinyUNet baseline vs SpectralUNet with and without uniform corruption + ARE/PCM + MASF. Produces `summary.csv` and `spectral_toggle_ablation.png` in `results/spectral_toggle_ablation_<timestamp>/`.
+- `visualize_uniform_noise.py` – generate a triplet of images (original, noise component, corrupted result) to inspect the uniform frequency corruption step.
 - `scripts/analyze_taguchi_cli.py` – converts Taguchi CSVs into main-effects/contribution tables, interaction heatmaps, and markdown snippets for the report.
 
 ## 7. Roadmap (next wave)

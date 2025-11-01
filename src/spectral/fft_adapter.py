@@ -15,12 +15,20 @@ def _radial_mask_base(shape: Tuple[int, int]) -> torch.Tensor:
     overall signal-to-noise decay remains approximately uniform across bands.
     """
     height, width = shape
-    fy = torch.fft.fftfreq(height, d=1.0 / float(height))
-    fx = torch.fft.fftfreq(width, d=1.0 / float(width))
+    fy = torch.fft.fftfreq(height, d=1.0)
+    fx = torch.fft.fftfreq(width, d=1.0)
     yy = fy[:, None]
     xx = fx[None, :]
     radius = torch.sqrt(xx**2 + yy**2)
-    mask = 1.0 / (radius + 1e-4)
+
+    nonzero = radius[radius > 0]
+    if nonzero.numel() == 0:
+        mask = torch.ones_like(radius)
+    else:
+        base_radius = torch.min(nonzero)
+        scaled = radius / base_radius
+        mask = torch.sqrt(scaled**2 + 1.0)
+        mask[0, 0] = 1.0
     return mask.to(torch.float32)
 
 
@@ -48,6 +56,9 @@ def add_uniform_frequency_noise(
     height, width = x0.shape[-2], x0.shape[-1]
     base_mask = _radial_mask_base((height, width)).to(device=x0.device, dtype=x0.dtype)
     mask = base_mask.unsqueeze(0).unsqueeze(0)
+    rms = torch.sqrt(torch.mean(mask**2))
+    if torch.isfinite(rms) and rms > 0:
+        mask = mask / rms
 
     x_fft = torch.fft.fftn(x0, dim=(-2, -1))
     noise_fft = torch.fft.fftn(noise, dim=(-2, -1)) * mask
