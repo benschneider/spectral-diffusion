@@ -1,6 +1,6 @@
-# Taguchi Factor Expansion Plan (L16 Two-Level Design)
+# Taguchi DOE Expansion Plan (L16 Binary + L18 Mixed Designs)
 
-The goal is to move from the current L8 (5 binary factors) to an L16 experiment so we can examine up to 15 two-level factors in a single batch (16 runs). The table below assigns letter labels following the Taguchi convention and lists the toggles we plan to sweep, using descriptive names instead of acronyms.
+Our original goal was to move from the legacy L8 (5 binary factors) to a richer L16 experiment covering up to 15 two-level toggles in a single batch. That roadmap is still valuable for purely binary toggles, but we now also operate a mixed-level **L18 (2¹ × 3⁷)** array in production. The L18 rollout (via `configs/taguchi/factor_registry.yaml` + `configs/taguchi/L18_mixed.csv`) lets us sweep eight high-impact factors with three levels each while keeping the learning-rate schedule as a binary control. The L16 notes below remain as a parking lot for future two-level variants.
 
 | Letter | Factor (two-level) | Level 1 | Level 2 | Notes / Equation | Status / Comments |
 |--------|--------------------|---------|---------|------------------|------------------|
@@ -22,6 +22,21 @@ The goal is to move from the current L8 (5 binary factors) to an L16 experiment 
 
 > **Optional / Deferred:** FFT backend (CPU vs GPU) can become a future factor once GPU-native FFT is available. Cross-domain weight recycling is left out because the ablations showed little impact compared to the new toggles above.
 
+### Current L18 Mixed-Level Factors (Deployed)
+
+| Column | Factor | Levels |
+|--------|--------|--------|
+| **A** | Spectral adapter placement (`spectral.apply_to`) | none · input_only · input_and_output |
+| **B** | Spectral loss weighting (`spectral.weighting`) | none · radial_highfreq · aggressive_highfreq (band-pass) |
+| **C** | Spectral noise shaping strength (`diffusion.uniform_corruption` + `spectral.freq_equalized_noise`) | off · mild_equalize · strong_equalize |
+| **D** | Phase attention capacity (`model.enable_phase_attention`, `model.phase_heads`) | off · tiny · full |
+| **E** | Sampler type (mapped to registry sampler) | ddim · dpm_solver_pp · spectral_guided (MASF) |
+| **F** | Sampling steps (`sampling.num_steps`) | 30 · 50 · 100 |
+| **G** | Curriculum mode (`training.curriculum`) | none · lowres_warmup · spectral_first |
+| **H** | Learning-rate schedule (`optim.lr_schedule`) | constant · cosine |
+
+These are encoded in `configs/taguchi/factor_registry.yaml` and automatically wired through `src/experiments/run_experiment.py`. The full-report scripts (`run_full_report_32x32.sh`) now execute all 18 combinations and publish `L18_summary.csv` / `taguchi_report.csv` for figure generation.
+
 ### Future Research-Driven Candidates
 
 The recent burst of frequency-domain diffusion work (2024–2025) surfaces several promising toggles that could slot into spare L16 columns or replace lower-impact ones. Each entry below keeps the binary Taguchi structure while highlighting why it might be worth piloting.
@@ -37,8 +52,8 @@ The recent burst of frequency-domain diffusion work (2024–2025) surfaces sever
 | **V** | **Spectral motion generator** | Static image FFT | 3D FFT over space-time volumes | Targets video diffusion; high buzz for motion synthesis (LinkedIn 2025 demos). | 🟥 High effort—requires dataset & temporal heads. |
 
 ### Next Steps
-1. ✅ Generated `configs/taguchi_spectral_L16.csv` containing the 15-factor L16 array; keep an L32 expansion on hold until these toggles are validated.
-2. Extend `src/experiments/run_experiment.py` to interpret new columns and mutate the config accordingly (e.g., set LR schedule, warm-up flag).
-3. Update the reporting pipeline to note the new factors in Taguchi summaries.
-4. Run a pilot L16 batch to verify runtime footprint and metric quality.
-5. Prioritise pilots from the future candidate list above (starting with **P/S/U**) and fold the top performers into the main Taguchi matrix.
+1. ✅ Generated `configs/taguchi/L18_mixed.csv` (in production) and `configs/taguchi_spectral_L16.csv` (binary backlog).
+2. ✅ Refactored `src/experiments/run_experiment.py` to consume the factor registry, randomise assignments, and persist per-row metrics (`run_<n>_metrics.json`).
+3. ✅ Reports ingest the new Taguchi metadata; full-report scripts include `taguchi_report.csv` automatically.
+4. ▶️ Automate aggregation for GitHub Actions by adding a follow-up job that collects all 18 artifacts and re-runs `--finalize`.
+5. ▶️ Evaluate future candidates (starting with **P/S/U**) and decide whether they replace existing L18 factors or spin off a dedicated L32 study.

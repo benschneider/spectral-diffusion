@@ -211,15 +211,21 @@ run_feature_ablation() {
 
 run_taguchi() {
   echo "[4/5] Taguchi sweep"
-  rm -f "$TAG_DIR/summary.csv" "$TAG_DIR/taguchi_report.csv"
+  rm -f "$TAG_DIR/summary.csv" \
+        "$TAG_DIR/taguchi_report.csv" \
+        "$TAG_DIR"/L18_mixed_summary.csv \
+        "$TAG_DIR"/L18_summary.csv \
+        "$TAG_DIR"/run_*_metrics.json
   rm -rf "$TAG_DIR/runs"
-  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_32x32_sweep" "array:taguchi_spectral_array.csv"
+  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_32x32_sweep" "array:L18_mixed.csv"
   python -m src.experiments.run_experiment \
     --config "$ROOT_DIR/configs/taguchi_smoke_base.yaml" \
-    --array "$ROOT_DIR/configs/taguchi_spectral_array.csv" \
+    --array "$ROOT_DIR/configs/taguchi/L18_mixed.csv" \
     --output-dir "$TAG_DIR" \
     --report-metric loss_drop_per_second \
-    --report-mode larger
+    --report-mode larger \
+    --factor-registry "$ROOT_DIR/configs/taguchi/factor_registry.yaml" \
+    --finalize
 }
 
 generate_report() {
