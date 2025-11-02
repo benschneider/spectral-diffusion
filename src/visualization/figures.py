@@ -140,4 +140,5 @@ def generate_figures(
         descriptions,
         generated_at=timestamp,
         fft_snapshot=fft_snapshot,
+        taguchi_dir=taguchi_dir,
     )

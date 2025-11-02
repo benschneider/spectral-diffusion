@@ -38,10 +38,18 @@ class PhaseCorrectionModule(nn.Module):
         super().__init__()
         self.num_heads = max(1, num_heads)
         self.attn = nn.MultiheadAttention(embed_dim=dim, num_heads=self.num_heads)
+        self.last_attention_map: Optional[torch.Tensor] = None
 
     def forward(self, phase: torch.Tensor) -> torch.Tensor:
         seq = phase.flatten(2).permute(2, 0, 1)
-        refined, _ = self.attn(seq, seq, seq)
+        refined, weights = self.attn(
+            seq,
+            seq,
+            seq,
+            need_weights=True,
+            average_attn_weights=False,
+        )
+        self.last_attention_map = weights.detach()
         return refined.permute(1, 2, 0).view_as(phase)
 
 

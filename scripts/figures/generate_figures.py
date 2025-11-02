@@ -179,29 +179,42 @@ def main() -> None:
     if ablation_dir:
         collect.clean_summary(Path(ablation_dir) / "summary.csv")
     if args.include_taguchi_effects:
-        taguchi_csv = taguchi_dir / "taguchi_report.csv"
-        response_col = _select_response_column(taguchi_csv)
-        if response_col is None:
+        candidate_csvs = [
+            taguchi_dir / "L18_mixed_summary.csv",
+            taguchi_dir / "L18_summary.csv",
+            taguchi_dir / "summary.csv",
+        ]
+        taguchi_csv = next((path for path in candidate_csvs if path.exists()), None)
+        if taguchi_csv is None:
             logging.warning(
-                "Unable to determine response column for Taguchi analysis; skipping."
+                "Taguchi summary not found (looked for %s); skipping analysis.",
+                ", ".join(str(p) for p in candidate_csvs),
             )
         else:
-            logging.info(
-                "Running Taguchi analysis with response column '%s'.", response_col
-            )
-            subprocess.run(
-                [
-                    sys.executable,
-                    str(ROOT / "scripts/analyze_taguchi_cli.py"),
-                    "--csv",
-                    str(taguchi_csv),
-                    "--response-col",
+            response_col = _select_response_column(taguchi_csv)
+            if response_col is None:
+                logging.warning(
+                    "Unable to determine response column for Taguchi analysis; skipping."
+                )
+            else:
+                logging.info(
+                    "Running Taguchi analysis with response column '%s' from %s.",
                     response_col,
-                    "--outdir",
-                    str(output_dir),
-                ],
-                check=True,
-            )
+                    taguchi_csv.name,
+                )
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(ROOT / "scripts/analyze_taguchi_cli.py"),
+                        "--csv",
+                        str(taguchi_csv),
+                        "--response-col",
+                        response_col,
+                        "--outdir",
+                        str(output_dir),
+                    ],
+                    check=True,
+                )
     generate_figures(
         synthetic_dir=synthetic_dir,
         cifar_dir=cifar_dir,

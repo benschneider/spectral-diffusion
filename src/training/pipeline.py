@@ -1,12 +1,19 @@
 import logging
+import os
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
+import shutil
 
 from src.core import build_model, get_loss_fn
 from src.core.functional import compute_snr_weight, compute_target
@@ -15,6 +22,7 @@ from src.spectral.fft_adapter import add_uniform_frequency_noise
 from src.training.builders import build_dataloader, build_optimizer
 from src.training.sampling import build_sampler
 from src.training.scheduler import build_diffusion, sample_timesteps
+from src.utils.sanity_checks import check_fft_sanity
 
 
 class TrainingPipeline:
@@ -52,8 +60,9 @@ class TrainingPipeline:
         metrics_cfg = self.config.get("metrics", {})
         loss_threshold = metrics_cfg.get("loss_threshold")
 
+        self._prepare_instrumentation()
+
         step = 0
-        loss_history, mae_history = [], []
         threshold_steps: Optional[int] = None
         threshold_time: Optional[float] = None
         wall_start = perf_counter()
@@ -70,6 +79,10 @@ class TrainingPipeline:
         for epoch in range(epochs):
             for batch_idx, (xb, _) in enumerate(self.loader):
                 xb = xb.to(self.device)
+
+                if not self._initial_batch_captured:
+                    self._capture_initial_batch(xb)
+
                 B = xb.shape[0]
                 t = sample_timesteps(B, T, xb.device)
 
@@ -79,6 +92,9 @@ class TrainingPipeline:
                 )
 
                 eps = torch.randn_like(xb)
+                eps_norm = float(eps.view(B, -1).norm(dim=1).mean().detach().cpu())
+                self.noise_norm_history.append(eps_norm)
+                self.noise_norm_steps.append(step + 1)
                 x_t = add_uniform_frequency_noise(
                     xb,
                     eps,
@@ -88,6 +104,9 @@ class TrainingPipeline:
                 )
 
                 pred = self.model(x_t, t)
+                if not self._phase_demo_captured:
+                    self._capture_phase_demo()
+
                 target = compute_target(
                     prediction_type, xb, x_t, eps, sqrt_alpha_t, sqrt_one_minus_t
                 )
@@ -104,12 +123,14 @@ class TrainingPipeline:
 
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
+                grad_norm = self._record_gradients(step)
                 self.optimizer.step()
 
                 step += 1
                 loss_val = float(loss.detach().cpu())
-                loss_history.append(loss_val)
-                mae_history.append(float(mae.detach().cpu()))
+                self.loss_history.append(loss_val)
+                self.mae_history.append(float(mae.detach().cpu()))
+                self.loss_steps.append(step)
                 if step % log_every == 0:
                     self.logger.info("epoch %d step %d loss %.5f", epoch, step, loss_val)
                 if (
@@ -129,8 +150,8 @@ class TrainingPipeline:
             (step * self.loader.batch_size) / runtime_seconds if runtime_seconds > 0 else 0.0
         )
         runtime_per_epoch = runtime_seconds / epochs if epochs > 0 else None
-        initial_loss = loss_history[0] if loss_history else None
-        final_loss = loss_history[-1] if loss_history else None
+        initial_loss = self.loss_history[0] if self.loss_history else None
+        final_loss = self.loss_history[-1] if self.loss_history else None
         loss_drop = (
             (initial_loss - final_loss)
             if initial_loss is not None and final_loss is not None
@@ -142,8 +163,8 @@ class TrainingPipeline:
             else None
         )
         metrics = compute_basic_metrics(
-            loss_history=loss_history,
-            mae_history=mae_history,
+            loss_history=self.loss_history,
+            mae_history=self.mae_history,
             runtime_seconds=runtime_seconds,
             extra={
                 "status": "ok",
@@ -159,10 +180,11 @@ class TrainingPipeline:
                 "loss_threshold": loss_threshold,
                 "loss_threshold_steps": threshold_steps,
                 "loss_threshold_time": threshold_time,
-                "loss_history": [float(v) for v in loss_history],
-                "mae_history": [float(v) for v in mae_history],
+                "loss_history": [float(v) for v in self.loss_history],
+                "mae_history": [float(v) for v in self.mae_history],
             },
         )
+        self._finalise_diagnostics()
         training_stats = {}
         if hasattr(self.model, "spectral_stats"):
             training_stats = dict(self.model.spectral_stats())
@@ -178,6 +200,198 @@ class TrainingPipeline:
         T = int(diffusion_cfg.get("num_timesteps", 1000))
         schedule = diffusion_cfg.get("beta_schedule", "cosine")
         return T, schedule
+
+    def _resolve_taguchi_root(self) -> Optional[Path]:
+        parent = self.work_dir.parent
+        if parent.name == "runs":
+            return parent.parent
+        return None
+
+    def _prepare_instrumentation(self) -> None:
+        self.loss_history: List[float] = []
+        self.mae_history: List[float] = []
+        self.loss_steps: List[int] = []
+        self.grad_norm_history: List[float] = []
+        self.grad_norm_steps: List[int] = []
+        self.noise_norm_history: List[float] = []
+        self.noise_norm_steps: List[int] = []
+        self._initial_batch_captured = False
+        self._phase_demo_captured = False
+        self._factor_levels: Dict[str, Dict[str, Any]] = (
+            self.config.get("taguchi", {}).get("factor_levels", {}) or {}
+        )
+        self._taguchi_root = self._resolve_taguchi_root()
+        self.dataset_name = str(self.config.get("data", {}).get("source", "unknown"))
+        self.run_id = self.work_dir.name
+        self._aggregate_base = self._taguchi_root or self.work_dir
+        self._sanity_dir = self._aggregate_base / "sanity"
+        self._sanity_dir.mkdir(parents=True, exist_ok=True)
+        self._diagnostics_dir = self.work_dir / "diagnostics"
+        self._diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_factor_dir(self, factor: str) -> Optional[Path]:
+        if factor not in self._factor_levels:
+            return None
+        meta = self._factor_levels[factor]
+        level = str(meta.get("level_label", meta.get("level_index", "unknown")))
+        path = self._aggregate_base / "factors" / factor / level
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _capture_initial_batch(self, xb: torch.Tensor) -> None:
+        batch_cpu = xb.detach().cpu()
+        prefix = f"{self.run_id}_"
+        stats_path = check_fft_sanity(
+            batch_cpu,
+            self.dataset_name,
+            self._sanity_dir,
+            prefix=prefix,
+        )
+
+        base_name = stats_path.stem
+        spatial_src = stats_path.with_name(f"{base_name}_spatial.png")
+        fft_src = stats_path.with_name(f"{base_name}_fft_mag.png")
+
+        if not self._factor_levels:
+            self._initial_batch_captured = True
+            return
+
+        for factor in self._factor_levels.keys():
+            factor_dir = self._get_factor_dir(factor)
+            if factor_dir is None:
+                continue
+            if spatial_src.exists():
+                dest = factor_dir / f"demo_spatial_{self.run_id}.png"
+                shutil.copy(spatial_src, dest)
+            if fft_src.exists():
+                dest = factor_dir / f"demo_fft_{self.run_id}.png"
+                shutil.copy(fft_src, dest)
+
+        self._initial_batch_captured = True
+
+    def _capture_phase_demo(self) -> None:
+        if self._phase_demo_captured:
+            return
+        factor_dir = self._get_factor_dir("phase_attention_capacity")
+        if factor_dir is None:
+            self._phase_demo_captured = True
+            return
+        pcm = getattr(self.model, "pcm", None)
+        if pcm is None:
+            self._phase_demo_captured = True
+            return
+        weights = getattr(pcm, "last_attention_map", None)
+        if weights is None:
+            return
+        attn = weights.detach().cpu()
+        attn = attn.mean(dim=0)
+        if attn.ndim == 2:
+            seq_len = attn.shape[-1]
+            side = int(seq_len ** 0.5)
+            if side * side == seq_len:
+                attn = attn.reshape(side, side)
+        fig, ax = plt.subplots(figsize=(3, 3))
+        ax.imshow(attn.numpy(), cmap="magma")
+        ax.set_title("Phase Attention")
+        ax.axis("off")
+        fig.tight_layout()
+        out_path = factor_dir / f"demo_phase_attention_{self.run_id}.png"
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+        self._phase_demo_captured = True
+
+    def _record_gradients(self, step: int) -> Optional[float]:
+        total_norm_sq = 0.0
+        for param in self.model.parameters():
+            if param.grad is None:
+                continue
+            grad = param.grad.detach()
+            total_norm_sq += float(grad.pow(2).sum().cpu())
+        if total_norm_sq == 0.0:
+            return None
+        total_norm = float(total_norm_sq ** 0.5)
+        self.grad_norm_history.append(total_norm)
+        self.grad_norm_steps.append(step + 1)
+        return total_norm
+
+    def _finalise_diagnostics(self) -> None:
+        if self.loss_history:
+            self._plot_loss_and_gradients()
+        self._write_factor_loss_snapshot()
+        self._write_noise_norm_plot()
+
+    def _plot_loss_and_gradients(self) -> None:
+        steps = np.array(self.loss_steps, dtype=float)
+        losses = np.array(self.loss_history, dtype=float)
+        if steps.size == 0:
+            return
+        loss_grad = np.gradient(losses, steps) if steps.size > 1 else np.zeros_like(losses)
+
+        fig, axes = plt.subplots(3, 1, figsize=(6, 9), sharex=True)
+        axes[0].plot(steps, losses, label="Loss")
+        axes[0].set_ylabel("Loss")
+        axes[0].grid(True, alpha=0.3)
+
+        axes[1].plot(steps, loss_grad, label="d(Loss)/d(step)", color="orange")
+        axes[1].set_ylabel("Loss Slope")
+        axes[1].grid(True, alpha=0.3)
+
+        if self.grad_norm_history:
+            g_steps = np.array(self.grad_norm_steps, dtype=float)
+            g_norms = np.array(self.grad_norm_history, dtype=float)
+            axes[2].plot(g_steps, g_norms, label="Grad Norm", color="green")
+        axes[2].set_ylabel("Grad Norm")
+        axes[2].set_xlabel("Step")
+        axes[2].grid(True, alpha=0.3)
+
+        fig.tight_layout()
+        diag_path = self._diagnostics_dir / "loss_gradients.png"
+        fig.savefig(diag_path, dpi=150)
+        plt.close(fig)
+
+        aggregate_dir = self._aggregate_base / "diagnostics"
+        aggregate_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(diag_path, aggregate_dir / f"{self.run_id}_loss_gradients.png")
+
+        for factor in self._factor_levels:
+            factor_dir = self._get_factor_dir(factor)
+            if factor_dir is None:
+                continue
+            shutil.copy(diag_path, factor_dir / f"demo_loss_grad_{self.run_id}.png")
+
+    def _write_factor_loss_snapshot(self) -> None:
+        factor_dir = self._get_factor_dir("spectral_loss_weighting")
+        if factor_dir is None or not self.loss_history:
+            return
+        last_steps = np.array(self.loss_steps[-50:], dtype=float)
+        last_losses = np.array(self.loss_history[-50:], dtype=float)
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.plot(last_steps, last_losses, marker="o")
+        ax.set_title("Recent Loss (50 steps)")
+        ax.set_ylabel("Loss")
+        ax.set_xlabel("Step")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        out_path = factor_dir / f"demo_loss_tail_{self.run_id}.png"
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+
+    def _write_noise_norm_plot(self) -> None:
+        factor_dir = self._get_factor_dir("sampler_type")
+        if factor_dir is None or not self.noise_norm_history:
+            return
+        steps = np.array(self.noise_norm_steps, dtype=float)
+        norms = np.array(self.noise_norm_history, dtype=float)
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.plot(steps, norms, color="purple")
+        ax.set_title("Noise Norm vs Step")
+        ax.set_xlabel("Step")
+        ax.set_ylabel("‖ε‖")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        out_path = factor_dir / f"demo_noise_norm_{self.run_id}.png"
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
 
     def generate_samples(
         self,

@@ -2,10 +2,12 @@
 
 import os
 import json
-import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+import pandas as pd
+import yaml
 
 try:
     import pypandoc
@@ -17,6 +19,19 @@ except ImportError:
 Markdown report writer for Spectral Diffusion benchmark results.
 """
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+
+FACTOR_YAML_KEYS = {
+    "spectral_adapter_placement": "spectral.apply_to",
+    "spectral_loss_weighting": "spectral.weighting",
+    "spectral_noise_shaping_strength": "diffusion.uniform_corruption / spectral.freq_equalized_noise",
+    "phase_attention_capacity": "model.enable_phase_attention / model.phase_heads",
+    "sampler_type": "sampling.sampler_type",
+    "sampling_steps": "sampling.num_steps",
+    "curriculum_mode": "training.curriculum",
+    "lr_schedule_mode": "optim.lr_schedule",
+}
+
 def write_summary_markdown(
     synthetic_df: Optional[pd.DataFrame],
     cifar_df: Optional[pd.DataFrame],
@@ -25,6 +40,7 @@ def write_summary_markdown(
     descriptions: dict[str, str],
     generated_at: Optional[str] = None,
     fft_snapshot: Optional[dict[str, Any]] = None,
+    taguchi_dir: Optional[Path] = None,
 ) -> None:
     """
     Generate a markdown report summarizing benchmark results.
@@ -101,6 +117,9 @@ def write_summary_markdown(
     else:
         lines.append("_No benchmark data available._")
     lines.append("")
+    if taguchi_dir is not None:
+        lines.extend(_factor_primer_lines(taguchi_dir, output_dir))
+
     if synthetic_df is not None:
         lines.append("## Synthetic Benchmark")
         lines.append("Synthetic Benchmark performance summary including throughput and spectral fidelity metrics.")
@@ -144,6 +163,17 @@ def write_summary_markdown(
     lines.extend(takeaways)
     lines.append("```")
     lines.append("")
+
+    if taguchi_dir is not None:
+        lines.extend(_factor_demo_lines(taguchi_dir, output_dir))
+
+    sanity_section = _cifar_sanity_lines(taguchi_dir, output_dir) if taguchi_dir else []
+    if sanity_section:
+        lines.extend(sanity_section)
+
+    diag_section = _diagnostics_lines(taguchi_dir, output_dir) if taguchi_dir else []
+    if diag_section:
+        lines.extend(diag_section)
 
     noise_md = output_dir / "noise_definitions.md"
     if noise_md.exists():
@@ -197,6 +227,163 @@ def write_summary_markdown(
             print(f"PDF generation failed: {e}")
     else:
         print("pypandoc not available, skipping PDF generation")
+
+    html_path = out_path.with_suffix(".html")
+    html_generated = False
+    if PYPANDOC_AVAILABLE:
+        try:
+            pypandoc.convert_file(str(out_path), "html", outputfile=str(html_path))
+            html_generated = True
+        except Exception as exc:  # pragma: no cover - fallback handled below
+            print(f"HTML generation via pandoc failed: {exc}")
+    if not html_generated:
+        try:
+            import markdown
+
+            html_content = markdown.markdown(
+                out_path.read_text(encoding="utf-8"),
+                extensions=["tables", "fenced_code"],
+            )
+            html_path.write_text(html_content, encoding="utf-8")
+        except Exception as exc:  # pragma: no cover - basic fallback
+            html_path.write_text(
+                "<pre>" + out_path.read_text(encoding="utf-8") + "</pre>",
+                encoding="utf-8",
+            )
+            print(f"Simple HTML fallback used due to: {exc}")
+
+
+def _factor_primer_lines(taguchi_dir: Path, output_dir: Path) -> list[str]:
+    registry_path = ROOT_DIR / "configs" / "taguchi" / "factor_registry.yaml"
+    if not registry_path.exists():
+        return []
+    try:
+        with registry_path.open("r", encoding="utf-8") as handle:
+            registry = yaml.safe_load(handle) or {}
+    except Exception:
+        return []
+
+    factors = registry.get("factors", {}) or {}
+    if not factors:
+        return []
+
+    rows = []
+    for name, info in factors.items():
+        levels = info.get("levels", [])
+        description = info.get("description", "")
+        yaml_key = FACTOR_YAML_KEYS.get(name, name)
+        rows.append(
+            {
+                "Factor": name,
+                "Levels": " / ".join(str(level) for level in levels),
+                "Description": description,
+                "YAML Key": yaml_key,
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    lines = ["## Factor Primer", ""]
+    try:
+        lines.append(df.to_markdown(index=False))
+    except Exception:
+        header = "| " + " | ".join(df.columns) + " |"
+        lines.append(header)
+        lines.append("| " + " | ".join(["---"] * len(df.columns)) + " |")
+        for _, row in df.iterrows():
+            lines.append("| " + " | ".join(str(row[col]) for col in df.columns) + " |")
+    lines.append("")
+    return lines
+
+
+def _factor_demo_lines(taguchi_dir: Path, output_dir: Path) -> list[str]:
+    root = taguchi_dir / "factors"
+    if not root.exists():
+        return []
+    lines: list[str] = ["## Factor Demos", ""]
+    for factor_dir in sorted(root.iterdir()):
+        if not factor_dir.is_dir():
+            continue
+        lines.append(f"### {factor_dir.name}")
+        has_level = False
+        for level_dir in sorted([p for p in factor_dir.iterdir() if p.is_dir()]):
+            images = sorted(level_dir.glob("demo_*.png"))
+            if not images:
+                continue
+            has_level = True
+            rel_imgs = [
+                f"![]({os.path.relpath(img, output_dir)}){{ width=200px }}"
+                for img in images
+            ]
+            lines.append(f"#### {level_dir.name}")
+            lines.append(" ".join(rel_imgs))
+            lines.append("")
+        if not has_level:
+            lines.append("_No demos captured._")
+            lines.append("")
+    if len(lines) <= 2:
+        return []
+    return lines
+
+
+def _cifar_sanity_lines(taguchi_dir: Path, output_dir: Path) -> list[str]:
+    sanity_dir = taguchi_dir / "sanity"
+    if not sanity_dir.exists():
+        return []
+    entries = sorted(sanity_dir.glob("*sanity_*.json"))
+    cifar_entries = [p for p in entries if "cifar" in p.stem.lower()]
+    if not cifar_entries:
+        return []
+    lines = ["## CIFAR Sanity Diagnostics", ""]
+    for stats_path in cifar_entries:
+        try:
+            with stats_path.open("r", encoding="utf-8") as handle:
+                stats = json.load(handle)
+        except Exception:
+            continue
+        dataset = stats_path.stem.split("sanity_")[-1].upper()
+        lines.append(f"### {dataset} – {stats_path.stem}")
+        mean_val = stats.get("mean")
+        std_val = stats.get("std")
+        lines.append(
+            f"- mean: {float(mean_val):.4f}" if mean_val is not None else "- mean: n/a"
+        )
+        lines.append(
+            f"- std: {float(std_val):.4f}" if std_val is not None else "- std: n/a"
+        )
+        lines.append(f"- is_complex: {stats.get('is_complex')}")
+        fft_error = stats.get("fft_reconstruction_error")
+        if fft_error is not None:
+            lines.append(f"- fft_reconstruction_error: {fft_error:.3e}")
+        warning_flags = []
+        if fft_error is not None and fft_error > 1e-2:
+            warning_flags.append("fft_reconstruction_error > 1e-2")
+        if not stats.get("is_complex", True):
+            warning_flags.append("input tensor flagged as non-complex")
+        if warning_flags:
+            lines.append("⚠️  " + "; ".join(warning_flags))
+        spatial_img = stats_path.with_name(stats_path.stem + "_spatial.png")
+        fft_img = stats_path.with_name(stats_path.stem + "_fft_mag.png")
+        for img in [spatial_img, fft_img]:
+            if img.exists():
+                rel = os.path.relpath(img, output_dir)
+                lines.append(f"![]({rel})")
+        lines.append("")
+    return lines
+
+
+def _diagnostics_lines(taguchi_dir: Path, output_dir: Path) -> list[str]:
+    diag_dir = taguchi_dir / "diagnostics"
+    if not diag_dir.exists():
+        return []
+    images = sorted(diag_dir.glob("*.png"))
+    if not images:
+        return []
+    lines = ["## CIFAR Spectral Diagnostics", ""]
+    for img in images:
+        rel = os.path.relpath(img, output_dir)
+        lines.append(f"![]({rel})")
+        lines.append("")
+    return lines
 
     print(f"Markdown report written to {out_path}")
 

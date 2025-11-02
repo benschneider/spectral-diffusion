@@ -69,6 +69,23 @@ def test_write_summary_markdown_includes_new_sections(tmp_path):
         }
     )
 
+    taguchi_dir = tmp_path / "taguchi"
+    demo_dir = taguchi_dir / "factors" / "spectral_adapter_placement" / "none"
+    demo_dir.mkdir(parents=True)
+    demo_img = demo_dir / "demo_spatial_run.png"
+    demo_img.write_bytes(b"demo")
+
+    sanity_dir = taguchi_dir / "sanity"
+    sanity_dir.mkdir(parents=True, exist_ok=True)
+    sanity_json = sanity_dir / "run_sanity_cifar10.json"
+    sanity_json.write_text(json.dumps({"mean": 0.0, "std": 1.0, "is_complex": False, "fft_reconstruction_error": 0.0}))
+    (sanity_dir / "run_sanity_cifar10_spatial.png").write_bytes(b"s")
+    (sanity_dir / "run_sanity_cifar10_fft_mag.png").write_bytes(b"f")
+
+    diag_dir = taguchi_dir / "diagnostics"
+    diag_dir.mkdir(parents=True, exist_ok=True)
+    (diag_dir / "example_loss_gradients.png").write_bytes(b"g")
+
     out_path = tmp_path / "summary.md"
     write_summary_markdown(
         synthetic_df,
@@ -77,6 +94,7 @@ def test_write_summary_markdown_includes_new_sections(tmp_path):
         out_path=out_path,
         descriptions={"taguchi_choices": {}},
         generated_at="2025-01-01T00:00:00",
+        taguchi_dir=taguchi_dir,
     )
     text = out_path.read_text(encoding="utf-8")
 
@@ -84,6 +102,13 @@ def test_write_summary_markdown_includes_new_sections(tmp_path):
     assert "## CIFAR-10 Reconstruction Benchmark" in text
     assert "high_freq_psnr" in text or "Sharpest spectra" in text
     assert "Summary Table" in text
+    assert "Factor Primer" in text
+    assert "Factor Demos" in text
+    assert "CIFAR Sanity Diagnostics" in text
+    assert "CIFAR Spectral Diagnostics" in text
+
+    html_path = out_path.with_suffix(".html")
+    assert html_path.exists()
 
 
 def test_write_summary_markdown_without_data(tmp_path):

@@ -64,6 +64,12 @@ def test_training_pipeline_runs_end_to_end(tmp_path):
     assert metrics["mae_mean"] is not None
     assert "sampling_images_dir" not in metrics
 
+    sanity_dir = tmp_path / "sanity"
+    assert sanity_dir.exists()
+    assert list(sanity_dir.glob("*sanity_synthetic.json"))
+    diagnostics_img = tmp_path / "diagnostics" / "loss_gradients.png"
+    assert diagnostics_img.exists()
+
 
 def test_training_pipeline_reports_spectral_stats(tmp_path):
     torch.manual_seed(0)
