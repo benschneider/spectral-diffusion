@@ -22,4 +22,10 @@ factors:
     levels: ["none", "lowres_warmup", "spectral_first"]
   lr_schedule_mode:
     description: Learning rate schedule policy.
-    levels: ["constant", "cosine"]
+    levels: ["constant", "cosine", "cosine_warmup"]
+  train_steps:
+    description: Training iterations (num_batches) for Taguchi sweep.
+    levels: [50, 100, 200]
+  image_resolution:
+    description: Input spatial resolution applied via resize.
+    levels: [32, 64, 128]

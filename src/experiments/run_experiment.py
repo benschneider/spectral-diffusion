@@ -234,8 +234,35 @@ def _apply_lr_schedule(cfg: Dict[str, Any], label: str) -> None:
         optim_cfg["lr_schedule"] = "cosine"
         epochs = int(training_cfg.get("epochs", 1))
         optim_cfg["scheduler"] = {"type": "cosine", "t_max": epochs}
+    elif label == "cosine_warmup":
+        optim_cfg["lr_schedule"] = "cosine_warmup"
+        epochs = int(training_cfg.get("epochs", 1))
+        warmup = max(1, epochs // 5)
+        optim_cfg["scheduler"] = {
+            "type": "cosine",
+            "t_max": epochs,
+            "warmup_steps": warmup,
+        }
     else:
         raise ValueError(f"Unknown lr_schedule_mode level '{label}'")
+
+
+def _apply_train_steps(cfg: Dict[str, Any], label: str) -> None:
+    training_cfg = cfg.setdefault("training", {})
+    steps = int(label)
+    if steps <= 0:
+        raise ValueError("Training steps must be positive.")
+    training_cfg["num_batches"] = steps
+    training_cfg.setdefault("epochs", 1)
+
+
+def _apply_image_resolution(cfg: Dict[str, Any], label: str) -> None:
+    data_cfg = cfg.setdefault("data", {})
+    res = int(label)
+    if res <= 0:
+        raise ValueError("Image resolution must be positive.")
+    data_cfg["height"] = res
+    data_cfg["width"] = res
 
 
 _FACTOR_APPLIERS = {
@@ -247,6 +274,8 @@ _FACTOR_APPLIERS = {
     "sampling_steps": _apply_sampling_steps,
     "curriculum_mode": _apply_curriculum,
     "lr_schedule_mode": _apply_lr_schedule,
+    "train_steps": _apply_train_steps,
+    "image_resolution": _apply_image_resolution,
 }
 
 

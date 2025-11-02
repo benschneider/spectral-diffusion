@@ -33,7 +33,9 @@ Our original goal was to move from the legacy L8 (5 binary factors) to a richer 
 | **E** | Sampler type (mapped to registry sampler) | ddim · dpm_solver_pp · spectral_guided (MASF) |
 | **F** | Sampling steps (`sampling.num_steps`) | 30 · 50 · 100 |
 | **G** | Curriculum mode (`training.curriculum`) | none · lowres_warmup · spectral_first |
-| **H** | Learning-rate schedule (`optim.lr_schedule`) | constant · cosine |
+| **H** | Learning-rate schedule (`optim.lr_schedule`) | constant · cosine · cosine_warmup |
+| **I** | Training steps (`training.num_batches`) | 50 · 100 · 200 |
+| **J** | Image resolution (`data.height`/`data.width`) | 32 · 64 · 128 |
 
 These are encoded in `configs/taguchi/factor_registry.yaml` and automatically wired through `src/experiments/run_experiment.py`. The full-report scripts (`run_full_report_32x32.sh`) now execute all 18 combinations and publish `L18_summary.csv` / `taguchi_report.csv` for figure generation.
 
@@ -52,7 +54,7 @@ The recent burst of frequency-domain diffusion work (2024–2025) surfaces sever
 | **V** | **Spectral motion generator** | Static image FFT | 3D FFT over space-time volumes | Targets video diffusion; high buzz for motion synthesis (LinkedIn 2025 demos). | 🟥 High effort—requires dataset & temporal heads. |
 
 ### Next Steps
-1. ✅ Generated `configs/taguchi/L18_mixed.csv` (in production) and `configs/taguchi_spectral_L16.csv` (binary backlog).
+1. ✅ Generated `configs/taguchi/L18_mixed.csv` (in production) and `configs/taguchi/L27_extended.csv` (adds train_steps + resolution) alongside the older `configs/taguchi_spectral_L16.csv` (binary backlog).
 2. ✅ Refactored `src/experiments/run_experiment.py` to consume the factor registry, randomise assignments, and persist per-row metrics (`run_<n>_metrics.json`).
 3. ✅ Reports ingest the new Taguchi metadata; full-report scripts include `taguchi_report.csv` automatically.
 4. ▶️ Automate aggregation for GitHub Actions by adding a follow-up job that collects all 18 artifacts and re-runs `--finalize`.

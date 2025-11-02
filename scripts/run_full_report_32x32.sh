@@ -5,6 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 export PYTHONPATH="$ROOT_DIR"
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 
+TAGUCHI_ARRAY_PATH=${TAGUCHI_ARRAY_PATH:-"$ROOT_DIR/configs/taguchi/L27_extended.csv"}
+TAGUCHI_RANDOMIZE=${TAGUCHI_RANDOMIZE:-true}
+TAGUCHI_MAPPING_SEED=${TAGUCHI_MAPPING_SEED:-$(date +%s)}
+
 if [[ $# -ge 1 ]]; then
   BASE_DIR="$1"
 else
@@ -211,21 +215,29 @@ run_feature_ablation() {
 
 run_taguchi() {
   echo "[4/5] Taguchi sweep"
+  local array_basename
+  array_basename="$(basename "$TAGUCHI_ARRAY_PATH")"
+  local array_stem="${array_basename%.csv}"
   rm -f "$TAG_DIR/summary.csv" \
         "$TAG_DIR/taguchi_report.csv" \
-        "$TAG_DIR"/L18_mixed_summary.csv \
-        "$TAG_DIR"/L18_summary.csv \
+        "$TAG_DIR/${array_stem}_summary.csv" \
         "$TAG_DIR"/run_*_metrics.json
   rm -rf "$TAG_DIR/runs"
-  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_32x32_sweep" "array:L18_mixed.csv"
-  python -m src.experiments.run_experiment \
-    --config "$ROOT_DIR/configs/taguchi_smoke_base.yaml" \
-    --array "$ROOT_DIR/configs/taguchi/L18_mixed.csv" \
-    --output-dir "$TAG_DIR" \
-    --report-metric loss_drop_per_second \
-    --report-mode larger \
-    --factor-registry "$ROOT_DIR/configs/taguchi/factor_registry.yaml" \
-    --finalize
+  describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_32x32_sweep" "array:${array_basename}"
+  cmd=(
+    python -m src.experiments.run_experiment
+    --config "$ROOT_DIR/configs/taguchi_smoke_base.yaml"
+    --array "$TAGUCHI_ARRAY_PATH"
+    --output-dir "$TAG_DIR"
+    --report-metric loss_drop_per_second
+    --report-mode larger
+    --factor-registry "$ROOT_DIR/configs/taguchi/factor_registry.yaml"
+  )
+  if [[ "${TAGUCHI_RANDOMIZE}" == "true" || "${TAGUCHI_RANDOMIZE}" == "1" ]]; then
+    cmd+=(--randomize-mapping --seed "$TAGUCHI_MAPPING_SEED")
+  fi
+  cmd+=(--finalize)
+  "${cmd[@]}"
 }
 
 generate_report() {
