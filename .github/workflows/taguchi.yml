@@ -1,0 +1,44 @@
+name: Taguchi DOE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-taguchi:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        row: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run DOE row
+        run: |
+          python src/experiments/run_experiment.py \
+            --config configs/taguchi_minimal_base.yaml \
+            --array configs/taguchi/L18_mixed.csv \
+            --output-dir results \
+            --report-metric loss_drop_per_second \
+            --factor-registry configs/taguchi/factor_registry.yaml \
+            --row ${{ matrix.row }}
+
+      - name: Upload metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: taguchi-row-${{ matrix.row }}
+          path: |
+            results/run_${{ matrix.row }}_metrics.json
+            results/factor_mapping.json
+            results/runs

@@ -1,4 +1,8 @@
+from pathlib import Path
+
+import pytest
 import torch
+from PIL import Image
 
 from src.core import build_model
 from src.training.builders import build_dataloader, build_optimizer
@@ -55,3 +59,51 @@ def test_build_dataloader_random_field_family():
     xb, _ = next(iter(loader))
     assert xb.shape == (config["training"]["batch_size"], 3, 8, 8)
     assert torch.isfinite(xb).all()
+
+
+def test_build_cifar10_dataloader_auto_download(monkeypatch, tmp_path):
+    calls = {}
+
+    def _fake_cifar10(root, train, download, transform):
+        calls["root"] = root
+        calls["download"] = download
+
+        class _Dummy(torch.utils.data.Dataset):
+            def __len__(self):
+                return 4
+
+            def __getitem__(self, idx):
+                img = Image.new("RGB", (32, 32))
+                tensor = transform(img) if transform else torch.zeros(3, 32, 32)
+                return tensor, 0
+
+        return _Dummy()
+
+    monkeypatch.setattr("src.training.builders.datasets.CIFAR10", _fake_cifar10)
+
+    config = {
+        "data": {"source": "cifar10", "root": str(tmp_path)},
+        "training": {"batch_size": 2},
+    }
+    loader = build_dataloader(config)
+    xb, yb = next(iter(loader))
+    assert xb.shape == (2, 3, 32, 32)
+    assert yb.shape == xb.shape
+    assert Path(calls["root"]).exists()
+    assert calls["download"] is True
+
+
+def test_build_cifar10_dataloader_manual_download_error(monkeypatch, tmp_path):
+    def _fail_cifar10(**kwargs):
+        raise RuntimeError("dataset unavailable")
+
+    monkeypatch.setattr("src.training.builders.datasets.CIFAR10", _fail_cifar10)
+
+    config = {
+        "data": {"source": "cifar10", "root": str(tmp_path), "download": False},
+        "training": {"batch_size": 2},
+    }
+    with pytest.raises(RuntimeError) as excinfo:
+        build_dataloader(config)
+    message = str(excinfo.value)
+    assert "automatic download disabled" in message

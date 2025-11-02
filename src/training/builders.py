@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict
 
 import torch
@@ -56,7 +57,21 @@ def _build_cifar10_dataloader(
     target_h = int(data_cfg.get("height", 32))
     target_w = int(data_cfg.get("width", 32))
     num_workers = int(data_cfg.get("num_workers", 0))
-    download = bool(data_cfg.get("download", False))
+
+    def _parse_bool(value, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+        return default
+
+    download = _parse_bool(data_cfg.get("download"), default=True)
+    root = data_cfg.get("root", "data")
+    Path(root).mkdir(parents=True, exist_ok=True)
 
     transform = transforms.Compose(
         [
@@ -66,18 +81,28 @@ def _build_cifar10_dataloader(
     )
     try:
         base_dataset = datasets.CIFAR10(
-            root=data_cfg.get("root", "data"),
+            root=root,
             train=True,
             download=download,
             transform=transform,
         )
     except RuntimeError as exc:
-        raise RuntimeError(
-            "CIFAR-10 dataset not found. Download it manually with:\n"
+        msg = (
+            "CIFAR-10 dataset not found and automatic download disabled. "
+            "Either enable download by setting data.download=true or fetch it manually with:\n"
             "  mkdir -p data && curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz "
             "-o data/cifar-10-python.tar.gz && tar -xzf data/cifar-10-python.tar.gz -C data\n"
             "Then rerun training or set data.source to 'synthetic'."
-        ) from exc
+        )
+        if download:
+            msg = (
+                "Failed to download CIFAR-10 automatically. "
+                "Check network access or download it manually with:\n"
+                "  mkdir -p data && curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz "
+                "-o data/cifar-10-python.tar.gz && tar -xzf data/cifar-10-python.tar.gz -C data\n"
+                "Then rerun training or set data.source to 'synthetic'."
+            )
+        raise RuntimeError(msg) from exc
 
     return DataLoader(
         _ReconstructionWrapper(base_dataset),

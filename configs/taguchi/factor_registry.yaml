@@ -1,0 +1,25 @@
+factors:
+  spectral_adapter_placement:
+    description: Toggle spectral adapter insertion points in the UNet.
+    levels: ["none", "input_only", "input_and_output"]
+  spectral_loss_weighting:
+    description: Loss weighting emphasis for high-frequency reconstruction.
+    levels: ["none", "radial_highfreq", "aggressive_highfreq"]
+  spectral_noise_shaping_strength:
+    description: Forward-process frequency corruption strength.
+    levels: ["off", "mild_equalize", "strong_equalize"]
+  phase_attention_capacity:
+    description: Phase correction module capacity (attention heads).
+    levels: ["off", "tiny", "full"]
+  sampler_type:
+    description: Reverse sampler choice.
+    levels: ["ddim", "dpm_solver_pp", "spectral_guided"]
+  sampling_steps:
+    description: Number of denoising steps during sampling.
+    levels: [30, 50, 100]
+  curriculum_mode:
+    description: Training curriculum strategy.
+    levels: ["none", "lowres_warmup", "spectral_first"]
+  lr_schedule_mode:
+    description: Learning rate schedule policy.
+    levels: ["constant", "cosine"]

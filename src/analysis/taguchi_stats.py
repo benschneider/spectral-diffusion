@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -24,10 +24,44 @@ def _compute_snr(values: np.ndarray, mode: str) -> float:
     raise ValueError(f"Unknown S/N mode '{mode}'")
 
 
-def _load_taguchi_row(config_path: Path) -> Dict[str, any]:
+def _load_taguchi_factors(config_path: Path) -> Dict[str, Dict[str, Any]]:
     with config_path.open("r", encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle) or {}
-    return cfg.get("taguchi", {}).get("row", {})
+    taguchi_cfg = cfg.get("taguchi", {}) or {}
+    factor_levels = taguchi_cfg.get("factor_levels")
+    if isinstance(factor_levels, dict):
+        normalised: Dict[str, Dict[str, Any]] = {}
+        for factor, data in factor_levels.items():
+            if isinstance(data, dict):
+                level_label = data.get("level_label", data.get("label", data.get("level")))
+                level_index = data.get("level_index")
+            else:
+                level_label = data
+                level_index = None
+            normalised[factor] = {
+                "level_label": level_label,
+                "level_index": level_index,
+            }
+        return normalised
+
+    design_row = taguchi_cfg.get("row", {}) or {}
+    factor_mapping = taguchi_cfg.get("factor_mapping", {}) or {}
+    factors: Dict[str, Dict[str, Any]] = {}
+    if factor_mapping:
+        for column, value in design_row.items():
+            factor = factor_mapping.get(str(column))
+            if factor:
+                factors[factor] = {
+                    "level_label": str(value),
+                    "level_index": value,
+                }
+    else:
+        for factor, value in design_row.items():
+            factors[factor] = {
+                "level_label": str(value),
+                "level_index": value,
+            }
+    return factors
 
 
 def generate_taguchi_report(
@@ -43,10 +77,11 @@ def generate_taguchi_report(
     taguchi_rows = []
     for _, row in summary_df.iterrows():
         config_path = Path(row["config_path"])
-        factors = _load_taguchi_row(config_path)
+        factors = _load_taguchi_factors(config_path)
         entry = row.to_dict()
-        for key, value in factors.items():
-            entry[f"factor_{key}"] = value
+        for key, meta in factors.items():
+            label = meta.get("level_label") if isinstance(meta, dict) else meta
+            entry[f"factor_{key}"] = label
         taguchi_rows.append(entry)
 
     df = pd.DataFrame(taguchi_rows)

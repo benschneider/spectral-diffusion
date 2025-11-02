@@ -81,10 +81,10 @@ def test_build_config_does_not_mutate_base(tmp_path):
     runner = TaguchiExperimentRunner(design_matrix_path=design_path, base_config=base_cfg)
 
     first_row = runner.design.iloc[0]
-    cfg1 = runner._build_config_from_row(first_row)
+    cfg1 = runner._build_config_from_row(first_row, row_number=1)
     cfg1.setdefault("spectral", {})["freq_attention"] = True
 
-    cfg2 = runner._build_config_from_row(first_row)
+    cfg2 = runner._build_config_from_row(first_row, row_number=1)
     assert cfg2.get("spectral", {}).get("freq_attention") is False
 
 
