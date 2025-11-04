@@ -159,64 +159,47 @@ def add_uniform_frequency_noise(
     magnitude = torch.abs(X)
     phase = torch.angle(X)
 
-    strength_scaled = strength / math.sqrt(height * width)
+    strength_scaled = strength
     sqrt_alpha_t_complex = sqrt_alpha_t
     sqrt_one_minus_alpha_t_complex = sqrt_one_minus_alpha_t
 
     if stats is not None:
         stats["signal_energy"] = float(X.abs().pow(2).mean().item())
 
-    noise_fft: torch.Tensor
-
     if mode == "magnitude":
-        mag_noise = torch.abs(N * mask)
+        mag_noise = (N * mask).abs()
         mag_noise = mag_noise / _per_sample_rms(mag_noise)
-        target_amp = _per_sample_rms(magnitude)
-        dA = mag_noise * target_amp
-        noise_fft = dA * torch.exp(1j * phase)
+        dA = mag_noise * _per_sample_rms(magnitude)
+        base_noise_fft = dA * torch.exp(1j * phase)
     elif mode == "phase":
         phase_noise = torch.randn_like(phase) * phase_std
-        perturb = torch.exp(1j * phase_noise) - 1.0
-        noise_fft = X * perturb
+        base_noise_fft = X * (torch.exp(1j * phase_noise) - 1.0)
     else:  # "complex"
-        noise_fft = N * mask
+        base_noise_fft = N * mask
 
-    base_noise_fft = noise_fft
-    normalized_noise_energy: Optional[float] = None
-    scaled_noise_energy: Optional[float] = None
+    noise_fft = _scale_fft_noise_for_snr(X, base_noise_fft, 1.0, fft_norm=fft_norm)
+    noise_fft = noise_fft * strength_scaled
 
     if snr_ratio is not None:
-        target = torch.full_like(sqrt_alpha_t_complex, float(snr_ratio))
-        noise_spatial = torch.fft.ifftn(base_noise_fft, dim=(-2, -1), norm=fft_norm).real
         signal_rms = _per_sample_rms(x_ref)
-        rhs = (signal_rms / target) ** 2
-        a_term = (sqrt_alpha_t_complex - 1.0) * x_ref
-        strength_tensor = torch.full_like(sqrt_alpha_t_complex, float(strength_scaled))
-        b_term = sqrt_one_minus_alpha_t_complex * strength_tensor * noise_spatial
-        a2 = a_term.pow(2).mean(dim=tuple(range(1, x_ref.ndim)), keepdim=True)
-        ab = (a_term * b_term).mean(dim=tuple(range(1, x_ref.ndim)), keepdim=True)
-        b2 = b_term.pow(2).mean(dim=tuple(range(1, x_ref.ndim)), keepdim=True).clamp_min(1e-12)
-        discriminant = (ab ** 2 - b2 * (a2 - rhs)).clamp_min(1e-12)
-        scale_factor = (-ab + torch.sqrt(discriminant)) / b2
-        noise_fft = base_noise_fft * scale_factor * strength_scaled
+        scale_accum = torch.ones_like(signal_rms)
+        for _ in range(2):
+            noise_spatial = torch.fft.ifftn(noise_fft, dim=(-2, -1), norm=fft_norm).real
+            noise_spatial_final = noise_spatial * sqrt_one_minus_alpha_t_complex
+            noise_rms_final = _per_sample_rms(noise_spatial_final)
+            adjust = torch.clamp(
+                (signal_rms / torch.clamp(noise_rms_final, min=1e-8)) / float(snr_ratio),
+                min=1e-6,
+            )
+            noise_fft = noise_fft * adjust
+            scale_accum = scale_accum * adjust
         if stats is not None:
-            stats["snr_scale_factor"] = float(scale_factor.mean().real.item())
-            scaled_noise_energy = float(noise_fft.abs().pow(2).mean().item())
-    else:
-        noise_fft = _normalize_fft_noise(X, base_noise_fft, fft_norm=fft_norm)
-        if stats is not None:
-            normalized_noise_energy = float(noise_fft.abs().pow(2).mean().item())
-        noise_fft = noise_fft * strength_scaled
-        if stats is not None:
-            scaled_noise_energy = float(noise_fft.abs().pow(2).mean().item())
+            stats["snr_scale_factor"] = float(scale_accum.mean().item())
+    elif stats is not None:
+        stats["snr_scale_factor"] = 1.0
 
     if stats is not None:
-        if normalized_noise_energy is not None:
-            stats["noise_energy"] = normalized_noise_energy
-            if scaled_noise_energy is not None:
-                stats["noise_energy_scaled"] = scaled_noise_energy
-        else:
-            stats["noise_energy"] = scaled_noise_energy
+        stats["noise_energy"] = float(noise_fft.abs().pow(2).mean().item())
 
     X_t = X * sqrt_alpha_t_complex + noise_fft * sqrt_one_minus_alpha_t_complex
 
@@ -225,7 +208,7 @@ def add_uniform_frequency_noise(
         dc_noise = noise_fft[..., 0, 0]
         effective_dc_scale = float(dc_scale_factor) / max(float(snr_ratio), 1e-6)
         effective_dc_scale = max(0.0, min(1.0, effective_dc_scale))
-        blended = (1.0 - effective_dc_scale) * dc_signal + effective_dc_scale * (dc_signal + dc_noise)
+        blended = dc_signal + effective_dc_scale * dc_noise
         X_t[..., 0, 0] = blended
         if stats is not None:
             stats["dc_scale_factor"] = float(dc_scale_factor)
