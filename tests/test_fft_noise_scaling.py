@@ -32,7 +32,7 @@ def test_fft_noise_scaling_accuracy(size, snr_target, fft_norm):
         snr_ratio=snr_target,
     )
 
-    X_t = torch.fft.fftn(x_t, dim=(-2, -1), norm=fft_norm)
+    X_t = torch.fft.fftn(x_t - 0.5, dim=(-2, -1), norm=fft_norm)
     signal_rms = (x - 0.5).pow(2).mean().sqrt().item()
     noise_rms = (x_t - x).pow(2).mean().sqrt().item()
     measured = signal_rms / max(noise_rms, 1e-8)
@@ -46,7 +46,7 @@ def test_fft_noise_scaling_accuracy(size, snr_target, fft_norm):
     assert 0.4 < mean_val < 0.6, f"mean drifted: {mean_val:.3f}"
     assert 0.1 < std_val < 0.65, f"std out of range: {std_val:.3f}"
 
-    spatial_energy = x_t.pow(2).sum().item()
+    spatial_energy = (x_t - 0.5).pow(2).sum().item()
     freq_energy = X_t.abs().pow(2).sum().item()
     if fft_norm == "backward":
         freq_energy /= (size * size)
@@ -141,13 +141,13 @@ def test_fft_noise_scaling_nonsquare(shape, snr_target, fft_norm):
         snr_ratio=snr_target,
     )
 
-    X_t = torch.fft.fftn(x_t, dim=(-2, -1), norm=fft_norm)
+    X_t = torch.fft.fftn(x_t - 0.5, dim=(-2, -1), norm=fft_norm)
     signal_rms = (x - 0.5).pow(2).mean().sqrt().item()
     noise_rms = (x_t - x).pow(2).mean().sqrt().item()
     measured = signal_rms / max(noise_rms, 1e-8)
     assert abs(measured - snr_target) / snr_target < 0.1
     assert 0.4 < float(x_t.mean()) < 0.6
-    spatial_energy = x_t.pow(2).sum().item()
+    spatial_energy = (x_t - 0.5).pow(2).sum().item()
     freq_energy = X_t.abs().pow(2).sum().item()
     if fft_norm == "backward":
         freq_energy /= (H * W)
