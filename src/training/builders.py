@@ -4,10 +4,13 @@ from pathlib import Path
 from typing import Any, Dict
 
 import torch
-from torch.utils.data import DataLoader, Dataset, TensorDataset
+from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
-from src.data.synthetic import generate_synthetic_samples
+from src.training.data.synthetic_dataset import (
+    SyntheticSpectralConfig,
+    SyntheticSpectralDataset,
+)
 
 def build_dataloader(config: Dict[str, Any]) -> DataLoader:
     """Construct a training dataloader based on configuration."""
@@ -26,15 +29,12 @@ def _build_synthetic_dataloader(
     training_cfg: Dict[str, Any],
 ) -> DataLoader:
     bs = int(training_cfg.get("batch_size", 32))
-    n_setting = training_cfg.get("num_batches", 50)
-    n = int(n_setting) if str(n_setting).isdigit() else 50
-    c = int(data_cfg.get("channels", 3))
-    h = int(data_cfg.get("height", 32))
-    w = int(data_cfg.get("width", 32))
-    x = generate_synthetic_samples(n * bs, c, h, w, data_cfg)
-    y = x.clone()
-    dataset = TensorDataset(x, y)
-    return DataLoader(dataset, batch_size=bs, shuffle=True, drop_last=True)
+    num_workers = int(data_cfg.get("num_workers", 0))
+    defaults = SyntheticSpectralConfig()
+    synth_cfg = dict(vars(defaults))
+    synth_cfg.update(data_cfg.get("synthetic", {}))
+    dataset = SyntheticSpectralDataset(**synth_cfg)
+    return DataLoader(dataset, batch_size=bs, shuffle=True, drop_last=True, num_workers=num_workers)
 
 
 class _ReconstructionWrapper(Dataset):
