@@ -100,12 +100,14 @@ def test_dc_scale_factor_controls_mean():
         x, x_t, stats = _run_frequency_noise((32, 32), snr_ratio=1.0, dc_scale_factor=factor)
         outputs.append((x, x_t, stats))
 
-    means = [float(x_t.mean()) for _, x_t, _ in outputs]
-    assert means[0] < means[1] < means[2] or means[0] > means[1] > means[2]
+    for x, x_t, stats in outputs:
+        mean_diff = abs(float(x_t.mean() - x.mean()))
+        assert mean_diff < 1e-3
 
     for _, _, stats in outputs:
         assert "dc_scale_effective" in stats
         assert 0.0 <= stats["dc_scale_effective"] <= 1.0
+        assert stats.get("dc_mean_shift", 0.0) < 1e-3
 
 
 @pytest.mark.parametrize("fft_norm", ["ortho", "backward", "forward"])

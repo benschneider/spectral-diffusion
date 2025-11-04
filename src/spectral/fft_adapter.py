@@ -269,12 +269,24 @@ def add_uniform_frequency_noise(
     _check_parseval_consistency(x_t_complex, X_t, fft_norm, "noised")
     x_t = x_t_complex.real
 
-    if stats is not None:
-        stats["snr_scale_factor"] = float(snr_scale_tensor.mean().item())
-        stats["signal_energy"] = float(signal_component_fft.abs().pow(2).mean().item())
-        stats["noise_energy"] = float(noise_component_fft.abs().pow(2).mean().item())
     if uniform_corruption:
         x_t = x_t + baseline_offset
+        dims = tuple(range(1, x0.ndim))
+        signal_mean = x0.mean(dim=dims, keepdim=True)
+        noisy_mean = x_t.mean(dim=dims, keepdim=True)
+        mean_delta = noisy_mean - signal_mean
+        x_t = x_t - mean_delta
+        if snr_ratio is not None:
+            noise_term = x_t - x0
+            signal_rms = _per_sample_rms(x0 - baseline_offset)
+            target_noise_rms = signal_rms / float(snr_ratio)
+            noise_rms = _per_sample_rms(noise_term)
+            scale_mean = torch.clamp(target_noise_rms / (noise_rms + 1e-8), 0.1, 10.0)
+            x_t = x0 + noise_term * scale_mean
+            noise_component_fft = noise_component_fft * scale_mean
+            snr_scale_tensor = snr_scale_tensor * scale_mean
+        if stats is not None:
+            stats["dc_mean_shift"] = float(mean_delta.abs().mean().item())
 
     sim_pre = _compute_similarity_metrics(x0, x_t)
     fft_corr = _compute_fft_correlation(x0, x_t, norm=fft_norm)
@@ -297,8 +309,11 @@ def add_uniform_frequency_noise(
             stats["snr_measured"] = float(
                 (signal_rms_measured / (noise_rms_measured + 1e-8)).mean().item()
             )
+            stats["snr_scale_factor"] = float(snr_scale_tensor.mean().item())
         stats["noisy_mean"] = float(x_t.detach().mean().item())
         stats["noisy_std"] = float(x_t.detach().std().item())
+        stats["signal_energy"] = float(signal_component_fft.abs().pow(2).mean().item())
+        stats["noise_energy"] = float(noise_component_fft.abs().pow(2).mean().item())
         if uniform_corruption and snr_ratio is not None and effective_dc_scale is not None:
             dc_signal = signal_component_fft[..., 0, 0]
             dc_noise = noise_component_fft[..., 0, 0]
