@@ -11,21 +11,55 @@ import torch
 from PIL import Image
 from torchvision.transforms import functional as TF
 
+_FID_WEIGHTS_URL = (
+    "https://github.com/toshas/torch-fidelity/releases/download/v0.2.0/"
+    "weights-inception-2015-12-05-6726825d.pth"
+)
+_LPIPS_WEIGHTS_URL = "https://download.pytorch.org/models/vgg16-397923af.pth"
+
+
+def _weight_file_cached(url: str) -> bool:
+    try:
+        cache_dir = Path(torch.hub.get_dir()) / "checkpoints"
+    except Exception:  # pragma: no cover - torch hub unavailable
+        return False
+    return (cache_dir / Path(url).name).exists()
+
 FID_AVAILABLE = False
+FID_UNAVAILABLE_REASON = ""
 try:  # pragma: no cover - optional dependency
     from torchmetrics.image.fid import FrechetInceptionDistance
 
-    FID_AVAILABLE = True
-except Exception:  # pragma: no cover - optional dependency
+    if _weight_file_cached(_FID_WEIGHTS_URL):
+        FID_AVAILABLE = True
+    else:  # pragma: no cover - requires network to exercise
+        FID_UNAVAILABLE_REASON = (
+            "Pretrained Inception weights not found locally. "
+            "Download them manually or disable FID evaluation."
+        )
+except Exception as exc:  # pragma: no cover - optional dependency
     FrechetInceptionDistance = None  # type: ignore
+    FID_UNAVAILABLE_REASON = f"torchmetrics import failed: {exc}" if not FID_UNAVAILABLE_REASON else FID_UNAVAILABLE_REASON
 
 LPIPS_AVAILABLE = False
+LPIPS_UNAVAILABLE_REASON = ""
 try:  # pragma: no cover - optional dependency
     from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
-    LPIPS_AVAILABLE = True
-except Exception:  # pragma: no cover - optional dependency
+    if _weight_file_cached(_LPIPS_WEIGHTS_URL):
+        LPIPS_AVAILABLE = True
+    else:  # pragma: no cover - requires network to exercise
+        LPIPS_UNAVAILABLE_REASON = (
+            "Pretrained VGG weights for LPIPS not found locally. "
+            "Download them manually or disable LPIPS evaluation."
+        )
+except Exception as exc:  # pragma: no cover - optional dependency
     LearnedPerceptualImagePatchSimilarity = None  # type: ignore
+    LPIPS_UNAVAILABLE_REASON = (
+        f"torchmetrics import failed: {exc}"
+        if not LPIPS_UNAVAILABLE_REASON
+        else LPIPS_UNAVAILABLE_REASON
+    )
 
 
 def compute_basic_metrics(
@@ -140,14 +174,30 @@ def compute_dataset_metrics(
     fid_metric = None
     if use_fid:
         if not FID_AVAILABLE:
-            raise RuntimeError("torchmetrics not installed. Install torchmetrics to compute FID.")
-        fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=False)
+            reason = FID_UNAVAILABLE_REASON or (
+                "torchmetrics not installed. Install torchmetrics to compute FID."
+            )
+            raise RuntimeError(reason)
+        try:
+            fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=False)
+        except Exception as exc:  # pragma: no cover - unexpected init failure
+            raise RuntimeError(
+                "Failed to initialise Frechet Inception Distance. Ensure weights are available."
+            ) from exc
     lpips_metric = None
     lpips_disabled = False
     if use_lpips:
         if not LPIPS_AVAILABLE:
-            raise RuntimeError("torchmetrics not installed. Install torchmetrics to compute LPIPS.")
-        lpips_metric = LearnedPerceptualImagePatchSimilarity(net_type="vgg")
+            reason = LPIPS_UNAVAILABLE_REASON or (
+                "torchmetrics not installed. Install torchmetrics to compute LPIPS."
+            )
+            raise RuntimeError(reason)
+        try:
+            lpips_metric = LearnedPerceptualImagePatchSimilarity(net_type="vgg")
+        except Exception as exc:  # pragma: no cover - unexpected init failure
+            raise RuntimeError(
+                "Failed to initialise LPIPS metric. Ensure VGG weights are available."
+            ) from exc
 
     for gen_path, ref_path in paired:
         fake = _load_image_tensor(gen_path, image_size=image_size)

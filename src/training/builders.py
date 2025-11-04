@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any, Dict
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, RandomSampler
 from torchvision import datasets, transforms
 
+from src.data.synthetic import generate_synthetic_samples
 from src.training.data.synthetic_dataset import (
     SyntheticSpectralConfig,
     SyntheticSpectralDataset,
@@ -31,10 +32,97 @@ def _build_synthetic_dataloader(
     bs = int(training_cfg.get("batch_size", 32))
     num_workers = int(data_cfg.get("num_workers", 0))
     defaults = SyntheticSpectralConfig()
-    synth_cfg = dict(vars(defaults))
-    synth_cfg.update(data_cfg.get("synthetic", {}))
-    dataset = SyntheticSpectralDataset(**synth_cfg)
+
+    channels = int(data_cfg.get("channels", defaults.channels))
+    height = int(data_cfg.get("height", data_cfg.get("image_size", defaults.image_size)))
+    width = int(data_cfg.get("width", height))
+
+    synthetic_overrides = data_cfg.get("synthetic", {}) or {}
+    if "image_size" in synthetic_overrides:
+        height = width = int(synthetic_overrides["image_size"])
+
+    num_batches = int(training_cfg.get("num_batches", 0))
+    dataset_base_size = int(data_cfg.get("size", 0))
+    if dataset_base_size <= 0:
+        dataset_base_size = defaults.size
+    num_samples = bs * num_batches if num_batches > 0 else None
+
+    family = str(data_cfg.get("family", "spectral")).lower()
+    if family in {"", "spectral"}:
+        if height != width:
+            raise ValueError(
+                "Synthetic spectral datasets require square images; received height="
+                f"{height} and width={width}."
+            )
+        synth_cfg = dict(vars(defaults))
+        synth_cfg.update(synthetic_overrides)
+        base_size = max(dataset_base_size, bs)
+        synth_cfg.update(
+            {
+                "channels": channels,
+                "image_size": height,
+                "size": base_size,
+            }
+        )
+        dataset = SyntheticSpectralDataset(**synth_cfg)
+        sampler = None
+        if num_samples is not None:
+            sampler = RandomSampler(dataset, replacement=True, num_samples=num_samples)
+        return DataLoader(
+            dataset,
+            batch_size=bs,
+            shuffle=sampler is None,
+            sampler=sampler,
+            drop_last=True,
+            num_workers=num_workers,
+        )
+    else:
+        dataset_size = int(data_cfg.get("size", 0))
+        if dataset_size <= 0 and num_batches > 0:
+            dataset_size = max(bs * num_batches, bs)
+        if dataset_size <= 0:
+            dataset_size = defaults.size
+        dataset = _FamilySyntheticDataset(
+            length=dataset_size,
+            channels=channels,
+            height=height,
+            width=width,
+            data_cfg={**data_cfg},
+        )
+
     return DataLoader(dataset, batch_size=bs, shuffle=True, drop_last=True, num_workers=num_workers)
+
+
+class _FamilySyntheticDataset(Dataset):
+    """Dataset wrapper that procedurally samples images from a synthetic family."""
+
+    def __init__(
+        self,
+        *,
+        length: int,
+        channels: int,
+        height: int,
+        width: int,
+        data_cfg: Dict[str, Any],
+    ) -> None:
+        self._length = max(int(length), 1)
+        self._channels = int(channels)
+        self._height = int(height)
+        self._width = int(width)
+        self._data_cfg = dict(data_cfg)
+
+    def __len__(self) -> int:
+        return self._length
+
+    def __getitem__(self, idx: int):  # pragma: no cover - simple wrapper
+        sample = generate_synthetic_samples(
+            count=1,
+            channels=self._channels,
+            height=self._height,
+            width=self._width,
+            data_cfg=self._data_cfg,
+        )[0]
+        return sample, sample.clone()
 
 
 class _ReconstructionWrapper(Dataset):
