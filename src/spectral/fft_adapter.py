@@ -65,8 +65,13 @@ def _compute_fft_correlation(x: torch.Tensor, y: torch.Tensor, norm: str = "orth
 
 
 def _per_sample_rms(tensor: torch.Tensor) -> torch.Tensor:
-    """Compute RMS per sample over all non-batch dimensions."""
-    dims = tuple(range(1, tensor.ndim))
+    """Compute RMS per sample while preserving channel dimension when present."""
+    if tensor.ndim <= 2:
+        dims = tuple(range(1, tensor.ndim))
+    elif tensor.ndim >= 3:
+        dims = tuple(range(2, tensor.ndim))
+    else:
+        dims = ()
     rms = tensor.abs().pow(2).mean(dim=dims, keepdim=True).sqrt()
     return rms.clamp_min(1e-8)
 
