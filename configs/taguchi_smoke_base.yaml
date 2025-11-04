@@ -30,6 +30,13 @@ diffusion:
   snr_transform: snr
   loss_threshold: null
   time_embed_dim: 128
+  uniform_corruption: false
+  uniform_corruption_scale: 0.15
+  adaptive_rescale: true
+  similarity_target: 0.7
+  fft_norm: ortho
+  dc_scale_factor: 0.1
+  snr_ratio: 1.0
 
 loss:
   reduction: mean

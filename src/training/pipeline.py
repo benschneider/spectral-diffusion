@@ -73,6 +73,44 @@ class TrainingPipeline:
         snr_weighting = diffusion_cfg.get("snr_weighting", False)
         snr_transform = diffusion_cfg.get("snr_transform", "snr")
         uniform_corruption = bool(diffusion_cfg.get("uniform_corruption", False))
+        corruption_scale = float(
+            diffusion_cfg.get(
+                "uniform_corruption_scale",
+                self.config.get("spectral", {}).get("uniform_corruption_scale", 1.0),
+            )
+        )
+        target_corr = diffusion_cfg.get(
+            "similarity_target", self.config.get("spectral", {}).get("similarity_target")
+        )
+        target_corr = float(target_corr) if target_corr is not None else None
+        adaptive_rescale = bool(
+            diffusion_cfg.get(
+                "adaptive_rescale",
+                self.config.get("spectral", {}).get("adaptive_rescale", False),
+            )
+        )
+        fft_norm = diffusion_cfg.get(
+            "fft_norm", self.config.get("spectral", {}).get("fft_norm", "ortho")
+        )
+        corruption_mode = diffusion_cfg.get(
+            "corruption_mode",
+            self.config.get("spectral", {}).get("corruption_mode", "magnitude"),
+        )
+        phase_std = float(
+            diffusion_cfg.get(
+                "phase_std", self.config.get("spectral", {}).get("phase_std", 0.0)
+            )
+        )
+        snr_ratio_cfg = diffusion_cfg.get(
+            "snr_ratio",
+            self.config.get("spectral", {}).get("snr_ratio"),
+        )
+        snr_ratio = float(snr_ratio_cfg) if snr_ratio_cfg is not None else None
+        dc_scale_cfg = diffusion_cfg.get(
+            "dc_scale_factor",
+            self.config.get("spectral", {}).get("dc_scale_factor", 0.1),
+        )
+        dc_scale_factor = float(dc_scale_cfg)
 
         coeffs = build_diffusion(T, schedule)
 
@@ -95,13 +133,26 @@ class TrainingPipeline:
                 eps_norm = float(eps.view(B, -1).norm(dim=1).mean().detach().cpu())
                 self.noise_norm_history.append(eps_norm)
                 self.noise_norm_steps.append(step + 1)
+                noise_stats: Dict[str, float] = {}
                 x_t = add_uniform_frequency_noise(
                     xb,
                     eps,
                     sqrt_alpha_t=sqrt_alpha_t,
                     sqrt_one_minus_alpha_t=sqrt_one_minus_t,
                     uniform_corruption=uniform_corruption,
+                    strength=corruption_scale,
+                    mode=corruption_mode,
+                    phase_std=phase_std,
+                    target_corr=target_corr,
+                    adaptive_rescale=adaptive_rescale,
+                    stats=noise_stats,
+                    fft_norm=fft_norm,
+                    snr_ratio=snr_ratio,
+                    dc_scale_factor=dc_scale_factor,
                 )
+
+                if not self._noisy_capture_done:
+                    self._capture_noisy_example(x_t)
 
                 pred = self.model(x_t, t)
                 if not self._phase_demo_captured:
@@ -133,6 +184,15 @@ class TrainingPipeline:
                 self.loss_steps.append(step)
                 if step % log_every == 0:
                     self.logger.info("epoch %d step %d loss %.5f", epoch, step, loss_val)
+                    if snr_ratio is not None and noise_stats:
+                        mean_val = noise_stats.get("noisy_mean")
+                        std_val = noise_stats.get("noisy_std")
+                    self.logger.debug(
+                        "spectral noise stats: snr_ratio=%.3f mean=%.3f std=%.3f",
+                        snr_ratio,
+                        mean_val if mean_val is not None else float("nan"),
+                        std_val if std_val is not None else float("nan"),
+                    )
                 if (
                     loss_threshold is not None
                     and threshold_steps is None
@@ -182,6 +242,8 @@ class TrainingPipeline:
                 "loss_threshold_time": threshold_time,
                 "loss_history": [float(v) for v in self.loss_history],
                 "mae_history": [float(v) for v in self.mae_history],
+                "snr_ratio": snr_ratio,
+                "dc_scale_factor": dc_scale_factor,
             },
         )
         self._finalise_diagnostics()
@@ -217,6 +279,7 @@ class TrainingPipeline:
         self.noise_norm_steps: List[int] = []
         self._initial_batch_captured = False
         self._phase_demo_captured = False
+        self._noisy_capture_done = False
         self._factor_levels: Dict[str, Dict[str, Any]] = (
             self.config.get("taguchi", {}).get("factor_levels", {}) or {}
         )
@@ -299,6 +362,31 @@ class TrainingPipeline:
         fig.savefig(out_path, dpi=150)
         plt.close(fig)
         self._phase_demo_captured = True
+
+    def _capture_noisy_example(self, x_t: torch.Tensor) -> None:
+        if self._noisy_capture_done:
+            return
+        prefix = f"{self.run_id}_noisy_"
+        stats_path = check_fft_sanity(
+            x_t.detach().cpu(),
+            f"{self.dataset_name}_noisy",
+            self._sanity_dir,
+            prefix=prefix,
+        )
+        base_name = stats_path.stem
+        spatial_src = stats_path.with_name(f"{base_name}_spatial.png")
+        fft_src = stats_path.with_name(f"{base_name}_fft_mag.png")
+
+        for factor in self._factor_levels.keys():
+            factor_dir = self._get_factor_dir(factor)
+            if factor_dir is None:
+                continue
+            if spatial_src.exists():
+                shutil.copy(spatial_src, factor_dir / f"demo_noisy_spatial_{self.run_id}.png")
+            if fft_src.exists():
+                shutil.copy(fft_src, factor_dir / f"demo_noisy_fft_{self.run_id}.png")
+
+        self._noisy_capture_done = True
 
     def _record_gradients(self, step: int) -> Optional[float]:
         total_norm_sq = 0.0

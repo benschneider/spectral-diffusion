@@ -27,7 +27,12 @@ def test_build_factor_mapping_matches_cardinality():
     registry = load_factor_registry(Path("configs/taguchi/factor_registry.yaml"))
     design = _design_matrix()
     mapping = build_factor_column_mapping(registry, design)
-    assert set(mapping.keys()) == set("ABCDEFGHIJ")
+    expected_columns = {
+        col
+        for col in design.columns
+        if col.lower() not in {"run", "row"}
+    }
+    assert set(mapping.keys()) == expected_columns
     assert set(mapping.values()) == set(registry.keys())
 
 

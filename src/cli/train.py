@@ -51,6 +51,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional run identifier. Defaults to a timestamp.",
     )
     parser.add_argument(
+        "--snr-ratio",
+        type=float,
+        default=None,
+        help="Override diffusion.snr_ratio (signal-to-noise ratio for spectral noise).",
+    )
+    parser.add_argument(
+        "--dc-scale-factor",
+        type=float,
+        default=None,
+        help="Override diffusion.dc_scale_factor (attenuation for DC noise).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Skip intensive work; useful for testing the pipeline setup.",
@@ -96,6 +108,8 @@ def train_from_config(
     cleanup: bool = False,
     log_level: str = "INFO",
     json_log: bool = False,
+    snr_ratio: Optional[float] = None,
+    dc_scale_factor: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Load configuration, execute training, and log artifacts."""
     logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
@@ -104,6 +118,16 @@ def train_from_config(
     config = load_config(config_path=config_path)
     apply_variant_override(config=config, variant=variant)
     seed_everything(config)
+    if snr_ratio is not None:
+        diffusion_cfg = config.setdefault("diffusion", {})
+        diffusion_cfg["snr_ratio"] = float(snr_ratio)
+        spectral_cfg = config.setdefault("spectral", {})
+        spectral_cfg["snr_ratio"] = float(snr_ratio)
+    if dc_scale_factor is not None:
+        diffusion_cfg = config.setdefault("diffusion", {})
+        diffusion_cfg["dc_scale_factor"] = float(dc_scale_factor)
+        spectral_cfg = config.setdefault("spectral", {})
+        spectral_cfg["dc_scale_factor"] = float(dc_scale_factor)
 
     run_identifier = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     dirs = ensure_directories(output_dir=output_dir, run_id=run_identifier)
@@ -196,6 +220,8 @@ def main(argv: Optional[Any] = None) -> None:
         cleanup=args.cleanup,
         log_level=args.log_level,
         json_log=args.json_log,
+        snr_ratio=args.snr_ratio,
+        dc_scale_factor=args.dc_scale_factor,
     )
     logging.getLogger("spectral_diffusion.train").info(
         "Completed run %s with metrics at %s", result["run_id"], result["metrics_path"]

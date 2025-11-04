@@ -165,6 +165,28 @@ def _apply_noise_shaping(cfg: Dict[str, Any], label: str) -> None:
         raise ValueError(f"Unknown spectral_noise_shaping_strength level '{label}'")
 
 
+def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> None:
+    diffusion_cfg = cfg.setdefault("diffusion", {})
+    spectral_cfg = cfg.setdefault("spectral", {})
+    try:
+        value = float(label)
+    except ValueError as exc:  # pragma: no cover - defensive
+        raise ValueError(f"snr_ratio level '{label}' is not numeric") from exc
+    diffusion_cfg["snr_ratio"] = value
+    spectral_cfg["snr_ratio"] = value
+
+
+def _apply_dc_scale_factor(cfg: Dict[str, Any], label: str) -> None:
+    try:
+        value = float(label)
+    except ValueError as exc:  # pragma: no cover - defensive
+        raise ValueError(f"Invalid dc_scale_factor '{label}'") from exc
+    diffusion_cfg = cfg.setdefault("diffusion", {})
+    spectral_cfg = cfg.setdefault("spectral", {})
+    diffusion_cfg["dc_scale_factor"] = value
+    spectral_cfg["dc_scale_factor"] = value
+
+
 def _apply_phase_capacity(cfg: Dict[str, Any], label: str) -> None:
     model_cfg = cfg.setdefault("model", {})
     if label == "off":
@@ -269,6 +291,8 @@ _FACTOR_APPLIERS = {
     "spectral_adapter_placement": _apply_adapter_placement,
     "spectral_loss_weighting": _apply_loss_weighting,
     "spectral_noise_shaping_strength": _apply_noise_shaping,
+    "snr_ratio": _apply_snr_ratio,
+    "dc_scale_factor": _apply_dc_scale_factor,
     "phase_attention_capacity": _apply_phase_capacity,
     "sampler_type": _apply_sampler,
     "sampling_steps": _apply_sampling_steps,
@@ -434,8 +458,13 @@ class TaguchiExperimentRunner:
 
         for design_idx, row in rows:
             row_number = int(row.get("run", design_idx + 1))
-            run_id = self._make_run_id(row_number=row_number)
             run_config = self._build_config_from_row(row=row, row_number=row_number)
+            factor_levels = (
+                run_config.get("taguchi", {}).get("factor_levels", {})
+                if isinstance(run_config.get("taguchi"), dict)
+                else {}
+            )
+            run_id = self._make_run_id(row_number=row_number, factor_levels=factor_levels)
             dirs = ensure_directories(output_dir=output_dir, run_id=run_id)
             self._write_mapping_file(dirs["run_dir"] / "factor_mapping.json", mapping_payload)
 
@@ -590,9 +619,24 @@ class TaguchiExperimentRunner:
             json.dump(metrics, handle, indent=2)
 
     @staticmethod
-    def _make_run_id(row_number: int) -> str:
+    def _make_run_id(
+        row_number: int,
+        factor_levels: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> str:
+        suffix = ""
+        if factor_levels:
+            snr_meta = factor_levels.get("snr_ratio")
+            if isinstance(snr_meta, dict):
+                label = str(
+                    snr_meta.get("level_label", snr_meta.get("level_index", ""))
+                )
+                sanitized = label.replace(" ", "")
+                sanitized = sanitized.replace(".", "p").replace("/", "_")
+                if not sanitized:
+                    sanitized = "lvl"
+                suffix = f"_snr{sanitized}"
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S%f")
-        return f"taguchi_row{row_number:02d}_{timestamp}"
+        return f"taguchi_row{row_number:02d}{suffix}_{timestamp}"
 
 
 def run_experiments(

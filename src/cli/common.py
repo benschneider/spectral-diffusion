@@ -119,6 +119,8 @@ SUMMARY_HEADER = [
     "eval_psnr",
     "high_freq_psnr",
     "eval_fid",
+    "snr_ratio",
+    "dc_scale_factor",
 ]
 
 
@@ -179,6 +181,8 @@ def append_run_summary(
             _metric_value("eval_psnr"),
             high_freq_value,
             _metric_value("eval_fid"),
+            _metric_value("snr_ratio"),
+            _metric_value("dc_scale_factor"),
         ]
     )
 

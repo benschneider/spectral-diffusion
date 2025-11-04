@@ -146,12 +146,19 @@ def main() -> None:
 
     noise = torch.randn_like(x0)
 
+    uniform_scale = 1.0
     if args.config is not None:
         with args.config.open("r", encoding="utf-8") as handle:
             cfg = yaml.safe_load(handle) or {}
         diffusion_cfg = cfg.get("diffusion", {})
         num_steps = int(diffusion_cfg.get("num_timesteps", 1000))
         schedule = diffusion_cfg.get("beta_schedule", "cosine")
+        uniform_scale = float(
+            diffusion_cfg.get(
+                "uniform_corruption_scale",
+                cfg.get("spectral", {}).get("uniform_corruption_scale", 1.0),
+            )
+        )
         coeffs = build_diffusion(num_steps, schedule)
         if args.t_index is not None:
             t = int(args.t_index)
@@ -193,6 +200,7 @@ def main() -> None:
             sqrt_alpha_t=sqrt_alpha_t,
             sqrt_one_minus_alpha_t=sqrt_one_minus_t,
             uniform_corruption=True,
+            strength=uniform_scale,
         )
         noise_uniform = (x_uniform - sqrt_alpha * x0) / sqrt_one_minus
         results["uniform"] = (x_uniform, noise_uniform)

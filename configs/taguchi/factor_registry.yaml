@@ -8,6 +8,12 @@ factors:
   spectral_noise_shaping_strength:
     description: Forward-process frequency corruption strength.
     levels: ["off", "mild_equalize", "strong_equalize"]
+  snr_ratio:
+    description: Signal-to-noise target for spectral corruption scaling.
+    levels: [0.8, 1.0, 1.4]
+  dc_scale_factor:
+    description: Attenuation factor for zero-frequency (DC) noise contribution.
+    levels: [0.05, 0.1, 0.2]
   phase_attention_capacity:
     description: Phase correction module capacity (attention heads).
     levels: ["off", "tiny", "full"]

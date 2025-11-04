@@ -92,6 +92,21 @@ sample_with_masf() {
     --num-samples 8
 }
 
+sample_with_ddim() {
+  local run_root="$1"
+  local tag="${2:-ddim}"
+  if [[ ! -d "$run_root" ]]; then
+    echo "Skipping DDIM sampling; run directory not found: $run_root"
+    return
+  fi
+  python "$ROOT_DIR/sample.py" \
+    --run-dir "$run_root" \
+    --sampler-type ddim \
+    --tag "$tag" \
+    --num-steps 50 \
+    --num-samples 8
+}
+
 run_synthetic() {
   echo "[1/5] Synthetic benchmarks (32x32 images)"
   rm -f "$SYN_DIR/summary.csv"
@@ -114,6 +129,7 @@ run_synthetic() {
       --config "$ROOT_DIR/configs/$config_file" \
       --output-dir "$SYN_DIR" \
       --run-id "${family_name}_32x32_tiny"
+    sample_with_ddim "$SYN_DIR/runs/${family_name}_32x32_tiny" "ddim_baseline"
 
     # Run TinyUNet + Learnable Adapter
     describe_run "$ROOT_DIR/configs/$learnable_config_file" "${family_name}_32x32_tiny_learnable" "tiny-learnable"
@@ -168,6 +184,7 @@ run_cifar() {
     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
     --output-dir "$CIFAR_DIR" \
     --run-id "cifar_32x32_tiny"
+  sample_with_ddim "$CIFAR_DIR/runs/cifar_32x32_tiny" "ddim_baseline"
 
   tmp_cfg_cifar="$(mktemp "$CIFAR_DIR/cifar_32_spectral_XXXX.yaml")"
   augment_config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "$tmp_cfg_cifar"
