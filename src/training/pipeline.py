@@ -184,9 +184,8 @@ class TrainingPipeline:
                 self.loss_steps.append(step)
                 if step % log_every == 0:
                     self.logger.info("epoch %d step %d loss %.5f", epoch, step, loss_val)
-                    if snr_ratio is not None and noise_stats:
-                        mean_val = noise_stats.get("noisy_mean")
-                        std_val = noise_stats.get("noisy_std")
+                    mean_val = noise_stats.get("noisy_mean") if noise_stats else None
+                    std_val = noise_stats.get("noisy_std") if noise_stats else None
                     self.logger.debug(
                         "spectral noise stats: snr_ratio=%.3f mean=%.3f std=%.3f",
                         snr_ratio,
