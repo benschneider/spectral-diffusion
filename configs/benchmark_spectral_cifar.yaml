@@ -1,6 +1,6 @@
 data:
   channels: 3
-  download: false
+  download: true
   height: 32
   root: data
   source: cifar10

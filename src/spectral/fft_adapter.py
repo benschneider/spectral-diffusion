@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from functools import lru_cache
+import warnings
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -71,31 +72,62 @@ def _per_sample_rms(tensor: torch.Tensor) -> torch.Tensor:
 
 
 def _scale_fft_noise_for_snr(
-    signal_fft: torch.Tensor,
+    signal_spatial: torch.Tensor,
     noise_fft: torch.Tensor,
     snr_ratio: float,
+    sqrt_one_minus_alpha_t: torch.Tensor,
     fft_norm: str = "ortho",
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Scale FFT-space noise so that RMS(signal)/RMS(noise) == snr_ratio in spatial domain.
+    Scale noise_fft so that RMS(signal) / RMS(noise) == snr_ratio in spatial domain.
     """
-    signal_energy = signal_fft.abs().pow(2).mean(dim=(-2, -1), keepdim=True)
-    noise_energy = noise_fft.abs().pow(2).mean(dim=(-2, -1), keepdim=True).clamp_min(1e-12)
-
-    height, width = signal_fft.shape[-2:]
-    parseval_corr = 1.0 if fft_norm == "ortho" else 1.0 / math.sqrt(height * width)
-
-    scale = torch.sqrt(signal_energy / noise_energy) / snr_ratio * parseval_corr
-    return noise_fft * scale
+    signal_rms = _per_sample_rms(signal_spatial)
+    noise_spatial = torch.fft.ifftn(noise_fft, dim=(-2, -1), norm=fft_norm).real
+    noise_spatial = noise_spatial * sqrt_one_minus_alpha_t
+    noise_rms = _per_sample_rms(noise_spatial)
+    adjust = torch.clamp(
+        (signal_rms / (noise_rms + 1e-8)) / snr_ratio,
+        min=1e-6,
+    )
+    return noise_fft * adjust, adjust
 
 
 def _normalize_fft_noise(
-    signal_fft: torch.Tensor,
     noise_fft: torch.Tensor,
     fft_norm: str = "ortho",
 ) -> torch.Tensor:
-    """Match noise energy to signal energy (SNR=1) with Parseval correction."""
-    return _scale_fft_noise_for_snr(signal_fft, noise_fft, snr_ratio=1.0, fft_norm=fft_norm)
+    """
+    Normalize noise_fft so that the corresponding spatial noise has unit RMS.
+
+    This leverages Parseval by measuring energy after inverse FFT with the
+    same normalization used during synthesis.
+    """
+    noise_spatial = torch.fft.ifftn(noise_fft, dim=(-2, -1), norm=fft_norm).real
+    noise_rms = _per_sample_rms(noise_spatial)
+    return noise_fft / noise_rms
+
+
+def _check_parseval_consistency(
+    spatial: torch.Tensor,
+    spectrum: torch.Tensor,
+    fft_norm: str,
+    context: str,
+) -> None:
+    if not __debug__:
+        return
+    spatial_energy = spatial.pow(2).sum()
+    recon = torch.fft.ifftn(spectrum, dim=(-2, -1), norm=fft_norm).real
+    freq_energy = recon.pow(2).sum()
+    diff = torch.abs(spatial_energy - freq_energy)
+    if spatial_energy.abs() > 0:
+        rel = diff / spatial_energy.abs()
+    else:
+        rel = diff
+    if rel > 1e-4:
+        warnings.warn(
+            f"Parseval mismatch ({context}): rel_err={rel.item():.2e} "
+            f"(spatial={spatial_energy.item():.4e}, freq={freq_energy.item():.4e}, norm={fft_norm})"
+        )
 
 
 def add_uniform_frequency_noise(
@@ -154,6 +186,7 @@ def add_uniform_frequency_noise(
     x_ref = x0 - baseline_offset
 
     X = torch.fft.fftn(x_ref, dim=(-2, -1), norm=fft_norm)
+    _check_parseval_consistency(x_ref, X, fft_norm, "signal")
     N = torch.fft.fftn(noise, dim=(-2, -1), norm=fft_norm)
 
     magnitude = torch.abs(X)
@@ -163,8 +196,6 @@ def add_uniform_frequency_noise(
     sqrt_alpha_t_complex = sqrt_alpha_t
     sqrt_one_minus_alpha_t_complex = sqrt_one_minus_alpha_t
 
-    if stats is not None:
-        stats["signal_energy"] = float(X.abs().pow(2).mean().item())
 
     if mode == "magnitude":
         mag_noise = (N * mask).abs()
@@ -177,46 +208,68 @@ def add_uniform_frequency_noise(
     else:  # "complex"
         base_noise_fft = N * mask
 
-    noise_fft = _scale_fft_noise_for_snr(X, base_noise_fft, 1.0, fft_norm=fft_norm)
+    noise_fft = _normalize_fft_noise(base_noise_fft, fft_norm=fft_norm)
+
+    signal_component_fft = X * sqrt_alpha_t_complex
+    signal_spatial = torch.fft.ifftn(signal_component_fft, dim=(-2, -1), norm=fft_norm).real
+
+    snr_scale_tensor = torch.ones_like(sqrt_one_minus_alpha_t_complex)
+    if snr_ratio is not None:
+        noise_fft, snr_scale_tensor = _scale_fft_noise_for_snr(
+            signal_spatial,
+            noise_fft,
+            float(snr_ratio),
+            sqrt_one_minus_alpha_t_complex,
+            fft_norm=fft_norm,
+        )
+
     noise_fft = noise_fft * strength_scaled
+    noise_component_fft = noise_fft * sqrt_one_minus_alpha_t_complex
+
+    effective_dc_scale = None
+    if uniform_corruption and snr_ratio is not None:
+        noise_mean_mag = float(noise_component_fft.abs().mean().item())
+        signal_mean_mag = float(signal_component_fft.abs().mean().item())
+        effective_dc_scale = max(
+            0.0,
+            min(1.0, float(dc_scale_factor) * (noise_mean_mag / (signal_mean_mag + 1e-8))),
+        )
+        noise_component_fft[..., 0, 0] = effective_dc_scale * noise_component_fft[..., 0, 0]
 
     if snr_ratio is not None:
-        signal_rms = _per_sample_rms(x_ref)
-        scale_accum = torch.ones_like(signal_rms)
-        for _ in range(2):
-            noise_spatial = torch.fft.ifftn(noise_fft, dim=(-2, -1), norm=fft_norm).real
-            noise_spatial_final = noise_spatial * sqrt_one_minus_alpha_t_complex
-            noise_rms_final = _per_sample_rms(noise_spatial_final)
-            adjust = torch.clamp(
-                (signal_rms / torch.clamp(noise_rms_final, min=1e-8)) / float(snr_ratio),
-                min=1e-6,
-            )
-            noise_fft = noise_fft * adjust
-            scale_accum = scale_accum * adjust
-        if stats is not None:
-            stats["snr_scale_factor"] = float(scale_accum.mean().item())
-    elif stats is not None:
-        stats["snr_scale_factor"] = 1.0
+        noise_spatial_final = torch.fft.ifftn(noise_component_fft, dim=(-2, -1), norm=fft_norm).real
+        signal_rms_final = _per_sample_rms(signal_spatial)
+        noise_rms_final = _per_sample_rms(noise_spatial_final)
+        measured = signal_rms_final / (noise_rms_final + 1e-8)
+        correction = torch.clamp(measured / float(snr_ratio), min=1e-6)
+        noise_component_fft = noise_component_fft * correction
+        snr_scale_tensor = snr_scale_tensor * correction
 
-    if stats is not None:
-        stats["noise_energy"] = float(noise_fft.abs().pow(2).mean().item())
+    if snr_ratio is not None:
+        combined_spatial = torch.fft.ifftn(signal_component_fft + noise_component_fft, dim=(-2, -1), norm=fft_norm).real
+        noise_measure_spatial = combined_spatial - x_ref
+        signal_rms_final = _per_sample_rms(x_ref)
+        noise_rms_final = _per_sample_rms(noise_measure_spatial)
+        measured = signal_rms_final / (noise_rms_final + 1e-8)
+        correction = torch.clamp(measured / float(snr_ratio), min=1e-6)
+        noise_component_fft = noise_component_fft * correction
+        snr_scale_tensor = snr_scale_tensor * correction
 
-    X_t = X * sqrt_alpha_t_complex + noise_fft * sqrt_one_minus_alpha_t_complex
-
-    if snr_ratio is not None and uniform_corruption:
-        dc_signal = X[..., 0, 0]
-        dc_noise = noise_fft[..., 0, 0]
-        effective_dc_scale = float(dc_scale_factor) / max(float(snr_ratio), 1e-6)
-        effective_dc_scale = max(0.0, min(1.0, effective_dc_scale))
-        blended = dc_signal + effective_dc_scale * dc_noise
-        X_t[..., 0, 0] = blended
-        if stats is not None:
-            stats["dc_scale_factor"] = float(dc_scale_factor)
-            stats["dc_scale_effective"] = float(effective_dc_scale)
-            stats["dc_mean_pre"] = float(dc_signal.real.mean().item())
-            stats["dc_mean_post"] = float(blended.real.mean().item())
+    X_t = signal_component_fft + noise_component_fft
 
     x_t = torch.fft.ifftn(X_t, dim=(-2, -1), norm=fft_norm).real
+    _check_parseval_consistency(x_t, X_t, fft_norm, "noised")
+
+    if stats is not None:
+        stats["snr_scale_factor"] = float(snr_scale_tensor.mean().item())
+        stats["signal_energy"] = float(signal_component_fft.abs().pow(2).mean().item())
+        stats["noise_energy"] = float(noise_component_fft.abs().pow(2).mean().item())
+        if uniform_corruption and snr_ratio is not None and effective_dc_scale is not None:
+            dc_signal = signal_component_fft[..., 0, 0]
+            stats["dc_scale_effective"] = effective_dc_scale
+            stats["dc_pre_mean"] = float(dc_signal.real.mean().item())
+            stats["dc_post_mean"] = float(X_t[..., 0, 0].real.mean().item())
+            stats["dc_shift"] = float((X_t[..., 0, 0] - dc_signal).real.abs().mean().item())
     if uniform_corruption:
         x_t = x_t + baseline_offset
 
