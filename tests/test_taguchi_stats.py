@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import yaml
 
@@ -69,3 +68,28 @@ def test_generate_taguchi_report(tmp_path):
     assert not report.empty
     factors = set(report["factor"].unique())
     assert factors == {"A", "B"}
+
+
+def test_generate_taguchi_report_resolves_external_paths(tmp_path):
+    report_root = tmp_path / "taguchi"
+    runs_dir = report_root / "runs"
+    run_id = "row01"
+    config_path = runs_dir / run_id / "config.yaml"
+    _write_config(config_path, {"A": 1})
+
+    summary_path = report_root / "summary.csv"
+    data = [
+        {
+            "run_id": run_id,
+            "config_path": f"/external/machine/results/taguchi/runs/{run_id}/config.yaml",
+            "metrics_path": "metrics.json",
+            "timestamp": "2024-01-01T00:00:00",
+            "loss_mean": 0.3,
+        }
+    ]
+    pd.DataFrame(data).to_csv(summary_path, index=False)
+
+    output_path = report_root / "report.csv"
+    report = generate_taguchi_report(summary_path, "loss_mean", "larger", output_path)
+    assert output_path.exists()
+    assert not report.empty

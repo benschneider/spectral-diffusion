@@ -24,6 +24,38 @@ def _compute_snr(values: np.ndarray, mode: str) -> float:
     raise ValueError(f"Unknown S/N mode '{mode}'")
 
 
+def _resolve_config_path(config_path: Path, summary_path: Path, run_id: str) -> Path:
+    """Best-effort resolution of the stored config path.
+
+    Historical summary files may contain absolute paths referencing the
+    environment where the sweep originally ran. When the artifacts are copied to
+    another machine those paths no longer exist. We attempt to remap the
+    reference to the local run directory using the captured run identifier.
+    """
+
+    if config_path.exists():
+        return config_path
+
+    candidates = []
+    summary_root = summary_path.parent
+    if run_id:
+        candidates.append(summary_root / "runs" / run_id / "config.yaml")
+
+    # Fall back to the filename relative to the runs directory if the layout
+    # does not follow the expected run_id naming scheme.
+    if config_path.name:
+        candidates.append(summary_root / "runs" / config_path.name)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    raise FileNotFoundError(
+        f"Unable to resolve config for run '{run_id}'. Checked: "
+        f"{', '.join(str(path) for path in [config_path, *candidates])}"
+    )
+
+
 def _load_taguchi_factors(config_path: Path) -> Dict[str, Dict[str, Any]]:
     with config_path.open("r", encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle) or {}
@@ -76,7 +108,7 @@ def generate_taguchi_report(
 
     taguchi_rows = []
     for _, row in summary_df.iterrows():
-        config_path = Path(row["config_path"])
+        config_path = _resolve_config_path(Path(row["config_path"]), summary_path, row.get("run_id", ""))
         factors = _load_taguchi_factors(config_path)
         entry = row.to_dict()
         for key, meta in factors.items():
