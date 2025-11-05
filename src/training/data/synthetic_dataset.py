@@ -267,33 +267,64 @@ class SyntheticSpectralDataset(Dataset):
         return grating
 
     def _text_layer(self, gen: torch.Generator) -> Optional[Tensor]:
-        if Image is None or ImageDraw is None:
-            return None
-        text_options = [
-            "Lorem",
-            "Ipsum",
-            "Dolor",
-            "Sit",
-            "Amet",
-            "Spectral",
-            "Diffusion",
-        ]
-        text_idx = self._randint(gen, 0, len(text_options))
-        text = text_options[text_idx]
-        canvas_size = max(16, int(self.image_size * (0.6 + 0.8 * self._rand(gen).item())))
-        canvas = Image.new("L", (canvas_size, canvas_size), color=0)
-        draw = ImageDraw.Draw(canvas)
-        font = ImageFont.load_default() if ImageFont is not None else None
-        x_pos = int(self._rand(gen).item() * canvas_size * 0.4)
-        y_pos = int(self._rand(gen).item() * canvas_size * 0.6)
-        draw.text((x_pos, y_pos), text, fill=255, font=font)
-        resized = canvas.resize((self.image_size, self.image_size))
-        tensor = torch.tensor(list(resized.getdata()), dtype=torch.uint8)
-        tensor = tensor.to(self.dtype).view(self.image_size, self.image_size) / 255.0
-        tensor = tensor.unsqueeze(0).expand(self.channels, -1, -1)
+        """Procedural pseudo-text texture layer — structured symbolic patterns without readable text."""
+        H, W = self.image_size, self.image_size
+        num_glyphs = self._randint(gen, 3, 10)
+        layer = torch.zeros((1, H, W), dtype=self.dtype, device=self.device)
+
+        for _ in range(num_glyphs):
+            # Random orientation and frequency
+            theta = 2 * math.pi * self._rand(gen).item()
+            freq = (1.5 + 3.5 * self._rand(gen).item()) * (self.image_size / 32.0)
+            phase = 2 * math.pi * self._rand(gen).item()
+
+            # Local mask (like a "character cell")
+            cx = self._rand(gen).item() * 1.6 - 0.8
+            cy = self._rand(gen).item() * 1.6 - 0.8
+            sx = 0.2 + 0.3 * self._rand(gen).item()
+            sy = 0.2 + 0.3 * self._rand(gen).item()
+            local_mask = torch.exp(-(((self.xx - cx) / sx) ** 2 + ((self.yy - cy) / sy) ** 2))
+
+            # Oriented sine modulation (pseudo stroke)
+            proj = self.xx * math.cos(theta) + self.yy * math.sin(theta)
+            glyph = torch.sin(freq * proj + phase)
+            glyph = glyph * local_mask
+
+            # Optionally modulate with secondary harmonic
+            if self._rand(gen).item() > 0.6:
+                freq2 = freq * (1.5 + 0.5 * self._rand(gen).item())
+                glyph += 0.5 * torch.cos(freq2 * proj + phase * 0.7)
+
+            layer += glyph
+
+        # Optionally add small blobs to mimic letter clusters
+        if self._rand(gen).item() > 0.5:
+            num_blobs = self._randint(gen, 1, 4)
+            for _ in range(num_blobs):
+                cx = self._rand(gen).item() * 1.6 - 0.8
+                cy = self._rand(gen).item() * 1.6 - 0.8
+                sx = 0.07 + 0.07 * self._rand(gen).item()
+                sy = 0.07 + 0.07 * self._rand(gen).item()
+                blob = torch.exp(-(((self.xx - cx) / sx) ** 2 + ((self.yy - cy) / sy) ** 2))
+                layer += 0.7 * blob.unsqueeze(0)
+
+        # Normalize intensity and expand to RGB
+        layer = layer - layer.mean(dim=(1, 2), keepdim=True)
+        std = layer.std(dim=(1, 2), keepdim=True).clamp_min(1e-3)
+        layer = layer / std
+        tensor = layer.expand(self.channels, -1, -1)
+
+        # Optional mild spectral shaping for diversity
+        if self._rand(gen).item() > 0.5:
+            fft = torch.fft.fftn(tensor, dim=(-2, -1))
+            fft = fft * (self.radius + self.eps).pow(-0.3 + 0.6 * self._rand(gen).item())
+            tensor = torch.fft.ifftn(fft, dim=(-2, -1)).real
+
+        # Final normalization
         tensor = tensor - tensor.mean(dim=(1, 2), keepdim=True)
         std = tensor.std(dim=(1, 2), keepdim=True).clamp_min(1e-3)
         tensor = tensor / std
+
         return tensor
 
     def _combine_layers(self, layers: List[Tensor], gen: torch.Generator) -> Tensor:
