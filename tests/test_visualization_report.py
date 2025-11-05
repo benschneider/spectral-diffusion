@@ -98,6 +98,7 @@ def test_write_summary_markdown_includes_new_sections(tmp_path):
     )
     text = out_path.read_text(encoding="utf-8")
 
+    assert "[Warning]" in text
     assert "## Synthetic Benchmark" in text
     assert "## CIFAR-10 Reconstruction Benchmark" in text
     assert "high_freq_psnr" in text or "Sharpest spectra" in text
@@ -106,6 +107,8 @@ def test_write_summary_markdown_includes_new_sections(tmp_path):
     assert "Factor Demos" in text
     assert "CIFAR Sanity Diagnostics" in text
     assert "CIFAR Spectral Diagnostics" in text
+    assert "*Figure:" in text
+    assert "CIFAR-10 dataset" in text
 
     html_path = out_path.with_suffix(".html")
     assert html_path.exists()

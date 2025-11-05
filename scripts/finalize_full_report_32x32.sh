@@ -8,6 +8,15 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 TAGUCHI_REPORT_METRIC=${TAGUCHI_REPORT_METRIC:-loss_drop_per_second}
 TAGUCHI_REPORT_MODE=${TAGUCHI_REPORT_MODE:-larger}
 
+usage() {
+  cat <<'USAGE'
+Usage: finalize_full_report_32x32.sh [--sanitize] [REPORT_DIR]
+
+  --sanitize   Run the markdown sanitizer after regenerating figures.
+  REPORT_DIR   Optional explicit report root (defaults to the most recent results/full_report_32x32_* directory).
+USAGE
+}
+
 select_latest_run() {
   local pattern="full_report_32x32_"
   local latest=""
@@ -26,9 +35,51 @@ select_latest_run() {
   printf '%s' "${latest%/}"
 }
 
-if [[ $# -ge 1 ]]; then
-  BASE_DIR="$1"
-else
+ensure_pandoc() {
+  python - <<'PY'
+import sys
+try:
+    import pypandoc
+except ImportError:
+    sys.exit(0)
+try:
+    pypandoc.get_pandoc_path()
+except (OSError, RuntimeError):
+    try:
+        pypandoc.download_pandoc()
+        print("Downloaded pandoc via pypandoc.")
+    except Exception as exc:  # pragma: no cover - best-effort helper
+        print(f"Warning: unable to download pandoc automatically: {exc}", file=sys.stderr)
+PY
+}
+
+SANITIZE=0
+BASE_DIR=""
+
+while (($#)); do
+  case "$1" in
+    --sanitize)
+      SANITIZE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      if [[ -z "$BASE_DIR" ]]; then
+        BASE_DIR="$1"
+        shift
+      else
+        echo "Unexpected argument: $1" >&2
+        usage >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+if [[ -z "$BASE_DIR" ]]; then
   BASE_DIR="$(select_latest_run)"
   if [[ -z "$BASE_DIR" ]]; then
     echo "No previous 32x32 full report runs detected under $ROOT_DIR/results." >&2
@@ -57,6 +108,8 @@ done
 mkdir -p "$FIG_DIR"
 
 echo "Finalising 32x32 full report at $BASE_DIR"
+
+ensure_pandoc
 
 generate_taguchi_report() {
   local summary_csv="$1"
@@ -134,5 +187,37 @@ if [[ -d "$ABL_DIR" ]]; then
 fi
 
 python "${figure_args[@]}"
+
+python - "$FIG_DIR" <<'PY'
+import sys
+from pathlib import Path
+
+from src.utils.plot_style import is_duplicate
+
+fig_dir = Path(sys.argv[1])
+seen: set[str] = set()
+suffixes = {".png", ".jpg", ".jpeg", ".svg", ".gif"}
+for image in sorted(fig_dir.glob("*")):
+    if image.suffix.lower() not in suffixes or not image.is_file():
+        continue
+    if is_duplicate(image, seen):
+        print(f"[SKIP] Duplicate figure {image}")
+        image.unlink(missing_ok=True)
+PY
+
+if (( SANITIZE )); then
+  summary_md="$FIG_DIR/summary.md"
+  if [[ -f "$summary_md" ]]; then
+    python - "$summary_md" "$FIG_DIR" <<'PY'
+import sys
+from pathlib import Path
+from src.utils.report_sanitizer import sanitize_markdown
+
+md_path = Path(sys.argv[1])
+root = Path(sys.argv[2])
+sanitize_markdown(md_path, root)
+PY
+  fi
+fi
 
 echo "Report finalised. Inspect $FIG_DIR for generated figures and summary."

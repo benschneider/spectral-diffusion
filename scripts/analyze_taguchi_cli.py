@@ -84,7 +84,7 @@ def _resolve_response_column(df: pd.DataFrame, requested: str) -> str:
 
 def _infer_factors(df: pd.DataFrame, response_col: str, prefixes: List[str]) -> List[str]:
     """Infer factor columns heuristically."""
-    from pandas.api.types import is_bool_dtype, is_categorical_dtype, is_object_dtype
+    from pandas.api.types import is_bool_dtype, is_object_dtype
 
     exclusions = {"run_id", response_col}
     factors: List[str] = []
@@ -97,7 +97,8 @@ def _infer_factors(df: pd.DataFrame, response_col: str, prefixes: List[str]) -> 
             factors.append(col)
             continue
         col_values = df[col]
-        if is_object_dtype(col_values) or is_categorical_dtype(col_values) or is_bool_dtype(col_values):
+        dtype = col_values.dtype
+        if is_object_dtype(col_values) or isinstance(dtype, pd.CategoricalDtype) or is_bool_dtype(col_values):
             factors.append(col)
     if not factors:
         raise ValueError("Unable to infer factor columns. Provide prefixed factor names in the CSV.")
