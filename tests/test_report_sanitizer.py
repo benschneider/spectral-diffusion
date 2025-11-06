@@ -30,3 +30,11 @@ def test_inline_latex_remains_valid(tmp_path):
     text = r"Formulation: \(x_t = sqrt(alpha_t)\)"
     sanitized = sanitize_markdown_text(text, tmp_path)
     assert "\\(x_t = \\sqrt{\\alpha_t}\\)" in sanitized
+
+
+def test_variables_and_extended_tokens_are_wrapped(tmp_path):
+    text = "Formulation: x_t = sqrt(alpha_t) x_0 + varepsilon"
+    sanitized = sanitize_markdown_text(text, tmp_path)
+    assert "$x_t$" in sanitized
+    assert "$x_0$" in sanitized
+    assert "$\\varepsilon$" in sanitized

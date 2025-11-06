@@ -3,8 +3,11 @@ from pathlib import Path
 
 import pandas as pd
 
+import os
+
 from src.visualization.analysis_utils import compute_fft_corrected, collect_loss_histories
 from src.visualization.report import write_summary_markdown
+from src.reporting.generate_markdown import _resource_paths_for
 
 
 def test_collect_loss_histories_round_trip(tmp_path):
@@ -125,3 +128,18 @@ def test_write_summary_markdown_without_data(tmp_path):
     )
     text = out_path.read_text(encoding="utf-8")
     assert "_No benchmark data available._" in text
+
+
+def test_resource_paths_include_figures_and_siblings(tmp_path):
+    figures = tmp_path / "figures"
+    figures.mkdir()
+    (tmp_path / "taguchi").mkdir()
+    (tmp_path / "synthetic").mkdir()
+
+    args = _resource_paths_for(figures)
+    assert args and args[0] == "--resource-path"
+    path_entries = set(args[1].split(os.pathsep))
+
+    assert str(figures) in path_entries
+    assert str(tmp_path) in path_entries
+    assert str(tmp_path / "taguchi") in path_entries

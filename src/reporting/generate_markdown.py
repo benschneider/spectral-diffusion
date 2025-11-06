@@ -128,6 +128,40 @@ def infer_caption_with_metadata(fig_path: Path, metadata: Optional[Dict[str, Any
     return f"*Figure: {desc}{dataset_clause}{metric_clause}.*"
 
 
+def _resource_paths_for(output_dir: Path) -> list[str]:
+    """Return pandoc ``--resource-path`` arguments for ``output_dir``.
+
+    Pandoc resolves relative image references against the process working
+    directory by default. The generated markdown uses paths that are relative to
+    ``summary.md`` itself (which lives inside the figures directory). We provide
+    pandoc with an explicit resource search path that covers the figures folder,
+    the overall report root, and any immediate sibling directories (for example
+    ``taguchi`` or ``synthetic``) that may contain linked assets. This keeps the
+    paths stable even when the finalize script is executed from a different
+    directory or when the report is copied to another machine.
+    """
+
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(path: Path) -> None:
+        path_str = str(path)
+        if path_str and path_str not in seen:
+            seen.add(path_str)
+            candidates.append(path)
+
+    _add(output_dir)
+    parent = output_dir.parent
+    if parent != output_dir:
+        _add(parent)
+        for child in parent.iterdir():
+            if child.is_dir():
+                _add(child)
+
+    resource_paths = os.pathsep.join(str(path) for path in candidates)
+    return ["--resource-path", resource_paths] if resource_paths else []
+
+
 def write_summary_markdown(
     synthetic_df: Optional[pd.DataFrame],
     cifar_df: Optional[pd.DataFrame],
@@ -356,7 +390,13 @@ def write_summary_markdown(
     if PYPANDOC_AVAILABLE:
         try:
             _ensure_pandoc()
-            pypandoc.convert_file(str(report_path), "pdf", outputfile=str(pdf_path))
+            extra_args = _resource_paths_for(output_dir)
+            pypandoc.convert_file(
+                str(report_path),
+                "pdf",
+                outputfile=str(pdf_path),
+                extra_args=extra_args or None,
+            )
             print(f"PDF report generated: {pdf_path}")
         except OSError as exc:
             print(f"PDF generation skipped (pandoc unavailable): {exc}")
@@ -371,7 +411,13 @@ def write_summary_markdown(
     html_generated = False
     if PYPANDOC_AVAILABLE:
         try:
-            pypandoc.convert_file(str(report_path), "html", outputfile=str(html_path))
+            extra_args = _resource_paths_for(output_dir)
+            pypandoc.convert_file(
+                str(report_path),
+                "html",
+                outputfile=str(html_path),
+                extra_args=extra_args or None,
+            )
             html_generated = True
         except Exception as exc:  # pragma: no cover - fallback handled below
             print(f"HTML generation via pandoc failed: {exc}")
