@@ -112,6 +112,24 @@ def _phase_rms(x: torch.Tensor, y: torch.Tensor, norm: str = "ortho") -> float:
     return float(dphi.std().item())
 
 
+def _predict_x0(
+    prediction: torch.Tensor,
+    prediction_type: str,
+    x_t: torch.Tensor,
+    sqrt_alpha_t: torch.Tensor,
+    sqrt_one_minus_alpha_t: torch.Tensor,
+) -> torch.Tensor:
+    """Return the model's implied reconstruction of ``x0`` for visualisation."""
+
+    if prediction_type == "eps":
+        return (x_t - sqrt_one_minus_alpha_t * prediction) / (sqrt_alpha_t + 1e-8)
+    if prediction_type == "x0":
+        return prediction
+    if prediction_type == "v":
+        return sqrt_alpha_t * x_t - sqrt_one_minus_alpha_t * prediction
+    raise ValueError(f"Unsupported prediction_type '{prediction_type}'")
+
+
 def run_step_recorder(
     config_path: Path,
     *,
@@ -280,6 +298,17 @@ def run_step_recorder(
             sqrt_one_minus_t,
         )
 
+        try:
+            denoised = _predict_x0(
+                pred,
+                prediction_type,
+                x_t,
+                sqrt_alpha_t,
+                sqrt_one_minus_t,
+            )
+        except ValueError:
+            denoised = None
+
         residual = pred - target
         weight = compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform) if snr_weighting else None
         loss = loss_fn(residual, weight)
@@ -305,6 +334,7 @@ def run_step_recorder(
             "output_std": float(pred.detach().std().cpu()),
             "structure_corr": corr,
             "phase_rms": _phase_rms(xb.detach(), x_t.detach(), norm=fft_norm),
+            "prediction_type": prediction_type,
         }
         if noise_stats:
             record["structure_corr_pre"] = noise_stats.get("structure_corr_pre")
@@ -321,6 +351,11 @@ def run_step_recorder(
         record.update({f"output_{k}": v for k, v in output_fft.items()})
         record.update({f"input_{k}": v for k, v in input_fft.items()})
         record.update({f"noisy_{k}": v for k, v in noisy_fft.items()})
+        if denoised is not None:
+            denoised_corr = _structure_correlation(xb.detach(), denoised.detach())
+            record["denoised_corr"] = denoised_corr
+            record["denoised_mse"] = float((xb.detach() - denoised.detach()).pow(2).mean().item())
+
         if effective_snr_ratio is not None:
             record["snr_ratio"] = effective_snr_ratio
         step_records.append(record)
@@ -344,7 +379,13 @@ def run_step_recorder(
 
             _save_raw(xb, save_root / "input.png", "input")
             _save_raw(x_t, save_root / "noisy.png", "noisy")
-            _save_raw(pred, save_root / "prediction.png", "prediction")
+            _save_raw(pred, save_root / "predicted_noise.png", "predicted_noise")
+            if denoised is not None:
+                _save_raw(denoised, save_root / "prediction.png", "prediction")
+                _save_raw(denoised, save_root / "prediction_x0.png", "prediction_x0")
+            else:
+                # Fall back to the raw model output if we cannot infer x0.
+                _save_raw(pred, save_root / "prediction.png", "prediction")
             check_fft_sanity(
                 xb.detach().cpu(),
                 dataset_name="cifar10_input",
@@ -465,11 +506,3 @@ def record_training_steps(
         dc_scale_factor=dc_scale_factor,
         loader=loader,
     )
-def _phase_rms(x: torch.Tensor, y: torch.Tensor, norm: str = "ortho") -> float:
-    phi_x = torch.angle(torch.fft.fftn(x, dim=(-2, -1), norm=norm))
-    phi_y = torch.angle(torch.fft.fftn(y, dim=(-2, -1), norm=norm))
-    dphi = torch.atan2(
-        torch.sin(phi_y - phi_x),
-        torch.cos(phi_y - phi_x),
-    )
-    return float(dphi.std().item())
