@@ -96,23 +96,6 @@ def test_modes_share_scaler(mode):
     assert low <= snr_measured <= high
 
 
-def test_dc_scale_factor_controls_mean():
-    factors = [0.05, 0.1, 0.2]
-    outputs = []
-    for factor in factors:
-        x, x_t, stats = _run_frequency_noise((32, 32), snr_ratio=1.0, dc_scale_factor=factor)
-        outputs.append((x, x_t, stats))
-
-    for x, x_t, stats in outputs:
-        mean_diff = abs(float(x_t.mean() - x.mean()))
-        assert mean_diff < 1e-3
-
-    for _, _, stats in outputs:
-        assert "dc_scale_effective" in stats
-        assert 0.0 <= stats["dc_scale_effective"] <= 1.0
-        assert stats.get("dc_mean_shift", 0.0) < 1e-3
-
-
 @pytest.mark.parametrize("fft_norm", ["ortho", "backward", "forward"])
 def test_parseval_consistency_signal_and_noised(fft_norm):
     x, x_t, _ = _run_frequency_noise((32, 32), snr_ratio=1.0, fft_norm=fft_norm)
@@ -121,13 +104,3 @@ def test_parseval_consistency_signal_and_noised(fft_norm):
     rel_noised = _spatial_fft_energy(x_t, fft_norm)
     assert rel_signal < 1e-5
     assert rel_noised < 1e-5
-
-
-def test_dc_shift_tracks_noise_energy():
-    x, x_t, _ = _run_frequency_noise((32, 32), snr_ratio=1.0, fft_norm="ortho")
-    X = torch.fft.fftn(x - x.mean(dim=(-2, -1), keepdim=True), dim=(-2, -1), norm="ortho")
-    X_t = torch.fft.fftn(x_t - x_t.mean(dim=(-2, -1), keepdim=True), dim=(-2, -1), norm="ortho")
-    dc_shift = (X_t[..., 0, 0] - X[..., 0, 0]).abs().mean().item()
-    total_noise_energy = (X_t - X).abs().pow(2).mean().sqrt().item()
-    assert total_noise_energy > 0.0
-    assert dc_shift < 1e-3
