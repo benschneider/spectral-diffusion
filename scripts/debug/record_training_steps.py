@@ -239,7 +239,7 @@ def run_step_recorder(
         if step == 0 and effective_snr_ratio is not None:
             noisy_mean = noise_stats.get("noisy_mean")
             noisy_std = noise_stats.get("noisy_std")
-            mean_ok = noisy_mean is not None and abs(noisy_mean - 0.5) < 0.05
+            mean_ok = noisy_mean is not None and noise_stats.get("dc_mean_shift", 0.0) < 5e-3
             std_ok = noisy_std is not None and noisy_std > 0
             ratio_str = f"{effective_snr_ratio:g}"
             if mean_ok and std_ok:
@@ -251,8 +251,10 @@ def run_step_recorder(
                     f"[Noise] mode={corruption_mode}, snr_ratio={ratio_str}, "
                     f"mean={mean_display} std={std_display}"
                 )
-            signal_rms = (xb - 0.5).pow(2).mean().sqrt().item()
-            noise_rms = (x_t - xb).pow(2).mean().sqrt().item()
+            channel_mean = xb.mean(dim=(2, 3), keepdim=True)
+            signal_rms = (xb - channel_mean).pow(2).mean().sqrt().item()
+            noise_term = x_t - xb
+            noise_rms = noise_term.pow(2).mean().sqrt().item()
             measured_snr = signal_rms / max(noise_rms, 1e-8)
             print(
                 f"[FFTNoiseCheck] snr_target={effective_snr_ratio:.3f}, "
@@ -261,6 +263,14 @@ def run_step_recorder(
             )
             dc_shift = float(x_t.mean().item() - xb.mean().item())
             print(f"[FFTNoiseCheck] mean_shift={dc_shift:+.4f}")
+            channel_noise_mean = noise_term.mean(dim=(0, 2, 3)).cpu().tolist()
+            channel_noise_std = noise_term.std(dim=(0, 2, 3), unbiased=False).cpu().tolist()
+            print(
+                "[FFTNoiseCheck] channel_noise_mean="
+                f"{[round(v, 4) for v in channel_noise_mean]} "
+                "channel_noise_std="
+                f"{[round(v, 4) for v in channel_noise_std]}"
+            )
 
         pred = model(x_t, t)
         target = compute_target(
@@ -312,6 +322,11 @@ def run_step_recorder(
             record["dc_rms_ratio"] = noise_stats.get("dc_rms_ratio")
             record["dc_perturb_mag"] = noise_stats.get("dc_perturb_mag")
             record["dc_scale_factor"] = noise_stats.get("dc_scale_factor")
+            record["dc_scale_effective"] = noise_stats.get("dc_scale_effective")
+            record["dc_pre_mean"] = noise_stats.get("dc_pre_mean")
+            record["dc_post_mean"] = noise_stats.get("dc_post_mean")
+            record["noise_channel_std_min"] = noise_stats.get("noise_channel_std_min")
+            record["noise_channel_std_max"] = noise_stats.get("noise_channel_std_max")
         record.update({f"output_{k}": v for k, v in output_fft.items()})
         record.update({f"input_{k}": v for k, v in input_fft.items()})
         record.update({f"noisy_{k}": v for k, v in noisy_fft.items()})

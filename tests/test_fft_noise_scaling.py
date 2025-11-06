@@ -44,8 +44,9 @@ def _run_frequency_noise(
 
 
 def _spatial_fft_energy(x_t, fft_norm):
-    fft = torch.fft.fftn(x_t, dim=(-2, -1), norm=fft_norm)
-    spatial_energy = x_t.pow(2).sum().item()
+    centered = x_t - x_t.mean(dim=(-2, -1), keepdim=True)
+    fft = torch.fft.fftn(centered, dim=(-2, -1), norm=fft_norm)
+    spatial_energy = centered.pow(2).sum().item()
     freq_energy = fft.abs().pow(2).sum().item()
     hw = x_t.shape[-2] * x_t.shape[-1]
     if fft_norm == "backward":
@@ -62,7 +63,8 @@ def _spatial_fft_energy(x_t, fft_norm):
 def test_snr_targets_respected(shape, snr_ratio, fft_norm):
     x, x_t, stats = _run_frequency_noise(shape, snr_ratio=snr_ratio, fft_norm=fft_norm)
 
-    signal_rms = (x - 0.5).pow(2).mean().sqrt().item()
+    signal_center = x - x.mean(dim=(-2, -1), keepdim=True)
+    signal_rms = signal_center.pow(2).mean().sqrt().item()
     noise_rms = (x_t - x).pow(2).mean().sqrt().item()
     measured = signal_rms / max(noise_rms, 1e-8)
 
@@ -76,7 +78,7 @@ def test_snr_targets_respected(shape, snr_ratio, fft_norm):
     assert 0.4 < mean_val < 0.6
     assert 0.1 < std_val < 0.65
 
-    rel_err = _spatial_fft_energy(x_t - 0.5, fft_norm)
+    rel_err = _spatial_fft_energy(x_t, fft_norm)
     assert rel_err < 1e-5
 
 
@@ -85,7 +87,8 @@ def test_modes_share_scaler(mode):
     phase_std = 0.1 if mode == "phase" else 0.0
     x, x_t, _ = _run_frequency_noise((32, 32), mode=mode, snr_ratio=1.0, phase_std=phase_std)
 
-    signal_rms = (x - 0.5).pow(2).mean().sqrt().item()
+    signal_center = x - x.mean(dim=(-2, -1), keepdim=True)
+    signal_rms = signal_center.pow(2).mean().sqrt().item()
     noise_rms = (x_t - x).pow(2).mean().sqrt().item()
     snr_measured = signal_rms / max(noise_rms, 1e-8)
 
@@ -114,17 +117,17 @@ def test_dc_scale_factor_controls_mean():
 def test_parseval_consistency_signal_and_noised(fft_norm):
     x, x_t, _ = _run_frequency_noise((32, 32), snr_ratio=1.0, fft_norm=fft_norm)
 
-    rel_signal = _spatial_fft_energy(x - 0.5, fft_norm)
-    rel_noised = _spatial_fft_energy(x_t - 0.5, fft_norm)
+    rel_signal = _spatial_fft_energy(x, fft_norm)
+    rel_noised = _spatial_fft_energy(x_t, fft_norm)
     assert rel_signal < 1e-5
     assert rel_noised < 1e-5
 
 
 def test_dc_shift_tracks_noise_energy():
     x, x_t, _ = _run_frequency_noise((32, 32), snr_ratio=1.0, fft_norm="ortho")
-    X = torch.fft.fftn(x - 0.5, dim=(-2, -1), norm="ortho")
-    X_t = torch.fft.fftn(x_t - 0.5, dim=(-2, -1), norm="ortho")
+    X = torch.fft.fftn(x - x.mean(dim=(-2, -1), keepdim=True), dim=(-2, -1), norm="ortho")
+    X_t = torch.fft.fftn(x_t - x_t.mean(dim=(-2, -1), keepdim=True), dim=(-2, -1), norm="ortho")
     dc_shift = (X_t[..., 0, 0] - X[..., 0, 0]).abs().mean().item()
     total_noise_energy = (X_t - X).abs().pow(2).mean().sqrt().item()
     assert total_noise_energy > 0.0
-    assert 0.01 * total_noise_energy <= dc_shift <= 1.0 * total_noise_energy
+    assert dc_shift < 1e-3
