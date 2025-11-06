@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import random
 from dataclasses import dataclass
@@ -26,12 +27,16 @@ if str(ROOT) not in sys.path:
 from scripts.debug.record_training_steps import record_training_steps
 from src.cli.common import load_config
 from src.cli.train import apply_variant_override
-from src.training.data.text_encoder_decoder import encode_text_to_image_dense
+from src.training.data.synthetic_dataset import SyntheticSpectralDataset
 
 
-DEFAULT_BASE_CONFIG = Path("configs/benchmark_spectral_cifar.yaml")
+DEFAULT_BASE_CONFIG = Path("configs/taguchi_v2_fixed.yaml")
 DEFAULT_MATRIX = Path("configs/taguchi_matrix.json")
 DEFAULT_OUTPUT = Path("results/taguchi_v2")
+DEFAULT_NUM_SAMPLES = 128
+DEFAULT_IMAGE_SIZE = 32
+DEFAULT_CHANNELS = 3
+DEFAULT_USE_TEXT = True
 
 
 @dataclass
@@ -69,25 +74,51 @@ def _generate_fixed_inputs(
     use_text: bool,
     num_samples: int,
     image_size: int,
+    channels: int,
+    seed: int,
 ) -> torch.Tensor:
     if cache_path.exists():
         return torch.load(cache_path)
 
-    samples: List[torch.Tensor] = []
-    for i in range(num_samples):
-        if use_text:
-            prompt = f"Prompt {i}"
-            answer = f"Response {i}"
-            tensor = encode_text_to_image_dense(prompt, answer, image_size=(image_size, image_size))
-        else:
-            gen = torch.Generator(device="cpu")
-            gen.manual_seed(i)
-            tensor = torch.rand((3, image_size, image_size), generator=gen)
-        samples.append(tensor)
+    dataset = SyntheticSpectralDataset(
+        size=num_samples,
+        image_size=image_size,
+        channels=channels,
+        use_text=use_text,
+        seed=seed,
+    )
+
+    samples = [dataset[idx][0] for idx in range(num_samples)]
     stacked = torch.stack(samples)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(stacked, cache_path)
     return stacked
+
+
+def _dataset_settings(config: Dict[str, object]) -> Dict[str, object]:
+    data_cfg = dict(config.get("data", {}) or {})
+    synthetic_cfg = dict(data_cfg.get("synthetic", {}) or {})
+
+    image_size = int(
+        synthetic_cfg.get(
+            "image_size",
+            data_cfg.get("image_size", data_cfg.get("height", DEFAULT_IMAGE_SIZE)),
+        )
+    )
+    channels = int(synthetic_cfg.get("channels", data_cfg.get("channels", DEFAULT_CHANNELS)))
+    use_text = bool(synthetic_cfg.get("use_text", DEFAULT_USE_TEXT))
+    size_cfg = synthetic_cfg.get("size", data_cfg.get("size"))
+    size = int(size_cfg) if size_cfg is not None else DEFAULT_NUM_SAMPLES
+    if size <= 0:
+        size = DEFAULT_NUM_SAMPLES
+    size = max(size, channels)
+
+    return {
+        "image_size": image_size,
+        "channels": channels,
+        "use_text": use_text,
+        "num_samples": size,
+    }
 
 
 def _build_loader(tensor: torch.Tensor, batch_size: int) -> DataLoader:
@@ -96,15 +127,33 @@ def _build_loader(tensor: torch.Tensor, batch_size: int) -> DataLoader:
     return DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=True)
 
 
-def _prepare_config(base_config: Path, overrides: Dict[str, object], destination: Path) -> Path:
-    config = load_config(config_path=base_config)
+def _prepare_config(
+    base_template: Dict[str, object],
+    overrides: Dict[str, object],
+    dataset_defaults: Dict[str, object],
+    destination: Path,
+    *,
+    run_seed: int,
+) -> Path:
+    config = copy.deepcopy(base_template)
     apply_variant_override(config, overrides.get("variant"))
 
+    config["seed"] = int(run_seed)
+
     data_cfg = config.setdefault("data", {})
-    data_cfg["source"] = "synthetic"
-    data_cfg.setdefault("channels", 3)
-    data_cfg.setdefault("height", overrides.get("image_size", 32))
-    data_cfg.setdefault("width", overrides.get("image_size", 32))
+    data_cfg["source"] = str(data_cfg.get("source", "synthetic"))
+
+    base_image = int(overrides.get("image_size", dataset_defaults["image_size"]))
+    data_cfg["height"] = base_image
+    data_cfg["width"] = base_image
+    data_cfg["channels"] = int(dataset_defaults["channels"])
+    data_cfg["size"] = int(dataset_defaults["num_samples"])
+
+    synthetic_cfg = data_cfg.setdefault("synthetic", {})
+    synthetic_cfg["image_size"] = base_image
+    synthetic_cfg["channels"] = data_cfg["channels"]
+    synthetic_cfg["size"] = data_cfg["size"]
+    synthetic_cfg["use_text"] = bool(dataset_defaults["use_text"])
 
     training_cfg = config.setdefault("training", {})
     if "batch_size" in overrides:
@@ -205,8 +254,18 @@ def run(matrix_path: Path, base_config: Path, output_root: Path, *, seed: int) -
     _set_global_seed(seed)
     output_root.mkdir(parents=True, exist_ok=True)
 
+    base_template = load_config(config_path=base_config)
+    dataset_defaults = _dataset_settings(base_template)
+
     cache_path = output_root / "cached_inputs.pt"
-    inputs = _generate_fixed_inputs(cache_path, use_text=True, num_samples=128, image_size=32)
+    inputs = _generate_fixed_inputs(
+        cache_path,
+        use_text=dataset_defaults["use_text"],
+        num_samples=dataset_defaults["num_samples"],
+        image_size=dataset_defaults["image_size"],
+        channels=dataset_defaults["channels"],
+        seed=seed,
+    )
 
     taguchi_rows = _load_taguchi_rows(matrix_path)
     run_descriptors: List[TaguchiRun] = []
@@ -219,9 +278,11 @@ def run(matrix_path: Path, base_config: Path, output_root: Path, *, seed: int) -
         loader = _build_loader(inputs, batch_size=batch_size)
 
         config_path = _prepare_config(
-            base_config=base_config,
+            base_template=base_template,
             overrides=row_params,
+            dataset_defaults=dataset_defaults,
             destination=run_dir / "config.yaml",
+            run_seed=seed,
         )
 
         print(f"\n=== Running row_{index:02d} ===")
