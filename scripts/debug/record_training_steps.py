@@ -235,11 +235,11 @@ def run_step_recorder(
         sqrt_alpha_t = coeffs.sqrt_alphas_cumprod[t].view(B, 1, 1, 1).to(device_obj)
         sqrt_one_minus_t = coeffs.sqrt_one_minus_alphas_cumprod[t].view(B, 1, 1, 1).to(device_obj)
 
-        noise = torch.randn_like(xb)
+        base_noise = torch.randn_like(xb)
         noise_stats: Dict[str, float] = {}
-        x_t = add_uniform_frequency_noise(
+        x_t, effective_noise = add_uniform_frequency_noise(
             xb,
-            noise,
+            base_noise,
             sqrt_alpha_t=sqrt_alpha_t,
             sqrt_one_minus_alpha_t=sqrt_one_minus_t,
             uniform_corruption=uniform_corruption,
@@ -252,6 +252,7 @@ def run_step_recorder(
             fft_norm=fft_norm,
             snr_ratio=effective_snr_ratio,
             dc_scale_factor=effective_dc_scale,
+            return_noise=True,
         )
 
         if step == 0 and effective_snr_ratio is not None:
@@ -293,7 +294,7 @@ def run_step_recorder(
             prediction_type,
             xb,
             x_t,
-            noise,
+            effective_noise,
             sqrt_alpha_t,
             sqrt_one_minus_t,
         )
@@ -329,7 +330,9 @@ def run_step_recorder(
             "loss": float(loss.detach().cpu()),
             "grad_norm": grad_norm,
             "param_delta": param_delta,
-            "noise_norm": float(noise.view(B, -1).norm(dim=1).mean().cpu()),
+            "noise_norm": float(
+                effective_noise.view(B, -1).norm(dim=1).mean().cpu()
+            ),
             "output_mean": float(pred.detach().mean().cpu()),
             "output_std": float(pred.detach().std().cpu()),
             "structure_corr": corr,

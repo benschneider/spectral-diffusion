@@ -194,15 +194,15 @@ def main() -> None:
         save_image(_to_image(x_gauss), output_dir / "corrupted_gaussian.png")
 
     if "uniform" in args.modes:
-        x_uniform = add_uniform_frequency_noise(
+        x_uniform, noise_uniform = add_uniform_frequency_noise(
             x0,
             noise,
             sqrt_alpha_t=sqrt_alpha_t,
             sqrt_one_minus_alpha_t=sqrt_one_minus_t,
             uniform_corruption=True,
             strength=uniform_scale,
+            return_noise=True,
         )
-        noise_uniform = (x_uniform - sqrt_alpha * x0) / sqrt_one_minus
         results["uniform"] = (x_uniform, noise_uniform)
         save_image(_to_image(noise_uniform), output_dir / "noise_uniform.png")
         save_image(_to_image(x_uniform), output_dir / "corrupted_uniform.png")

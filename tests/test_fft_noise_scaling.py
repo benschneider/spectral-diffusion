@@ -104,3 +104,32 @@ def test_parseval_consistency_signal_and_noised(fft_norm):
     rel_noised = _spatial_fft_energy(x_t, fft_norm)
     assert rel_signal < 1e-5
     assert rel_noised < 1e-5
+
+
+@pytest.mark.parametrize("uniform", [False, True])
+def test_return_noise_matches_residual(uniform):
+    torch.manual_seed(123)
+    b, c, h, w = 2, 3, 16, 16
+    x = torch.rand(b, c, h, w)
+    base_noise = torch.randn_like(x)
+    sqrt_alpha = torch.tensor(0.85).view(1, 1, 1, 1)
+    sqrt_one_minus = torch.sqrt(1.0 - sqrt_alpha.pow(2))
+
+    kwargs = {
+        "uniform_corruption": uniform,
+        "strength": 1.0,
+        "fft_norm": "ortho",
+        "snr_ratio": 1.0,
+        "return_noise": True,
+    }
+
+    x_t, eps = add_uniform_frequency_noise(
+        x,
+        base_noise,
+        sqrt_alpha_t=sqrt_alpha,
+        sqrt_one_minus_alpha_t=sqrt_one_minus,
+        **kwargs,
+    )
+
+    reconstructed = (x_t - sqrt_alpha * x) / (sqrt_one_minus + 1e-8)
+    assert torch.allclose(eps, reconstructed, atol=1e-5)

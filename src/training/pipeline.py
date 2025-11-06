@@ -129,14 +129,11 @@ class TrainingPipeline:
                     coeffs.sqrt_one_minus_alphas_cumprod[t].view(B, 1, 1, 1).to(self.device)
                 )
 
-                eps = torch.randn_like(xb)
-                eps_norm = float(eps.view(B, -1).norm(dim=1).mean().detach().cpu())
-                self.noise_norm_history.append(eps_norm)
-                self.noise_norm_steps.append(step + 1)
+                base_noise = torch.randn_like(xb)
                 noise_stats: Dict[str, float] = {}
-                x_t = add_uniform_frequency_noise(
+                x_t, eps = add_uniform_frequency_noise(
                     xb,
-                    eps,
+                    base_noise,
                     sqrt_alpha_t=sqrt_alpha_t,
                     sqrt_one_minus_alpha_t=sqrt_one_minus_t,
                     uniform_corruption=uniform_corruption,
@@ -149,6 +146,7 @@ class TrainingPipeline:
                     fft_norm=fft_norm,
                     snr_ratio=snr_ratio,
                     dc_scale_factor=dc_scale_factor,
+                    return_noise=True,
                 )
 
                 if not self._noisy_capture_done:
@@ -157,6 +155,10 @@ class TrainingPipeline:
                 pred = self.model(x_t, t)
                 if not self._phase_demo_captured:
                     self._capture_phase_demo()
+
+                eps_norm = float(eps.view(B, -1).norm(dim=1).mean().detach().cpu())
+                self.noise_norm_history.append(eps_norm)
+                self.noise_norm_steps.append(step + 1)
 
                 target = compute_target(
                     prediction_type, xb, x_t, eps, sqrt_alpha_t, sqrt_one_minus_t

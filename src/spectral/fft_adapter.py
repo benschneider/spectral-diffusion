@@ -133,6 +133,8 @@ def add_uniform_frequency_noise(
     fft_norm: str = "ortho",
     snr_ratio: Optional[float] = None,
     dc_scale_factor: float = 0.0,
+    *,
+    return_noise: bool = False,
 ) -> torch.Tensor:
     """
     Apply diffusion forward noise with optional uniform frequency corruption.
@@ -141,8 +143,13 @@ def add_uniform_frequency_noise(
     domain with a reciprocal-radius weighting so that higher frequencies receive
     proportionally more energy, balancing SNR decay across the spectrum.
     """
+    sqrt_alpha_t_complex = sqrt_alpha_t
+    sqrt_one_minus_alpha_t_complex = sqrt_one_minus_alpha_t
+    signal_component = sqrt_alpha_t_complex * x0
+
     if not uniform_corruption:
-        x_t = sqrt_alpha_t * x0 + sqrt_one_minus_alpha_t * noise
+        noise_component = sqrt_one_minus_alpha_t_complex * noise
+        x_t = signal_component + noise_component
         if stats is not None:
             sim = _compute_similarity_metrics(x0, x_t)
             stats["structure_corr_pre"] = sim["corr"]
@@ -154,6 +161,9 @@ def add_uniform_frequency_noise(
                 stats["snr_ratio"] = snr_ratio
             stats["noisy_mean"] = float(x_t.detach().mean().item())
             stats["noisy_std"] = float(x_t.detach().std().item())
+        if return_noise:
+            effective_noise = noise_component / (sqrt_one_minus_alpha_t_complex + 1e-8)
+            return x_t, effective_noise
         return x_t
 
     dims = x0.dim()
@@ -174,10 +184,6 @@ def add_uniform_frequency_noise(
     strength = float(strength)
     phase_std = float(phase_std)
 
-    sqrt_alpha_t_complex = sqrt_alpha_t
-    sqrt_one_minus_alpha_t_complex = sqrt_one_minus_alpha_t
-
-    signal_component = sqrt_alpha_t_complex * x0
     signal_component_fft = torch.fft.fftn(signal_component, dim=(-2, -1), norm=fft_norm)
     _check_parseval_consistency(signal_component, signal_component_fft, fft_norm, "signal")
 
@@ -244,5 +250,9 @@ def add_uniform_frequency_noise(
             channel_std = noise_term.std(dim=channel_dims, unbiased=False)
             stats["noise_channel_std_min"] = float(channel_std.min().item())
             stats["noise_channel_std_max"] = float(channel_std.max().item())
+
+    if return_noise:
+        effective_noise = noise_component / (sqrt_one_minus_alpha_t_complex + 1e-8)
+        return x_t, effective_noise
 
     return x_t
