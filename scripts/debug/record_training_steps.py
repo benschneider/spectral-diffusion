@@ -18,6 +18,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 import torch
 from torchvision.utils import save_image
+from torch.utils.data import DataLoader
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -121,6 +122,7 @@ def run_step_recorder(
     log_interval: int = 10,
     snr_ratio: Optional[float] = None,
     dc_scale_factor: Optional[float] = None,
+    loader: Optional[DataLoader] = None,
 ) -> Path:
     RECORDER_VERSION = "v1.1"
     config = load_config(config_path=config_path)
@@ -133,8 +135,8 @@ def run_step_recorder(
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[RecordTrainingSteps] Running version {RECORDER_VERSION}")
 
-    dataset = build_dataloader(config)
-    data_iter = _cycle(dataset)
+    data_loader = loader or build_dataloader(config)
+    data_iter = _cycle(data_loader)
 
     model = build_model(config.get("model", {}))
     loss_fn = get_loss_fn(config.get("loss", {}))
@@ -430,6 +432,33 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
     main()
+
+
+def record_training_steps(
+    config_path: Path,
+    *,
+    variant: Optional[str] = None,
+    steps: int = 100,
+    output_dir: Path,
+    device: Optional[str] = None,
+    log_interval: int = 10,
+    snr_ratio: Optional[float] = None,
+    dc_scale_factor: Optional[float] = None,
+    loader: Optional[DataLoader] = None,
+) -> Path:
+    """Backwards-compatible wrapper exported for utility scripts."""
+
+    return run_step_recorder(
+        config_path=config_path,
+        variant=variant,
+        steps=steps,
+        output_dir=output_dir,
+        device=device,
+        log_interval=log_interval,
+        snr_ratio=snr_ratio,
+        dc_scale_factor=dc_scale_factor,
+        loader=loader,
+    )
 def _phase_rms(x: torch.Tensor, y: torch.Tensor, norm: str = "ortho") -> float:
     phi_x = torch.angle(torch.fft.fftn(x, dim=(-2, -1), norm=norm))
     phi_y = torch.angle(torch.fft.fftn(y, dim=(-2, -1), norm=norm))
