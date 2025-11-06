@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
 from src.utils.plot_style import (
+    autoscale_y,
     declutter_texts,
     reduce_tick_density,
     set_default_style,
@@ -38,13 +41,85 @@ def _dedupe_labels(labels: list[str]) -> list[str]:
 
 
 def _normalise_category(series: pd.Series, max_len: int = 25) -> pd.Series:
-    shortened = shorten_labels(series.astype(str).tolist(), max_len=max_len)
+    values = []
+    for value in series.astype(str).tolist():
+        lowered = value.strip().lower()
+        if lowered in {"on", "true"}:
+            values.append("Enabled")
+        elif lowered in {"off", "false"}:
+            values.append("Disabled")
+        else:
+            values.append(value)
+
+    shortened = shorten_labels(values, max_len=max_len)
     deduped = _dedupe_labels(shortened)
     return pd.Series(deduped, index=series.index, dtype="string")
 
 
 def _normalise_list(labels: list[str], max_len: int = 25) -> list[str]:
     return _dedupe_labels(shorten_labels(labels, max_len=max_len))
+
+
+def assign_run_axis(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Attach sequential run identifiers and return mapping."""
+
+    if df is None or df.empty:
+        return df, {}
+
+    df = df.copy()
+    axis_labels: list[str] = []
+    contexts: list[str] = []
+    mapping: dict[str, str] = {}
+
+    for idx, (_, row) in enumerate(df.iterrows()):
+        short = f"run_{idx:02d}"
+        axis_labels.append(short)
+
+        primary = row.get("display_name") or row.get("run_id") or short
+        fallback = row.get("run_id")
+        config_path = row.get("config_path")
+
+        parts: list[str] = []
+        if isinstance(primary, str) and primary:
+            parts.append(primary)
+        elif primary is not None:
+            parts.append(str(primary))
+
+        if fallback and fallback != primary:
+            parts.append(f"id={fallback}")
+
+        if isinstance(config_path, str) and config_path:
+            parts.append(f"cfg={Path(config_path).name}")
+
+        context = " – ".join(part for part in parts if part) or short
+        mapping[short] = context
+        contexts.append(context)
+
+    df["run_axis"] = pd.Series(axis_labels, index=df.index, dtype="string")
+    df["run_axis_context"] = pd.Series(contexts, index=df.index, dtype="string")
+    return df, mapping
+
+
+def _run_mapping_from_df(df: pd.DataFrame, axis_col: str = "run_axis") -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    if df is None or axis_col not in df.columns:
+        return mapping
+
+    context_col = f"{axis_col}_context" if f"{axis_col}_context" in df.columns else "run_axis_context"
+    if context_col not in df.columns:
+        context_col = None
+
+    for _, row in df.iterrows():
+        key = row.get(axis_col)
+        if key is None or (isinstance(key, float) and pd.isna(key)):
+            continue
+        text = str(key)
+        if context_col:
+            context_val = row.get(context_col)
+            if context_val and not pd.isna(context_val):
+                text = str(context_val)
+        mapping[str(key)] = text
+    return mapping
 
 
 def _rotate_ticks(ax: plt.Axes, axis: str = "x", rotation: int = 45) -> None:
@@ -72,7 +147,7 @@ def plot_loss_metrics(
     _setup_style()
     fig, ax = plt.subplots(figsize=(6, 3.5))
 
-    x_col = "display_name" if "display_name" in df.columns else "run_id"
+    axis_col = "run_axis" if "run_axis" in df.columns else "display_name" if "display_name" in df.columns else "run_id"
     preferred_cols = ["loss_drop_per_second_corrected", "loss_drop_per_second"]
     y_col = next((col for col in preferred_cols if col in df.columns), None)
     if y_col is None:
@@ -80,16 +155,17 @@ def plot_loss_metrics(
         return
 
     plot_df = df.copy()
-    plot_df[x_col] = _normalise_category(plot_df[x_col])
+    if axis_col != "run_axis" and axis_col in plot_df.columns:
+        plot_df[axis_col] = _normalise_category(plot_df[axis_col])
 
-    unique = plot_df[x_col].nunique(dropna=True)
+    unique = plot_df[axis_col].nunique(dropna=True)
     palette = _color_palette(unique)
     sns.barplot(
         data=plot_df,
-        x=x_col,
+        x=axis_col,
         y=y_col,
         palette=palette,
-        hue=x_col,
+        hue=axis_col,
         dodge=False,
         legend=False,
         ax=ax,
@@ -103,11 +179,15 @@ def plot_loss_metrics(
     ax.grid(True, which="both", axis="y", linestyle="--", linewidth=0.5)
     _rotate_ticks(ax, axis="x")
     ax.tick_params(axis="y", labelrotation=0)
+    autoscale_y(ax)
     fig.tight_layout(rect=[0, 0, 1, 0.95])
+
+    mapping = _run_mapping_from_df(plot_df, axis_col)
 
     if out_path:
         fig.savefig(out_path, bbox_inches="tight", dpi=300)
         plt.close(fig)
+        return mapping
 
 
 def plot_metric_boxplot(
@@ -132,7 +212,7 @@ def plot_metric_boxplot(
     _setup_style()
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    group_col = "display_name" if "display_name" in df.columns else "run_id"
+    group_col = "run_axis" if "run_axis" in df.columns else "display_name" if "display_name" in df.columns else "run_id"
 
     data = []
     labels = []
@@ -142,26 +222,32 @@ def plot_metric_boxplot(
             data.append(subset.values)
             labels.append(str(name))
 
-        if data:
-            label_list = _normalise_list(labels)
-            ax.boxplot(data, labels=label_list)
-            ax.set_title(title)
-            ylabel_adj = ylabel
-            if metric_col.endswith("_corrected"):
-                ylabel_adj += " (FFT-corrected)"
-            ax.set_ylabel(ylabel_adj)
-            ax.grid(True, axis="y", linestyle="--", linewidth=0.5)
-            _rotate_ticks(ax, axis="x")
-            ax.tick_params(axis="y", labelrotation=0)
-            fig.tight_layout(rect=[0, 0, 1, 0.95])
+    if data:
+        label_list = labels if group_col == "run_axis" else _normalise_list(labels)
+        ax.boxplot(data, labels=label_list)
+        ax.set_title(title)
+        ylabel_adj = ylabel
+        if metric_col.endswith("_corrected"):
+            ylabel_adj += " (FFT-corrected)"
+        ax.set_ylabel(ylabel_adj)
+        ax.grid(True, axis="y", linestyle="--", linewidth=0.5)
+        _rotate_ticks(ax, axis="x")
+        ax.tick_params(axis="y", labelrotation=0)
+        autoscale_y(ax)
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
 
-        if out_path:
-            fig.savefig(out_path, bbox_inches="tight", dpi=300)
-            plt.close(fig)
-        else:
-            return fig
-    else:
+    mapping = _run_mapping_from_df(df, group_col)
+
+    if out_path:
+        fig.savefig(out_path, bbox_inches="tight", dpi=300)
         plt.close(fig)
+        return mapping
+
+    if not data:
+        plt.close(fig)
+        return None
+
+    return fig
 
 
 def plot_taguchi_snr(taguchi_report, out_path, descriptions=None):
@@ -201,6 +287,7 @@ def plot_taguchi_snr(taguchi_report, out_path, descriptions=None):
         _rotate_ticks(ax, axis="x")
         ax.tick_params(axis="y", labelrotation=0)
         ax.grid(True, axis="y", linestyle="--", linewidth=0.5)
+        autoscale_y(ax)
 
         for bar, val in zip(bars, snr_values):
             ax.text(
@@ -229,7 +316,7 @@ def plot_runtime_metrics(
     _setup_style()
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    x_col = "display_name" if "display_name" in df.columns else "run_id"
+    x_col = "run_axis" if "run_axis" in df.columns else "display_name" if "display_name" in df.columns else "run_id"
     preferred_cols = ["images_per_second_corrected", "images_per_second"]
     y_col = next((col for col in preferred_cols if col in df.columns), None)
     if y_col is None:
@@ -237,7 +324,8 @@ def plot_runtime_metrics(
         return
 
     plot_df = df.copy()
-    plot_df[x_col] = _normalise_category(plot_df[x_col])
+    if x_col != "run_axis":
+        plot_df[x_col] = _normalise_category(plot_df[x_col])
 
     unique = plot_df[x_col].nunique(dropna=True)
     palette = _color_palette(unique)
@@ -260,11 +348,15 @@ def plot_runtime_metrics(
     ax.grid(True, which="both", axis="y", linestyle="--", linewidth=0.5)
     _rotate_ticks(ax, axis="x")
     ax.tick_params(axis="y", labelrotation=0)
+    autoscale_y(ax)
     fig.tight_layout(rect=[0, 0, 1, 0.95])
+
+    mapping = _run_mapping_from_df(plot_df, x_col)
 
     if out_path:
         fig.savefig(out_path, bbox_inches="tight", dpi=300)
         plt.close(fig)
+        return mapping
     else:
         return fig
 
@@ -285,7 +377,7 @@ def plot_tradeoff_scatter(
     _setup_style()
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    group_col = "display_name" if "display_name" in df.columns else "run_id"
+    group_col = "run_axis" if "run_axis" in df.columns else "display_name" if "display_name" in df.columns else "run_id"
 
     x_candidates = [x_col, f"{x_col}_corrected"]
     y_candidates = [y_col, f"{y_col}_corrected"]
@@ -299,8 +391,11 @@ def plot_tradeoff_scatter(
     groups = df[group_col].unique()
     base_colors = _color_palette(len(groups))
 
-    display_names = _normalise_list([str(name) for name in groups])
-    display_map = {orig: disp for orig, disp in zip(groups, display_names)}
+    if group_col == "run_axis":
+        display_map = {name: str(name) for name in groups}
+    else:
+        display_names = _normalise_list([str(name) for name in groups])
+        display_map = {orig: disp for orig, disp in zip(groups, display_names)}
     palette = {display_map[name]: base_colors[idx % len(base_colors)] for idx, name in enumerate(groups)}
 
     for name in groups:
@@ -315,7 +410,8 @@ def plot_tradeoff_scatter(
                 s=80,
             )
             for _, row in subset.iterrows():
-                label = shorten_label(row.get(group_col, display), max_len=15)
+                label = row.get("run_axis") or row.get(group_col, display)
+                label = shorten_label(label, max_len=15)
                 ax.text(
                     row[x_col_use],
                     row[y_col_use],
@@ -338,11 +434,15 @@ def plot_tradeoff_scatter(
     ax.tick_params(axis="y", labelrotation=0)
     declutter_texts(ax, min_dist=6)
     reduce_tick_density(ax)
+    autoscale_y(ax)
     fig.tight_layout(rect=[0, 0, 1, 0.95])
+
+    mapping = _run_mapping_from_df(df, "run_axis" if "run_axis" in df.columns else group_col)
 
     if out_path:
         fig.savefig(out_path, bbox_inches="tight", dpi=300)
         plt.close(fig)
+        return mapping
     else:
         return fig
 
@@ -370,6 +470,7 @@ def plot_loss_curves(histories, title, out_path):
     ax.tick_params(axis="x", labelrotation=0)
     ax.tick_params(axis="y", labelrotation=0)
     reduce_tick_density(ax)
+    autoscale_y(ax)
 
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     fig.savefig(out_path, bbox_inches="tight", dpi=300)
@@ -418,6 +519,7 @@ def plot_taguchi_metric_distribution(taguchi_df, metric, out_path, descriptions=
     ax.tick_params(axis="x", labelrotation=0)
     ax.tick_params(axis="y", labelrotation=0)
     reduce_tick_density(ax)
+    autoscale_y(ax)
 
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     fig.savefig(out_path, bbox_inches="tight", dpi=300)
@@ -546,7 +648,7 @@ def plot_feature_toggle_ablation(
     if df is None or df.empty:
         return
 
-    label_col = "display_name" if "display_name" in df.columns else "run_id"
+    label_col = "run_axis" if "run_axis" in df.columns else "display_name" if "display_name" in df.columns else "run_id"
     if label_col not in df.columns:
         return
     if "loss_final" not in df.columns:
@@ -571,7 +673,8 @@ def plot_feature_toggle_ablation(
     _setup_style()
     fig, axes = plt.subplots(1, 2, figsize=(9, 3.5))
     plot_df = df.copy()
-    plot_df[label_col] = _normalise_category(plot_df[label_col])
+    if label_col != "run_axis":
+        plot_df[label_col] = _normalise_category(plot_df[label_col])
     palette = _color_palette(plot_df[label_col].nunique(dropna=True))
 
     sns.barplot(
@@ -590,6 +693,7 @@ def plot_feature_toggle_ablation(
     axes[0].grid(True, axis="y", linestyle="--", linewidth=0.4)
     _rotate_ticks(axes[0], axis="x")
     axes[0].tick_params(axis="y", labelrotation=0)
+    autoscale_y(axes[0])
 
     sns.barplot(
         data=plot_df,
@@ -607,6 +711,7 @@ def plot_feature_toggle_ablation(
     axes[1].grid(True, axis="y", linestyle="--", linewidth=0.4)
     _rotate_ticks(axes[1], axis="x")
     axes[1].tick_params(axis="y", labelrotation=0)
+    autoscale_y(axes[1])
 
     fig.suptitle(title, fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.95])

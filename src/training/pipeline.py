@@ -417,10 +417,12 @@ class TrainingPipeline:
         fig, axes = plt.subplots(3, 1, figsize=(6, 9), sharex=True)
         axes[0].plot(steps, losses, label="Loss")
         axes[0].set_ylabel("Loss")
+        axes[0].set_title("Training Loss over Steps")
         axes[0].grid(True, alpha=0.3)
 
         axes[1].plot(steps, loss_grad, label="d(Loss)/d(step)", color="orange")
         axes[1].set_ylabel("Loss Slope")
+        axes[1].set_title("Loss Slope per Step")
         axes[1].grid(True, alpha=0.3)
 
         if self.grad_norm_history:
@@ -429,6 +431,7 @@ class TrainingPipeline:
             axes[2].plot(g_steps, g_norms, label="Grad Norm", color="green")
         axes[2].set_ylabel("Grad Norm")
         axes[2].set_xlabel("Step")
+        axes[2].set_title("Gradient Norm Evolution")
         axes[2].grid(True, alpha=0.3)
 
         fig.tight_layout()

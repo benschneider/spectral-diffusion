@@ -1,8 +1,10 @@
+import json
+from typing import Iterable, Optional, Tuple
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
-import json
 
 def exp_decay(t, a, b, c):
     """
@@ -180,3 +182,34 @@ def compute_fft_corrected(df):
             df['loss_drop_per_second_corrected'] = df['loss_drop'] / df['runtime_corrected']
 
     return df
+
+
+def safe_mean(values: Iterable[float]) -> float:
+    """Compute a finite mean while ignoring ``NaN`` entries."""
+
+    arr = np.asarray(list(values), dtype=float)
+    if arr.size == 0:
+        return 0.0
+    arr = arr[~np.isnan(arr)]
+    if arr.size == 0:
+        return 0.0
+    return float(np.nanmean(arr))
+
+
+def sanitize_metric_frame(df: Optional[pd.DataFrame]) -> Tuple[Optional[pd.DataFrame], dict[str, bool]]:
+    """Replace invalid metric values and record notes for reporting."""
+
+    if df is None:
+        return None, {}
+
+    frame = df.copy()
+    notes: dict[str, bool] = {}
+
+    if "high_freq_psnr" in frame.columns:
+        psnr = pd.to_numeric(frame["high_freq_psnr"], errors="coerce")
+        psnr = psnr.replace([np.inf, -np.inf], np.nan)
+        if psnr.isna().any():
+            notes["high_freq_psnr_missing"] = True
+        frame["high_freq_psnr"] = psnr.fillna(0.0)
+
+    return frame, notes

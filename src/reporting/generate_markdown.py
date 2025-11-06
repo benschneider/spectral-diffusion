@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 import yaml
@@ -51,10 +51,23 @@ def _ensure_pandoc() -> None:
 def infer_caption(fig_path: Path) -> str:
     """Generate a short contextual caption for ``fig_path``."""
 
+    return infer_caption_with_metadata(fig_path, None)
+
+
+def infer_caption_with_metadata(fig_path: Path, metadata: Optional[Dict[str, Any]]) -> str:
     stem = fig_path.stem.lower()
     parts = [part.lower() for part in fig_path.parts]
 
-    if any("synthetic" in part for part in parts):
+    dataset_token = (metadata or {}).get("dataset")
+    dataset_lookup = {
+        "synthetic": "Synthetic 32×32",
+        "cifar": "CIFAR-10",
+        "taguchi": "Taguchi analysis",
+        "ablation": "Ablation",
+    }
+    if isinstance(dataset_token, str):
+        dataset = dataset_lookup.get(dataset_token.lower(), dataset_token)
+    elif any("synthetic" in part for part in parts):
         dataset = "Synthetic 32×32"
     elif any("cifar" in part for part in parts):
         dataset = "CIFAR-10"
@@ -64,6 +77,17 @@ def infer_caption(fig_path: Path) -> str:
         dataset = "Taguchi analysis"
     else:
         dataset = "General"
+
+    if "loss_gradients" in stem:
+        return "*Figure: Training dynamics across 300 steps, showing convergence behavior and stability.*"
+
+    if "predictions" in stem:
+        suffix = f" for {dataset} dataset" if dataset != "General" else ""
+        return f"*Figure: Model predictions compared with ground truth samples{suffix}.*"
+
+    if "noising" in stem:
+        suffix = f" for {dataset} dataset" if dataset != "General" else ""
+        return f"*Figure: Progressive denoising trajectory across the diffusion schedule{suffix}.*"
 
     if "taguchi_main" in stem:
         desc = "Taguchi main effects"
@@ -99,8 +123,9 @@ def infer_caption(fig_path: Path) -> str:
     if metric_token is None and "taguchi" in stem:
         metric_token = stem.split("taguchi", 1)[-1].strip("_-").replace("_", " ") or None
 
-    metric_clause = f" – {metric_token}" if metric_token else " dataset"
-    return f"*Figure: {desc} for {dataset}{metric_clause}.*"
+    metric_clause = f" – {metric_token}" if metric_token else ""
+    dataset_clause = f" for {dataset} dataset" if dataset != "General" else ""
+    return f"*Figure: {desc}{dataset_clause}{metric_clause}.*"
 
 
 def write_summary_markdown(
@@ -112,6 +137,8 @@ def write_summary_markdown(
     generated_at: Optional[str] = None,
     fft_snapshot: Optional[dict[str, Any]] = None,
     taguchi_dir: Optional[Path] = None,
+    figure_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+    metric_notes: Optional[Dict[str, Dict[str, bool]]] = None,
 ) -> None:
     import pathlib
 
@@ -119,6 +146,8 @@ def write_summary_markdown(
     report_path = out_path
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines: list[str] = []
+    figure_metadata = figure_metadata or {}
+    metric_notes = metric_notes or {}
 
     lines.append("# Spectral Diffusion Benchmark Report")
     lines.append("")
@@ -190,6 +219,23 @@ def write_summary_markdown(
     if taguchi_dir is not None:
         lines.extend(_factor_primer_lines(taguchi_dir, output_dir))
 
+    psnr_missing = [
+        key for key, notes in metric_notes.items() if notes.get("high_freq_psnr_missing")
+    ]
+    if psnr_missing:
+        dataset_labels = {
+            "synthetic": "synthetic 32×32",
+            "cifar": "CIFAR-10",
+            "ablation": "ablation",
+        }
+        friendly = ", ".join(dataset_labels.get(key, key) for key in psnr_missing)
+        lines.append(
+            f"*Note: Some PSNR values could not be computed due to missing data in the {friendly} benchmark.*"
+        )
+        lines.append("")
+
+    factor_demo_section: list[str] = _factor_demo_lines(taguchi_dir, output_dir) if taguchi_dir else []
+
     if synthetic_df is not None:
         lines.append("## Synthetic Benchmark")
         lines.append("Synthetic Benchmark performance summary including throughput and spectral fidelity metrics.")
@@ -232,9 +278,6 @@ def write_summary_markdown(
     lines.append("```")
     lines.append("")
 
-    if taguchi_dir is not None:
-        lines.extend(_factor_demo_lines(taguchi_dir, output_dir))
-
     sanity_section = _cifar_sanity_lines(taguchi_dir, output_dir) if taguchi_dir else []
     if sanity_section:
         lines.extend(sanity_section)
@@ -268,9 +311,21 @@ def write_summary_markdown(
                 continue
             rel = os.path.relpath(img, output_dir)
             lines.append(f"![]({rel})")
-            caption = infer_caption(img)
+            metadata = figure_metadata.get(img.name, {})
+            caption = infer_caption_with_metadata(img, metadata)
             if caption:
                 lines.append(caption)
+            run_mapping = metadata.get("run_mapping")
+            if isinstance(run_mapping, dict) and run_mapping:
+                mapping_pairs = [f"{key} → {value}" for key, value in run_mapping.items()]
+                lines.append(f"*Run mapping:* {'; '.join(mapping_pairs)}")
+            note = metadata.get("notes")
+            if note == "targets_missing":
+                lines.append("*Note: Target samples were unavailable in the archived artifacts.*")
+            elif note == "predictions_missing":
+                lines.append("*Note: Prediction samples were unavailable; placeholder panels shown.*")
+            elif note == "noising_missing":
+                lines.append("*Note: Intermediate noising snapshots were missing; placeholders shown.*")
             lines.append("")
     else:
         lines.append("_No figures found in output directory._")
@@ -286,6 +341,9 @@ def write_summary_markdown(
         lines.extend(insight_lines)
         if insight_lines and insight_lines[-1].strip():
             lines.append("")
+
+    if factor_demo_section:
+        lines.extend(factor_demo_section)
 
     raw_text = "\n".join(lines)
     report_path.write_text(raw_text, encoding="utf-8")

@@ -1,8 +1,6 @@
 """Utility helpers for consistent publication-grade plotting."""
 from __future__ import annotations
 
-from __future__ import annotations
-
 import hashlib
 import os
 import re
@@ -20,6 +18,7 @@ __all__ = [
     "declutter_texts",
     "hash_image",
     "is_duplicate",
+    "autoscale_y",
 ]
 
 _PREFIX_RE = re.compile(r"(config_|metrics_|summary_|full_report_)", re.IGNORECASE)
@@ -115,6 +114,22 @@ def declutter_texts(ax: plt.Axes, min_dist: float = 8.0) -> None:
             text.set_visible(False)
         else:
             kept.append((x, y))
+
+
+def autoscale_y(ax: plt.Axes, sci_limit: float = 0.01) -> None:
+    """Switch to scientific notation for very small y ranges."""
+
+    try:
+        ymin, ymax = ax.get_ylim()
+    except ValueError:
+        return
+
+    if ymax == 0:
+        return
+
+    if abs(ymax) < sci_limit and abs(ymin) < sci_limit:
+        ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+        ax.yaxis.offsetText.set_fontsize(7)
 
 
 def hash_image(path: os.PathLike[str] | str) -> str:
