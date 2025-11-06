@@ -10,11 +10,33 @@ _EMOJI_RE = re.compile(
     "[\U0001F300-\U0001FAFF\U0001F100-\U0001F1FF\U00002700-\U000027BF\U00002600-\U000026FF]"
 )
 _INLINE_CODE_RE = re.compile(r"(`[^`]*`)")
-_MATH_TOKEN_RE = re.compile(
-    r"(?<!\$)\b(?:alpha|beta|gamma|delta|theta|lambda|sigma|eta|mu|nu|phi|psi|omega|kappa|rho|tau|pi)"
-    r"(?:_[A-Za-z0-9]+|\^[A-Za-z0-9]+)\b(?!\$)"
+_TOKEN_RE = re.compile(
+    r"(?<!\\)\b(?P<name>alpha|beta|gamma|delta|theta|lambda|sigma|eta|mu|nu|phi|psi|omega|kappa|rho|tau|pi)"
+    r"(?P<suffix>(?:_[A-Za-z0-9]+|\^[A-Za-z0-9]+)*)\b"
 )
-_SQRT_RE = re.compile(r"(?<!\$)(sqrt\([^`$]*?\))(?!\$)")
+_SQRT_RE = re.compile(r"sqrt\((?P<body>[^`$]*?)\)")
+_LATEX_INLINE_RE = re.compile(r"\\\((?P<body>.+?)\\\)")
+_LATEX_DISPLAY_RE = re.compile(r"\\\[(?P<body>.+?)\\\]")
+
+_GREEK_LATEX = {
+    "alpha": "alpha",
+    "beta": "beta",
+    "gamma": "gamma",
+    "delta": "delta",
+    "theta": "theta",
+    "lambda": "lambda",
+    "sigma": "sigma",
+    "eta": "eta",
+    "mu": "mu",
+    "nu": "nu",
+    "phi": "phi",
+    "psi": "psi",
+    "omega": "omega",
+    "kappa": "kappa",
+    "rho": "rho",
+    "tau": "tau",
+    "pi": "pi",
+}
 _IMAGE_LINK_RE = re.compile(r"(!?\[[^\]]*\]\()(?P<url>[^)]+)(\))")
 _HTML_IMG_RE = re.compile(r'(<img[^>]*?src=")(?P<url>[^"<>]+)(")', re.IGNORECASE)
 
@@ -79,9 +101,63 @@ def _wrap_math_segment(segment: str) -> str:
         token = match.group(0)
         return f"${token}$"
 
-    segment = _SQRT_RE.sub(wrap, segment)
-    segment = _MATH_TOKEN_RE.sub(wrap, segment)
+    segment = _LATEX_INLINE_RE.sub(lambda m: f"\\({_convert_math_body(m.group('body'))}\\)", segment)
+    segment = _LATEX_DISPLAY_RE.sub(lambda m: f"\\[{_convert_math_body(m.group('body'))}\\]", segment)
+    segment = _apply_sqrt(segment, wrap=True)
+    segment = _wrap_standalone_tokens(segment)
     return segment
+
+
+def _apply_sqrt(text: str, *, wrap: bool) -> str:
+    def repl(match: re.Match[str]) -> str:
+        body = match.group("body")
+        converted = _convert_plain_tokens(body)
+        if wrap:
+            return f"$\\sqrt{{{converted}}}$"
+        return f"\\sqrt{{{converted}}}"
+
+    return _SQRT_RE.sub(repl, text)
+
+
+def _convert_math_body(body: str) -> str:
+    converted = _apply_sqrt(body, wrap=False)
+    return _convert_plain_tokens(converted)
+
+
+def _wrap_standalone_tokens(text: str) -> str:
+    segments = text.split("$")
+    if len(segments) == 1:
+        return _TOKEN_RE.sub(_token_to_math, text)
+
+    rebuilt: list[str] = []
+    for idx, segment in enumerate(segments):
+        if idx % 2 == 1:
+            rebuilt.append(segment)
+            continue
+        rebuilt.append(_TOKEN_RE.sub(_token_to_math, segment))
+    return "$".join(rebuilt)
+
+
+def _convert_plain_tokens(text: str) -> str:
+    return _TOKEN_RE.sub(lambda m: _format_token(m.group("name"), m.group("suffix")), text)
+
+
+def _token_to_math(match: re.Match[str]) -> str:
+    latex = _format_token(match.group("name"), match.group("suffix"))
+    return f"${latex}$"
+
+
+def _format_token(name: str, suffix: str) -> str:
+    base = f"\\{_GREEK_LATEX.get(name, name)}"
+    if not suffix:
+        return base
+    formatted = []
+    for marker, value in re.findall(r"([_^])([A-Za-z0-9]+)", suffix):
+        if len(value) > 1:
+            formatted.append(f"{marker}{{{value}}}")
+        else:
+            formatted.append(f"{marker}{value}")
+    return base + "".join(formatted)
 
 
 def _relativize_paths(text: str, report_root: Path) -> str:
