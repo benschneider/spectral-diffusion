@@ -1,0 +1,41 @@
+{
+  "summary": {
+    "python_file_count": 59,
+    "total_loc": 10461,
+    "avg_loc_per_file": 177.31,
+    "functions_total": 376,
+    "avg_loc_per_function": 23.08,
+    "docstring_coverage_pct": 26.06
+  },
+  "complexity_hotspots": [
+    {"file": "src/reporting/generate_markdown.py", "complexity_score": 140, "loc": 587},
+    {"file": "src/visualization/plots.py", "complexity_score": 117, "loc": 720},
+    {"file": "src/experiments/run_experiment.py", "complexity_score": 108, "loc": 776},
+    {"file": "src/visualization/figures.py", "complexity_score": 63, "loc": 428},
+    {"file": "src/training/pipeline.py", "complexity_score": 59, "loc": 560}
+  ],
+  "file_size_histogram": {
+    "0-199": 37,
+    "200-399": 14,
+    "400-599": 6,
+    "600-799": 2
+  },
+  "testing": {
+    "test_module_count": 28,
+    "notable_cases": [
+      "tests/test_training_pipeline.py",
+      "tests/test_spectral_unet_model.py",
+      "tests/test_fft_noise_scaling.py"
+    ]
+  },
+  "config_health": {
+    "config_files": 29,
+    "taguchi_arrays": 3,
+    "schema_management": "implicit"
+  },
+  "data_flow": {
+    "primary_pipeline": "src/training/pipeline.py",
+    "spectral_noise_source": "src/spectral/fft_adapter.py",
+    "dataset_factory": "src/training/builders.py"
+  }
+}

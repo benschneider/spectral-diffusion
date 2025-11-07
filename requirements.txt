@@ -3,6 +3,7 @@ torchvision
 numpy
 pandas
 matplotlib
+h5py
 seaborn
 pyyaml
 pytest

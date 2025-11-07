@@ -98,10 +98,13 @@ Curious about the spectral weighting, FFT/iFFT flow, or why we track high-freque
 | Smoke report (fast check) | `scripts/run_smoke_report.sh` |
 | Make plots & summary | `python scripts/figures/generate_figures.py` |
 | Full pipeline (benchmarks + Taguchi + ablation + figures) | `scripts/run_full_report.sh` (includes spectral-feature ablation figure) |
+| Consolidate report artefacts | `scripts/pack_report_to_hdf5.py results/<report_dir>` |
+| Render compact overview | `scripts/render_compact_report.py results/<report_dir>.h5` |
 | Spectral toggle comparison | `python scripts/run_spectral_toggle_ablation.py` |
 | Visualise uniform corruption | `python scripts/visualize_uniform_noise.py --input path/to/image.png` |
 
-All generated metrics land under `results/…` and are safe to delete/regenerate.
+All generated metrics land under `results/…` and can now be collapsed into a
+single `*.h5` archive for long-term storage.
 
 ---
 
