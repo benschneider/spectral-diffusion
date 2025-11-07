@@ -10,6 +10,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+def _to_numpy_image(array) -> np.ndarray:
+    """Convert tensors or array-likes to NumPy for matplotlib."""
+
+    if hasattr(array, "detach") and hasattr(array, "cpu") and hasattr(array, "numpy"):
+        return array.detach().cpu().numpy()
+    return np.asarray(array)
+
+
 class DiagnosticsPlotter:
     """Render diagnostic plots for training runs."""
 
@@ -120,7 +128,7 @@ class DiagnosticsPlotter:
     def phase_attention(self, attention: np.ndarray, target_path: Path) -> Path:
         target_path.parent.mkdir(parents=True, exist_ok=True)
         fig, ax = plt.subplots(figsize=(3, 3))
-        ax.imshow(attention, cmap="magma")
+        ax.imshow(_to_numpy_image(attention), cmap="magma")
         ax.set_title("Phase Attention")
         ax.axis("off")
         fig.tight_layout()

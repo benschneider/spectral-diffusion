@@ -423,7 +423,7 @@ class SyntheticSpectralDataset(Dataset):
         import matplotlib.pyplot as plt
 
         img = self[idx][0].permute(1, 2, 0).clamp(0.0, 1.0)
-        plt.imshow(img)
+        plt.imshow(img.detach().cpu().numpy())
         plt.axis("off")
         plt.show()
 

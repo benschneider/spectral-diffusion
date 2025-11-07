@@ -11,6 +11,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from torchvision.utils import save_image
@@ -129,14 +130,21 @@ def test_synthetic_dataset():
     
     # Create visualization
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Spatial domain
-    axes[0].imshow(sample.permute(1, 2, 0).clamp(0, 1))
+
+    def _to_numpy_for_plot(t: torch.Tensor) -> np.ndarray:
+        """Detach and move a tensor to CPU NumPy for matplotlib."""
+
+        return t.detach().cpu().numpy()
+
+    # Spatial domain (convert to NumPy to avoid numpy>=2.0 copy warnings)
+    spatial_image = _to_numpy_for_plot(sample.permute(1, 2, 0).clamp(0, 1))
+    axes[0].imshow(spatial_image)
     axes[0].set_title("Spatial Domain")
     axes[0].axis("off")
     
     # Frequency domain (log scale)
-    im = axes[1].imshow(torch.log1p(mag_avg), cmap="viridis")
+    spectral_image = _to_numpy_for_plot(torch.log1p(mag_avg))
+    im = axes[1].imshow(spectral_image, cmap="viridis")
     axes[1].set_title("FFT Magnitude (log scale)")
     axes[1].axis("off")
     plt.colorbar(im, ax=axes[1])
