@@ -92,6 +92,7 @@ Curious about the spectral weighting, FFT/iFFT flow, or why we track high-freque
 |------|------------|
 | Train & sample baseline | `python train.py ...` + `python sample.py ...` |
 | Evaluate generated images | `python evaluate.py --generated-dir ... --use-fid --use-lpips` |
+| Discover available configs | `python -m src.cli.list_configs [--include-csv --filter baseline]` |
 | Synthetic vs Spectral benchmark | `scripts/run_spectral_benchmark.sh` |
 | CIFAR-10 benchmark | `python train.py --config configs/benchmark_spectral_cifar.yaml ...` |
 | Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` |
