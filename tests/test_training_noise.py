@@ -1,0 +1,78 @@
+import pytest
+import torch
+
+from src.training.noise import NoisePreparer
+
+
+def test_noise_preparer_from_config_prefers_diffusion_over_spectral():
+    config = {
+        "diffusion": {
+            "uniform_corruption": True,
+            "uniform_corruption_scale": 2.5,
+            "corruption_mode": "phase",
+            "phase_std": 0.3,
+            "similarity_target": 0.75,
+            "adaptive_rescale": True,
+            "fft_norm": "backward",
+            "snr_ratio": 1.25,
+            "dc_scale_factor": 0.4,
+        },
+        "spectral": {
+            "uniform_corruption": False,
+            "uniform_corruption_scale": 0.5,
+            "corruption_mode": "magnitude",
+            "phase_std": 0.1,
+            "similarity_target": 0.2,
+            "adaptive_rescale": False,
+            "fft_norm": "ortho",
+            "snr_ratio": 2.0,
+            "dc_scale_factor": 0.9,
+        },
+    }
+
+    preparer = NoisePreparer.from_config(config)
+
+    assert preparer.uniform_corruption is True
+    assert preparer.uniform_corruption_scale == 2.5
+    assert preparer.corruption_mode == "phase"
+    assert preparer.phase_std == 0.3
+    assert preparer.target_corr == 0.75
+    assert preparer.adaptive_rescale is True
+    assert preparer.fft_norm == "backward"
+    assert preparer.snr_ratio == 1.25
+    assert preparer.dc_scale_factor == 0.4
+
+
+def test_noise_preparer_prepare_uses_adapter(monkeypatch):
+    config = {"diffusion": {"uniform_corruption": True}}
+    preparer = NoisePreparer.from_config(config)
+
+    class DummyCoeffs:
+        def __init__(self):
+            values = torch.linspace(0.1, 0.9, steps=5)
+            self.sqrt_alphas_cumprod = values
+            self.sqrt_one_minus_alphas_cumprod = 1 - values
+
+    coeffs = DummyCoeffs()
+    clean = torch.zeros((2, 1, 2, 2))
+    timesteps = torch.tensor([1, 3])
+    captured = {}
+
+    def fake_adapter(clean_batch, noise_batch, **kwargs):
+        captured.update(kwargs)
+        stats = kwargs["stats"]
+        stats["noisy_mean"] = 1.23
+        return clean_batch + 1.0, torch.full_like(clean_batch, 0.5)
+
+    monkeypatch.setattr("src.training.noise.add_uniform_frequency_noise", fake_adapter)
+
+    batch = preparer.prepare(clean, coeffs, timesteps)
+
+    assert torch.allclose(batch.noisy, torch.ones_like(clean))
+    assert torch.allclose(batch.eps, torch.full_like(clean, 0.5))
+    assert captured["uniform_corruption"] is True
+    assert captured["strength"] == preparer.uniform_corruption_scale
+    assert batch.stats["noisy_mean"] == 1.23
+    assert batch.eps_norm == pytest.approx(1.0)
+    assert batch.sqrt_alpha_t.shape == (2, 1, 1, 1)
+    assert batch.sqrt_one_minus_alpha_t.shape == (2, 1, 1, 1)
