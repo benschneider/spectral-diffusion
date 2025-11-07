@@ -23,7 +23,13 @@ from src.training import TrainingPipeline
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Create the argument parser for the training CLI."""
+    """Create the argument parser for the training CLI.
+
+    The parser centralises every supported flag so downstream utilities and
+    documentation can reflect the available surface area in one place. It
+    returns a fully configured ``ArgumentParser`` that knows how to build a
+    runnable training configuration from command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="Train Spectral Diffusion models.")
     parser.add_argument(
         "--config",
@@ -87,7 +93,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def apply_variant_override(config: Dict[str, Any], variant: Optional[str]) -> None:
-    """Mutate the configuration to select a specific model variant."""
+    """Mutate the configuration to select a specific model variant.
+
+    Parameters
+    ----------
+    config:
+        The configuration object that will be mutated in-place.
+    variant:
+        Optional high-level variant alias provided by the CLI. ``None`` leaves
+        the configuration untouched.
+    """
     if variant:
         alias = {
             "baseline": "baseline",
@@ -111,8 +126,60 @@ def train_from_config(
     snr_ratio: Optional[float] = None,
     dc_scale_factor: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Load configuration, execute training, and log artifacts."""
-    logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
+    """Load configuration, execute training, and log artifacts.
+
+    Parameters
+    ----------
+    config_path:
+        Path to a YAML configuration file describing the experiment.
+    variant:
+        Optional alias describing a model variant. When provided the function
+        will mutate the loaded configuration to match the selected variant.
+    output_dir:
+        Root directory where run artefacts should be stored.
+    run_id:
+        Optional identifier for the run. When omitted a timestamp-based value
+        will be generated.
+    dry_run:
+        When ``True`` the training loop is skipped and only scaffolding is
+        executed. This is useful for smoke-testing environments.
+    cleanup:
+        When ``True`` the generated artefacts are removed after execution.
+    log_level:
+        Logging level to configure for the run logger.
+    json_log:
+        When ``True`` an additional JSONL log file mirroring the textual log is
+        produced.
+    snr_ratio / dc_scale_factor:
+        Optional overrides for spectral hyper-parameters.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary describing the run summary including artefact locations.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``config_path`` does not point to an existing file.
+    NotADirectoryError
+        If the requested ``output_dir`` exists but is not a directory.
+    ValueError
+        If ``log_level`` is not a valid logging level recognised by
+        :mod:`logging`.
+    """
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise NotADirectoryError(
+            f"Output directory must be a directory: {output_dir}"
+        )
+
+    level_name = log_level.upper()
+    if not hasattr(logging, level_name):
+        raise ValueError(f"Invalid log level requested: {log_level}")
+
+    logging.basicConfig(level=getattr(logging, level_name, logging.INFO))
     logger = logging.getLogger("train")
 
     config = load_config(config_path=config_path)
@@ -208,7 +275,11 @@ def train_from_config(
 
 
 def main(argv: Optional[Any] = None) -> None:
-    """Parse CLI arguments and launch a training run."""
+    """Parse CLI arguments and launch a training run.
+
+    ``argv`` mirrors :func:`argparse.ArgumentParser.parse_args` and allows tests
+    or embedding callers to supply custom argument vectors.
+    """
     parser = build_arg_parser()
     args = parser.parse_args(args=argv)
     result = train_from_config(
