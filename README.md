@@ -116,6 +116,8 @@ single `*.h5` archive for long-term storage.
 - **Samplers:** `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`, `masf` (extend via `register_sampler`).
 - **Ablations:** the full report writes `ablation/summary.csv` and `figures/spectral_feature_ablation.png`, contrasting spectral configs with and without uniform corruption + ARE/PCM + MASF.
 - **Metrics:** dataset metrics include FID/LPIPS (torchmetrics-enabled), high-frequency PSNR, convergence stats (`loss_drop_per_second`), throughput, FFT timing.
+- **Diagnostics:** runs now emit structured JSONL logs (with `--json-log`), gradient norms, and spectral-noise quicklooks inside `diagnostics/`. Taguchi sweeps automatically mirror these assets under `results/<report>/factors/<factor>/<level>/` so you can compare levels without re-running scripts.
+- **Spectral noise overrides:** CLI flags `--snr-ratio` and `--dc-scale-factor` (or matching YAML fields) feed the modular noise preparer, letting you adjust uniform corruption strength/DC attenuation without editing config files.
 
 Looking to extend the project? See **`docs/spectral_model_research.md`** for the ongoing research plan and ideas for new ablations.
 

@@ -9,14 +9,14 @@ configs/ ─► TrainingPipeline ─► results/ ─► visualization/
 ```
 
 1. **Configs** describe model, data, spectral options, optimisation.
-2. **TrainingPipeline** (in `src/training/`) builds models/samplers, runs the diffusion loop, logs metrics, checkpoints.
+2. **TrainingPipeline** (in `src/training/`) builds models/samplers, orchestrates modular noise/step/diagnostics helpers, and logs metrics + checkpoints.
 3. **Automation scripts** (e.g. `scripts/run_full_report.sh`, `scripts/run_spectral_toggle_ablation.py`) chain benchmarks, Taguchi sweeps, and focused ablations.
 4. **Visualization library** (`src/visualization/`) cleans summary CSVs and draws figures/markdown reports.
 
 ## 2. Directory map
 - `src/core/` – TinyUNet, SpectralUNet, losses, registry.
 - `src/spectral/` – FFT adapters, complex spectral layers, utilities.
-- `src/training/` – pipeline, schedulers, sampler registry.
+- `src/training/` – pipeline, schedulers, sampler registry, plus dedicated helpers for noise preparation, per-step execution, and diagnostics aggregation.
 - `src/evaluation/` – dataset metrics (MSE/MAE/PSNR, optional FID/LPIPS).
 - `src/experiments/` – Taguchi runner (`run_experiment.py`).
 - `src/visualization/` – `collect.clean_summary`, `figures.generate_figures`.
@@ -52,8 +52,9 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 
 ## 4. Figure/report workflow
 1. Generate runs (manual CLI or `scripts/run_full_report.sh` / `run_smoke_report.sh`). The smoke script now trains TinyUNet, SpectralUNet, and the new deep spectral UNet on both synthetic and CIFAR mini-setups before running the Taguchi sweep.
-2. `src/visualization.collect.clean_summary` deduplicates and labels entries (synthetic, CIFAR, Taguchi).
-3. `src/visualization.figures.generate_figures` produces:
+2. During training, `NoisePreparer`, `TrainingStepExecutor`, and `TrainingDiagnostics` emit `diagnostics/` artefacts (noise stats, gradient traces, FFT sanity images) and forward them to Taguchi factor folders via `TaguchiAggregator`.
+3. `src/visualization.collect.clean_summary` deduplicates and labels entries (synthetic, CIFAR, Taguchi).
+4. `src/visualization.figures.generate_figures` produces:
    - Bar charts, scatter trade-offs, and box plots for loss/throughput metrics
    - `taguchi_snr.png` (with contextual caption) and optional factor distributions
    - `spectral_feature_ablation.png` when an `ablation/summary.csv` is present (compares spectral toggles on/off)
@@ -62,8 +63,10 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 
 ## 5. How to extend
 - **Add a sampler**: subclass `Sampler` (`src/training/sampling.py`), register via `register_sampler("name", Class)`.
+- **Adjust noise preparation**: extend `NoisePreparer` (`src/training/noise.py`) or swap it in via `TrainingPipeline(..., noise_preparer=...)` to prototype new corruption schemes.
 - **Add a spectral adapter**: follow the patterns in `src/spectral/adapter.py` or `complex_layers.py`.
 - **Add a dataset**: update `configs/` and `src/training/builders.py` for a new loader.
+- **Customise per-step logic**: derive from `TrainingStepExecutor` (`src/training/steps.py`) to insert diagnostics or gradient tricks without touching the pipeline shell.
 - **Add plots**: extend `src/visualization/figures.py`, then call from `scripts/figures/generate_figures.py`.
 
 With this modular layout you can import the same components in notebooks, CLI scripts, or experiments without rewriting plumbing.
