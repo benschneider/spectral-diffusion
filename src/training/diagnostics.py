@@ -94,15 +94,13 @@ class TrainingDiagnostics:
         self.noise_norm_history: list[float] = []
         self.noise_norm_steps: list[int] = []
         self.fft_feedback_steps: list[int] = []
-        self.fft_amplitude_history: list[float] = []
-        self.fft_phase_history: list[float] = []
-        self.fft_real_history: list[float] = []
-        self.fft_imag_history: list[float] = []
-        self.fft_complex_history: list[float] = []
+        self.fft_history: Dict[str, list[float]] = defaultdict(list)
         self.coeff_steps: list[int] = []
         self.coeff_history: Dict[str, list[float]] = defaultdict(list)
         self.batch_steps: list[int] = []
         self.batch_history: Dict[str, list[float]] = defaultdict(list)
+        self.weight_steps: list[int] = []
+        self.weight_history: Dict[str, list[float]] = defaultdict(list)
 
         self._initial_batch_captured = False
         self._noisy_capture_done = False
@@ -197,16 +195,8 @@ class TrainingDiagnostics:
 
     def record_fft_feedback(self, step: int, feedback: Mapping[str, float]) -> None:
         self.fft_feedback_steps.append(step)
-        amplitude = float(feedback.get("amplitude_mae", 0.0))
-        phase = float(feedback.get("phase_mae", 0.0))
-        real = float(feedback.get("real_mae", 0.0))
-        imag = float(feedback.get("imag_mae", 0.0))
-        complex_val = float(feedback.get("complex_mae", 0.0))
-        self.fft_amplitude_history.append(amplitude)
-        self.fft_phase_history.append(phase)
-        self.fft_real_history.append(real)
-        self.fft_imag_history.append(imag)
-        self.fft_complex_history.append(complex_val)
+        for key, value in feedback.items():
+            self.fft_history[key].append(float(value))
 
     def record_coeff_stats(self, step: int, stats: Mapping[str, float]) -> None:
         self.coeff_steps.append(step)
@@ -217,6 +207,11 @@ class TrainingDiagnostics:
         self.batch_steps.append(step)
         for key, value in stats.items():
             self.batch_history[key].append(float(value))
+
+    def record_weight_stats(self, step: int, stats: Mapping[str, float]) -> None:
+        self.weight_steps.append(step)
+        for key, value in stats.items():
+            self.weight_history[key].append(float(value))
 
     def record_gradients(self, model: nn.Module, step: int) -> Optional[float]:
         total_norm_sq = 0.0
@@ -265,19 +260,10 @@ class TrainingDiagnostics:
             )
 
         if self.fft_feedback_steps:
-            payload = {
-                "steps": self.fft_feedback_steps,
-                "amplitude_mae": self.fft_amplitude_history,
-                "phase_mae": self.fft_phase_history,
-                "real_mae": self.fft_real_history,
-                "imag_mae": self.fft_imag_history,
-                "complex_mae": self.fft_complex_history,
-                "amplitude_mean": mean(self.fft_amplitude_history),
-                "phase_mean": mean(self.fft_phase_history),
-                "real_mean": mean(self.fft_real_history),
-                "imag_mean": mean(self.fft_imag_history),
-                "complex_mean": mean(self.fft_complex_history),
-            }
+            payload = {"steps": self.fft_feedback_steps}
+            for key, values in self.fft_history.items():
+                payload[key] = values
+                payload[f"{key}_mean"] = mean(values) if values else None
             target = self.diagnostics_dir / "fft_feedback.json"
             with target.open("w", encoding="utf-8") as handle:
                 json.dump(payload, handle, indent=2)
@@ -311,3 +297,14 @@ class TrainingDiagnostics:
                     target,
                     factor_dir / f"batch_signal_stats_{self.run_id}.json",
                 )
+
+        if self.weight_history:
+            payload = {"steps": self.weight_steps}
+            for key, values in self.weight_history.items():
+                payload[key] = values
+                payload[f"{key}_mean"] = mean(values) if values else None
+            target = self.diagnostics_dir / "snr_weights.json"
+            with target.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+            for factor, factor_dir in self.aggregator.iter_factor_dirs():
+                shutil.copy(target, factor_dir / f"snr_weights_{self.run_id}.json")

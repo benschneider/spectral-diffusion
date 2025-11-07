@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 
+import json
+from types import SimpleNamespace
+
 import pytest
 import torch
 from torch import nn
@@ -118,10 +121,12 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
             "real_mae": 0.3,
             "imag_mae": 0.4,
             "complex_mae": 0.5,
+            "amplitude_low_mae": 0.15,
         },
     )
     diagnostics.record_coeff_stats(1, {"timestep_mean": 3.0, "snr_mean": 1.5})
     diagnostics.record_batch_stats(1, {"prediction_mean": 0.1, "target_std": 0.05})
+    diagnostics.record_weight_stats(1, {"snr_weight_min": 0.2, "snr_weight_max": 0.4})
 
     diagnostics.finalise()
 
@@ -146,6 +151,10 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     fft_feedback_file = diagnostics.diagnostics_dir / "fft_feedback.json"
     assert fft_feedback_file.exists()
     assert (spectral_dir / "fft_feedback_demo.json").exists()
+    payload = json.loads(fft_feedback_file.read_text())
+    assert "amplitude_mae" in payload
+    assert "amplitude_low_mae" in payload
+    assert "amplitude_mae_mean" in payload
 
     coeff_file = diagnostics.diagnostics_dir / "diffusion_coefficients.json"
     batch_file = diagnostics.diagnostics_dir / "batch_signal_stats.json"
@@ -153,6 +162,9 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     assert batch_file.exists()
     assert (spectral_dir / "diffusion_coefficients_demo.json").exists()
     assert (spectral_dir / "batch_signal_stats_demo.json").exists()
+    weights_file = diagnostics.diagnostics_dir / "snr_weights.json"
+    assert weights_file.exists()
+    assert (spectral_dir / "snr_weights_demo.json").exists()
 
     assert plotter.loss_calls
     assert plotter.tail_calls

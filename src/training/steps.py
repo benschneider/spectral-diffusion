@@ -11,6 +11,29 @@ from src.core.functional import compute_snr_weight, compute_target
 from src.training.noise import NoiseBatch
 
 
+def _radial_frequency_masks(
+    height: int, width: int, device: torch.device, boundaries: tuple[float, ...]
+) -> Dict[str, torch.Tensor]:
+    """Return radial frequency masks for low/mid/high bands."""
+
+    if len(boundaries) != 4:
+        raise ValueError("Expected boundaries to describe three bands")
+
+    fy = torch.fft.fftfreq(height, device=device)
+    fx = torch.fft.fftfreq(width, device=device)
+    yy = fy[:, None]
+    xx = fx[None, :]
+    radius = torch.sqrt(xx**2 + yy**2)
+
+    labels = ("low", "mid", "high")
+    masks: Dict[str, torch.Tensor] = {}
+    for label, lower, upper in zip(labels, boundaries[:-1], boundaries[1:]):
+        mask = (radius >= lower) & (radius < upper)
+        if torch.any(mask):
+            masks[label] = mask
+    return masks
+
+
 def compute_fft_feedback(
     prediction: Tensor, target: Tensor, *, fft_norm: str = "ortho"
 ) -> Dict[str, float]:
@@ -20,7 +43,8 @@ def compute_fft_feedback(
     target_fft = torch.fft.fftn(target.detach(), dim=(-2, -1), norm=fft_norm)
 
     amplitude_delta = pred_fft.abs() - target_fft.abs()
-    amplitude_mae = float(amplitude_delta.abs().mean().item())
+    amplitude_error = amplitude_delta.abs()
+    amplitude_mae = float(amplitude_error.mean().item())
 
     phase_pred = torch.angle(pred_fft)
     phase_target = torch.angle(target_fft)
@@ -28,11 +52,33 @@ def compute_fft_feedback(
         torch.sin(phase_pred - phase_target),
         torch.cos(phase_pred - phase_target),
     )
-    phase_mae = float(phase_delta.abs().mean().item())
+    phase_error = phase_delta.abs()
+    phase_mae = float(phase_error.mean().item())
 
     real_mae = float((pred_fft.real - target_fft.real).abs().mean().item())
     imag_mae = float((pred_fft.imag - target_fft.imag).abs().mean().item())
-    complex_mae = float((pred_fft - target_fft).abs().mean().item())
+    complex_delta = pred_fft - target_fft
+    complex_error = complex_delta.abs()
+    complex_mae = float(complex_error.mean().item())
+
+    height, width = prediction.shape[-2:]
+    boundaries = (0.0, 0.12, 0.28, float("inf"))
+    masks = _radial_frequency_masks(height, width, prediction.device, boundaries)
+
+    band_metrics: Dict[str, float] = {}
+    for label, mask in masks.items():
+        amplitude_band = amplitude_error[..., mask]
+        phase_band = phase_error[..., mask]
+        complex_band = complex_error[..., mask]
+        if amplitude_band.numel() > 0:
+            band_metrics[f"amplitude_{label}_mae"] = float(amplitude_band.mean().item())
+        if phase_band.numel() > 0:
+            band_metrics[f"phase_{label}_mae"] = float(phase_band.mean().item())
+        if complex_band.numel() > 0:
+            band_metrics[f"complex_{label}_mae"] = float(complex_band.mean().item())
+
+    dc_error = amplitude_error[..., 0, 0]
+    band_metrics["amplitude_dc_mae"] = float(dc_error.mean().item())
 
     return {
         "amplitude_mae": amplitude_mae,
@@ -40,6 +86,7 @@ def compute_fft_feedback(
         "real_mae": real_mae,
         "imag_mae": imag_mae,
         "complex_mae": complex_mae,
+        **band_metrics,
     }
 
 
@@ -53,6 +100,7 @@ class StepOutcome:
     fft_feedback: Dict[str, float]
     coeff_stats: Dict[str, float]
     batch_stats: Dict[str, float]
+    weight_stats: Optional[Dict[str, float]] = None
 
 
 class TrainingStepExecutor:
@@ -104,6 +152,14 @@ class TrainingStepExecutor:
         loss = self.loss_fn(residual, weight)
         mae = F.l1_loss(prediction, target)
 
+        weight_stats: Optional[Dict[str, float]] = None
+        if weight is not None:
+            weight_stats = {
+                "min": float(weight.min().item()),
+                "max": float(weight.max().item()),
+                "mean": float(weight.mean().item()),
+            }
+
         fft_feedback = compute_fft_feedback(
             prediction,
             target,
@@ -144,6 +200,7 @@ class TrainingStepExecutor:
             "residual_mean": float(residual.detach().mean().item()),
             "residual_std": float(residual.detach().std().item()),
             "residual_abs_max": float(residual.detach().abs().max().item()),
+            "residual_mse": float(residual.detach().pow(2).mean().item()),
         }
 
         self.optimizer.zero_grad(set_to_none=True)
@@ -158,4 +215,5 @@ class TrainingStepExecutor:
             fft_feedback=fft_feedback,
             coeff_stats=coeff_stats,
             batch_stats=batch_stats,
+            weight_stats=weight_stats,
         )

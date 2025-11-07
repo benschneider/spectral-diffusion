@@ -1,5 +1,6 @@
 import logging
 import os
+from collections import defaultdict
 from pathlib import Path
 from statistics import mean
 from time import perf_counter
@@ -81,15 +82,10 @@ class TrainingPipeline:
         snr_ratio_value = noise_preparer.snr_ratio
         dc_scale_factor = noise_preparer.dc_scale_factor
 
-        fft_feedback_history: Dict[str, list[float]] = {
-            "amplitude_mae": [],
-            "phase_mae": [],
-            "real_mae": [],
-            "imag_mae": [],
-            "complex_mae": [],
-        }
+        fft_feedback_history: Dict[str, list[float]] = defaultdict(list)
         coeff_history: Dict[str, list[float]] = {}
         batch_history: Dict[str, list[float]] = {}
+        weight_history: Dict[str, list[float]] = defaultdict(list)
 
         for epoch in range(epochs):
             for batch_idx, (xb, _) in enumerate(self.loader):
@@ -124,15 +120,22 @@ class TrainingPipeline:
                 diagnostics.record_fft_feedback(step, outcome.fft_feedback)
                 diagnostics.record_coeff_stats(step, outcome.coeff_stats)
                 diagnostics.record_batch_stats(step, outcome.batch_stats)
+                if outcome.weight_stats:
+                    prefixed = {
+                        f"snr_weight_{key}": float(value)
+                        for key, value in outcome.weight_stats.items()
+                    }
+                    diagnostics.record_weight_stats(step, prefixed)
 
-                for key, values in fft_feedback_history.items():
-                    metric_val = outcome.fft_feedback.get(key)
-                    if metric_val is not None:
-                        values.append(float(metric_val))
+                for key, metric_val in outcome.fft_feedback.items():
+                    fft_feedback_history[key].append(float(metric_val))
                 for key, value in outcome.coeff_stats.items():
                     coeff_history.setdefault(key, []).append(float(value))
                 for key, value in outcome.batch_stats.items():
                     batch_history.setdefault(key, []).append(float(value))
+                if outcome.weight_stats:
+                    for key, value in outcome.weight_stats.items():
+                        weight_history[key].append(float(value))
 
                 if step % log_every == 0:
                     mean_val = noise_batch.stats.get("noisy_mean") if noise_batch.stats else None
@@ -196,6 +199,10 @@ class TrainingPipeline:
             f"batch_{key}_mean": (mean(vals) if vals else None)
             for key, vals in batch_history.items()
         }
+        weight_means = {
+            f"snr_weight_{key}_mean": (mean(vals) if vals else None)
+            for key, vals in weight_history.items()
+        }
         metrics = compute_basic_metrics(
             loss_history=loss_history,
             mae_history=mae_history,
@@ -236,6 +243,12 @@ class TrainingPipeline:
                     if vals
                 },
                 **batch_means,
+                **{
+                    f"snr_weight_{key}_history": [float(v) for v in vals]
+                    for key, vals in weight_history.items()
+                    if vals
+                },
+                **weight_means,
             },
         )
         diagnostics.finalise()

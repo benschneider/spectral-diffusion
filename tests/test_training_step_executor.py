@@ -85,6 +85,10 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
     assert captured["fft_norm"] == "ortho"
     assert "timestep_mean" in outcome.coeff_stats
     assert "prediction_mean" in outcome.batch_stats
+    assert outcome.weight_stats is not None
+    assert outcome.weight_stats["min"] == pytest.approx(1.0)
+    assert outcome.weight_stats["max"] == pytest.approx(1.0)
+    assert outcome.weight_stats["mean"] == pytest.approx(1.0)
 
 
 def test_step_executor_handles_absent_weight(monkeypatch):
@@ -130,6 +134,7 @@ def test_step_executor_handles_absent_weight(monkeypatch):
     )
     timesteps = torch.tensor([0])
 
-    executor.run_step(clean, noise_batch, timesteps)
+    outcome = executor.run_step(clean, noise_batch, timesteps)
 
     assert loss_weights[-1] is None
+    assert outcome.weight_stats is None

@@ -313,12 +313,23 @@ def run_step_recorder(
             denoised = None
 
         residual = pred - target
-        weight = compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform) if snr_weighting else None
+        weight = (
+            compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform)
+            if snr_weighting
+            else None
+        )
         loss = loss_fn(residual, weight)
         mae = F.l1_loss(pred.detach(), target.detach())
         fft_feedback = compute_fft_feedback(pred, target, fft_norm=fft_norm)
         loss_value = float(loss.detach().cpu())
         mae_value = float(mae.detach().cpu())
+        weight_stats = None
+        if weight is not None:
+            weight_stats = {
+                "snr_weight_min": float(weight.min().item()),
+                "snr_weight_max": float(weight.max().item()),
+                "snr_weight_mean": float(weight.mean().item()),
+            }
 
         timestep_min = int(t.min().item())
         timestep_max = int(t.max().item())
@@ -380,6 +391,7 @@ def run_step_recorder(
             "residual_mean": residual_mean,
             "residual_std": residual_std,
             "residual_abs_max": residual_abs_max,
+            "residual_mse": float(residual.detach().pow(2).mean().item()),
         }
         if noise_stats:
             record["structure_corr_pre"] = noise_stats.get("structure_corr_pre")
@@ -406,6 +418,8 @@ def run_step_recorder(
 
         for key, value in fft_feedback.items():
             record[f"fft_{key}"] = float(value)
+        if weight_stats:
+            record.update(weight_stats)
         step_records.append(record)
 
         if uniform_corruption and corr < 0.4:
@@ -458,6 +472,14 @@ def run_step_recorder(
                     residual_abs_max,
                 )
             )
+            if weight_stats:
+                print(
+                    "[SNRWeight] min={:.6f} max={:.6f} mean={:.6f}".format(
+                        weight_stats["snr_weight_min"],
+                        weight_stats["snr_weight_max"],
+                        weight_stats["snr_weight_mean"],
+                    )
+                )
 
             def _save_raw(tensor: torch.Tensor, path: Path, name: str) -> None:
                 tensor = tensor.detach().cpu()
@@ -495,6 +517,28 @@ def run_step_recorder(
                 out_dir=save_root,
                 prefix="",
             )
+            band_line = ", ".join(
+                f"{label}={fft_feedback.get(name, float('nan')):.6f}"
+                for label, name in (
+                    ("amp_low", "amplitude_low_mae"),
+                    ("amp_mid", "amplitude_mid_mae"),
+                    ("amp_high", "amplitude_high_mae"),
+                )
+                if name in fft_feedback
+            )
+            if band_line:
+                print(f"[FFTAmplitudeBands] {band_line}")
+            phase_line = ", ".join(
+                f"{label}={fft_feedback.get(name, float('nan')):.6f}"
+                for label, name in (
+                    ("phase_low", "phase_low_mae"),
+                    ("phase_mid", "phase_mid_mae"),
+                    ("phase_high", "phase_high_mae"),
+                )
+                if name in fft_feedback
+            )
+            if phase_line:
+                print(f"[FFTPhaseBands] {phase_line}")
 
     metrics_path = out_dir / "step_metrics.jsonl"
     with metrics_path.open("w", encoding="utf-8") as handle:
