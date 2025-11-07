@@ -412,7 +412,6 @@ def run_step_recorder(
             _save_raw(pred, save_root / "predicted_noise.png", "predicted_noise")
             if denoised is not None:
                 _save_raw(denoised, save_root / "prediction.png", "prediction")
-                _save_raw(denoised, save_root / "prediction_x0.png", "prediction_x0")
             else:
                 # Fall back to the raw model output if we cannot infer x0.
                 _save_raw(pred, save_root / "prediction.png", "prediction")
