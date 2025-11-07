@@ -62,6 +62,9 @@ def test_training_pipeline_runs_end_to_end(tmp_path):
     assert metrics["num_steps"] == expected_steps
     assert metrics["loss_mean"] is not None
     assert metrics["mae_mean"] is not None
+    assert metrics["fft_amplitude_mae_mean"] is not None
+    assert metrics["fft_phase_mae_mean"] is not None
+    assert metrics["fft_amplitude_mae_history"]
     assert "sampling_images_dir" not in metrics
 
     sanity_dir = tmp_path / "sanity"

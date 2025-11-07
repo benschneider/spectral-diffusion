@@ -1,6 +1,7 @@
 import logging
 import os
 from pathlib import Path
+from statistics import mean
 from time import perf_counter
 from typing import Any, Dict, Optional, Tuple
 
@@ -80,6 +81,14 @@ class TrainingPipeline:
         snr_ratio_value = noise_preparer.snr_ratio
         dc_scale_factor = noise_preparer.dc_scale_factor
 
+        fft_feedback_history: Dict[str, list[float]] = {
+            "amplitude_mae": [],
+            "phase_mae": [],
+            "real_mae": [],
+            "imag_mae": [],
+            "complex_mae": [],
+        }
+
         for epoch in range(epochs):
             for batch_idx, (xb, _) in enumerate(self.loader):
                 xb = xb.to(self.device)
@@ -110,11 +119,24 @@ class TrainingPipeline:
                 diagnostics.record_loss(step, outcome.loss)
                 diagnostics.record_mae(step, outcome.mae)
                 diagnostics.record_noise_norm(step, noise_batch.eps_norm)
+                diagnostics.record_fft_feedback(step, outcome.fft_feedback)
+
+                for key, values in fft_feedback_history.items():
+                    metric_val = outcome.fft_feedback.get(key)
+                    if metric_val is not None:
+                        values.append(float(metric_val))
 
                 if step % log_every == 0:
                     mean_val = noise_batch.stats.get("noisy_mean") if noise_batch.stats else None
                     std_val = noise_batch.stats.get("noisy_std") if noise_batch.stats else None
-                    self.logger.info("epoch %d step %d loss %.5f", epoch, step, outcome.loss)
+                    self.logger.info(
+                        "epoch %d step %d loss %.5f amp_mae %.5f phase_mae %.5f",
+                        epoch,
+                        step,
+                        outcome.loss,
+                        outcome.fft_feedback.get("amplitude_mae", float("nan")),
+                        outcome.fft_feedback.get("phase_mae", float("nan")),
+                    )
                     self.logger.debug(
                         "spectral noise stats: snr_ratio=%.3f mean=%.3f std=%.3f",
                         snr_ratio_value if snr_ratio_value is not None else float("nan"),
@@ -154,6 +176,10 @@ class TrainingPipeline:
             if loss_drop is not None and runtime_seconds > 0
             else None
         )
+        fft_means = {
+            f"fft_{key}_mean": (mean(vals) if vals else None)
+            for key, vals in fft_feedback_history.items()
+        }
         metrics = compute_basic_metrics(
             loss_history=loss_history,
             mae_history=mae_history,
@@ -176,6 +202,12 @@ class TrainingPipeline:
                 "mae_history": [float(v) for v in mae_history],
                 "snr_ratio": snr_ratio_value,
                 "dc_scale_factor": dc_scale_factor,
+                **{
+                    f"fft_{key}_history": [float(v) for v in vals]
+                    for key, vals in fft_feedback_history.items()
+                    if vals
+                },
+                **fft_means,
             },
         )
         diagnostics.finalise()
@@ -225,6 +257,10 @@ class TrainingPipeline:
             prediction_type = diffusion_cfg.get("prediction_type", "eps")
             snr_weighting = bool(diffusion_cfg.get("snr_weighting", False))
             snr_transform = str(diffusion_cfg.get("snr_transform", "snr"))
+            fft_norm = (
+                getattr(self._noise_preparer, "fft_norm", None)
+                or str(diffusion_cfg.get("fft_norm", "ortho"))
+            )
             self._step_executor = TrainingStepExecutor(
                 model=self.model,
                 optimizer=self.optimizer,
@@ -232,6 +268,7 @@ class TrainingPipeline:
                 prediction_type=str(prediction_type),
                 snr_weighting=snr_weighting,
                 snr_transform=snr_transform,
+                fft_norm=str(fft_norm),
             )
 
 

@@ -110,6 +110,16 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     diagnostics.record_loss(1, 0.5)
     diagnostics.record_mae(1, 0.25)
     diagnostics.record_noise_norm(1, 1.5)
+    diagnostics.record_fft_feedback(
+        1,
+        {
+            "amplitude_mae": 0.1,
+            "phase_mae": 0.2,
+            "real_mae": 0.3,
+            "imag_mae": 0.4,
+            "complex_mae": 0.5,
+        },
+    )
 
     diagnostics.finalise()
 
@@ -130,6 +140,10 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     assert (sampler_dir / "demo_loss_grad_demo.png").exists()
     assert (sampler_dir / "demo_noise_norm_demo.png").exists()
     assert (phase_dir / "demo_phase_attention_demo.png").exists()
+
+    fft_feedback_file = diagnostics.diagnostics_dir / "fft_feedback.json"
+    assert fft_feedback_file.exists()
+    assert (spectral_dir / "fft_feedback_demo.json").exists()
 
     assert plotter.loss_calls
     assert plotter.tail_calls

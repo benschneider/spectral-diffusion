@@ -204,7 +204,9 @@ def add_uniform_frequency_noise(
 
     snr_scale_tensor = torch.ones_like(sqrt_one_minus_alpha_t_complex)
     if snr_ratio is not None:
-        signal_center = x0 - x0.mean(dim=channel_dims, keepdim=True)
+        signal_center = signal_component - signal_component.mean(
+            dim=channel_dims, keepdim=True
+        )
         signal_rms = _per_sample_rms(signal_center)
         noise_rms = _per_sample_rms(noise_component)
         scale = (signal_rms / (noise_rms + 1e-8)) / float(snr_ratio)
@@ -237,8 +239,11 @@ def add_uniform_frequency_noise(
         stats["fft_corr"] = fft_corr
         if snr_ratio is not None:
             stats["snr_ratio"] = snr_ratio
-            signal_rms_measured = _per_sample_rms(x0 - x0.mean(dim=channel_dims, keepdim=True))
-            noise_rms_measured = _per_sample_rms(x_t - x0)
+            signal_center = signal_component - signal_component.mean(
+                dim=channel_dims, keepdim=True
+            )
+            signal_rms_measured = _per_sample_rms(signal_center)
+            noise_rms_measured = _per_sample_rms(noise_component)
             stats["snr_measured"] = float(
                 (signal_rms_measured / (noise_rms_measured + 1e-8)).mean().item()
             )

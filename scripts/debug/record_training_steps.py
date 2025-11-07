@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 import torch
+import torch.nn.functional as F
 from torchvision.utils import save_image
 from torch.utils.data import DataLoader
 
@@ -31,6 +32,7 @@ from src.core.functional import compute_snr_weight, compute_target
 from src.spectral.fft_adapter import add_uniform_frequency_noise
 from src.training.builders import build_dataloader, build_optimizer
 from src.training.scheduler import build_diffusion, sample_timesteps
+from src.training.steps import compute_fft_feedback
 from src.utils.sanity_checks import check_fft_sanity
 
 
@@ -313,6 +315,10 @@ def run_step_recorder(
         residual = pred - target
         weight = compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform) if snr_weighting else None
         loss = loss_fn(residual, weight)
+        mae = F.l1_loss(pred.detach(), target.detach())
+        fft_feedback = compute_fft_feedback(pred, target, fft_norm=fft_norm)
+        loss_value = float(loss.detach().cpu())
+        mae_value = float(mae.detach().cpu())
 
         optimiser.zero_grad(set_to_none=True)
         loss.backward()
@@ -327,7 +333,8 @@ def run_step_recorder(
 
         record: Dict[str, Any] = {
             "step": step,
-            "loss": float(loss.detach().cpu()),
+            "loss": loss_value,
+            "mae": mae_value,
             "grad_norm": grad_norm,
             "param_delta": param_delta,
             "noise_norm": float(
@@ -361,6 +368,9 @@ def run_step_recorder(
 
         if effective_snr_ratio is not None:
             record["snr_ratio"] = effective_snr_ratio
+
+        for key, value in fft_feedback.items():
+            record[f"fft_{key}"] = float(value)
         step_records.append(record)
 
         if uniform_corruption and corr < 0.4:
@@ -369,6 +379,23 @@ def run_step_recorder(
         if step % log_interval == 0 or step == steps - 1:
             save_root = out_dir / f"step_{step:04d}"
             save_root.mkdir(parents=True, exist_ok=True)
+
+            print(
+                f"[Loss] step={step} loss={loss_value:.6f} mae={mae_value:.6f}"
+            )
+            print(
+                "[FFTFeedback] "
+                + ", ".join(
+                    f"{name}={fft_feedback[name]:.6f}"
+                    for name in [
+                        "amplitude_mae",
+                        "phase_mae",
+                        "real_mae",
+                        "imag_mae",
+                        "complex_mae",
+                    ]
+                )
+            )
 
             def _save_raw(tensor: torch.Tensor, path: Path, name: str) -> None:
                 tensor = tensor.detach().cpu()
@@ -430,6 +457,7 @@ def run_step_recorder(
                 "device": str(device_obj),
                 "log_interval": log_interval,
                 "final_loss": step_records[-1]["loss"] if step_records else None,
+                "final_mae": step_records[-1]["mae"] if step_records else None,
                 "mean_structure_corr": _mean("structure_corr"),
                 "mean_corr_pre": _mean("structure_corr_pre"),
                 "mean_corr_post": _mean("structure_corr_post"),
@@ -439,6 +467,11 @@ def run_step_recorder(
                 "mean_phase_rms": _mean("phase_rms"),
                 "mean_signal_energy": _mean("signal_energy"),
                 "mean_noise_energy": _mean("noise_energy"),
+                "mean_fft_amplitude_mae": _mean("fft_amplitude_mae"),
+                "mean_fft_phase_mae": _mean("fft_phase_mae"),
+                "mean_fft_real_mae": _mean("fft_real_mae"),
+                "mean_fft_imag_mae": _mean("fft_imag_mae"),
+                "mean_fft_complex_mae": _mean("fft_complex_mae"),
                 "recorder_version": RECORDER_VERSION,
                 "normalization_disabled": True,
                 "snr_ratio": effective_snr_ratio,

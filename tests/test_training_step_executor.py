@@ -28,8 +28,19 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
         captured["weight_args"] = transform
         return torch.ones_like(sqrt_alpha)
 
+    def fake_fft_feedback(prediction, target, fft_norm="ortho"):
+        captured["fft_norm"] = fft_norm
+        return {
+            "amplitude_mae": 1.0,
+            "phase_mae": 0.5,
+            "real_mae": 0.25,
+            "imag_mae": 0.75,
+            "complex_mae": 0.9,
+        }
+
     monkeypatch.setattr("src.training.steps.compute_target", fake_compute_target)
     monkeypatch.setattr("src.training.steps.compute_snr_weight", fake_compute_snr_weight)
+    monkeypatch.setattr("src.training.steps.compute_fft_feedback", fake_fft_feedback)
 
     def loss_fn(residual, weight):
         captured["loss_weight"] = weight
@@ -42,6 +53,7 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
         prediction_type="eps",
         snr_weighting=True,
         snr_transform="logsnr",
+        fft_norm="ortho",
     )
 
     clean = torch.zeros((1, 1, 2, 2))
@@ -69,6 +81,8 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
     assert captured["loss_weight"].shape == (1, 1, 1, 1)
     assert outcome.grad_norm == pytest.approx(3.0)
     assert outcome.loss > 0
+    assert outcome.fft_feedback["amplitude_mae"] == pytest.approx(1.0)
+    assert captured["fft_norm"] == "ortho"
 
 
 def test_step_executor_handles_absent_weight(monkeypatch):
@@ -100,6 +114,7 @@ def test_step_executor_handles_absent_weight(monkeypatch):
         prediction_type="eps",
         snr_weighting=False,
         snr_transform="snr",
+        fft_norm="backward",
     )
 
     clean = torch.zeros((1, 1, 2, 2))

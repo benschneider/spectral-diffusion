@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import shutil
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import mean
 from typing import Dict, Iterable, Mapping, Optional
 
 import numpy as np
@@ -90,6 +92,12 @@ class TrainingDiagnostics:
         self.grad_norm_steps: list[int] = []
         self.noise_norm_history: list[float] = []
         self.noise_norm_steps: list[int] = []
+        self.fft_feedback_steps: list[int] = []
+        self.fft_amplitude_history: list[float] = []
+        self.fft_phase_history: list[float] = []
+        self.fft_real_history: list[float] = []
+        self.fft_imag_history: list[float] = []
+        self.fft_complex_history: list[float] = []
 
         self._initial_batch_captured = False
         self._noisy_capture_done = False
@@ -182,6 +190,19 @@ class TrainingDiagnostics:
         self.noise_norm_steps.append(step)
         self.noise_norm_history.append(norm)
 
+    def record_fft_feedback(self, step: int, feedback: Mapping[str, float]) -> None:
+        self.fft_feedback_steps.append(step)
+        amplitude = float(feedback.get("amplitude_mae", 0.0))
+        phase = float(feedback.get("phase_mae", 0.0))
+        real = float(feedback.get("real_mae", 0.0))
+        imag = float(feedback.get("imag_mae", 0.0))
+        complex_val = float(feedback.get("complex_mae", 0.0))
+        self.fft_amplitude_history.append(amplitude)
+        self.fft_phase_history.append(phase)
+        self.fft_real_history.append(real)
+        self.fft_imag_history.append(imag)
+        self.fft_complex_history.append(complex_val)
+
     def record_gradients(self, model: nn.Module, step: int) -> Optional[float]:
         total_norm_sq = 0.0
         for param in model.parameters():
@@ -227,3 +248,23 @@ class TrainingDiagnostics:
                 sampler_dir,
                 self.run_id,
             )
+
+        if self.fft_feedback_steps:
+            payload = {
+                "steps": self.fft_feedback_steps,
+                "amplitude_mae": self.fft_amplitude_history,
+                "phase_mae": self.fft_phase_history,
+                "real_mae": self.fft_real_history,
+                "imag_mae": self.fft_imag_history,
+                "complex_mae": self.fft_complex_history,
+                "amplitude_mean": mean(self.fft_amplitude_history),
+                "phase_mean": mean(self.fft_phase_history),
+                "real_mean": mean(self.fft_real_history),
+                "imag_mean": mean(self.fft_imag_history),
+                "complex_mean": mean(self.fft_complex_history),
+            }
+            target = self.diagnostics_dir / "fft_feedback.json"
+            with target.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+            for factor, factor_dir in self.aggregator.iter_factor_dirs():
+                shutil.copy(target, factor_dir / f"fft_feedback_{self.run_id}.json")
