@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import json
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
@@ -98,6 +99,10 @@ class TrainingDiagnostics:
         self.fft_real_history: list[float] = []
         self.fft_imag_history: list[float] = []
         self.fft_complex_history: list[float] = []
+        self.coeff_steps: list[int] = []
+        self.coeff_history: Dict[str, list[float]] = defaultdict(list)
+        self.batch_steps: list[int] = []
+        self.batch_history: Dict[str, list[float]] = defaultdict(list)
 
         self._initial_batch_captured = False
         self._noisy_capture_done = False
@@ -203,6 +208,16 @@ class TrainingDiagnostics:
         self.fft_imag_history.append(imag)
         self.fft_complex_history.append(complex_val)
 
+    def record_coeff_stats(self, step: int, stats: Mapping[str, float]) -> None:
+        self.coeff_steps.append(step)
+        for key, value in stats.items():
+            self.coeff_history[key].append(float(value))
+
+    def record_batch_stats(self, step: int, stats: Mapping[str, float]) -> None:
+        self.batch_steps.append(step)
+        for key, value in stats.items():
+            self.batch_history[key].append(float(value))
+
     def record_gradients(self, model: nn.Module, step: int) -> Optional[float]:
         total_norm_sq = 0.0
         for param in model.parameters():
@@ -268,3 +283,31 @@ class TrainingDiagnostics:
                 json.dump(payload, handle, indent=2)
             for factor, factor_dir in self.aggregator.iter_factor_dirs():
                 shutil.copy(target, factor_dir / f"fft_feedback_{self.run_id}.json")
+
+        if self.coeff_history:
+            payload = {"steps": self.coeff_steps}
+            for key, values in self.coeff_history.items():
+                payload[key] = values
+                payload[f"{key}_mean"] = mean(values) if values else None
+            target = self.diagnostics_dir / "diffusion_coefficients.json"
+            with target.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+            for factor, factor_dir in self.aggregator.iter_factor_dirs():
+                shutil.copy(
+                    target,
+                    factor_dir / f"diffusion_coefficients_{self.run_id}.json",
+                )
+
+        if self.batch_history:
+            payload = {"steps": self.batch_steps}
+            for key, values in self.batch_history.items():
+                payload[key] = values
+                payload[f"{key}_mean"] = mean(values) if values else None
+            target = self.diagnostics_dir / "batch_signal_stats.json"
+            with target.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+            for factor, factor_dir in self.aggregator.iter_factor_dirs():
+                shutil.copy(
+                    target,
+                    factor_dir / f"batch_signal_stats_{self.run_id}.json",
+                )

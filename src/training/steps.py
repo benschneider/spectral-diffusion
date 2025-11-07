@@ -51,6 +51,8 @@ class StepOutcome:
     mae: float
     grad_norm: Optional[float]
     fft_feedback: Dict[str, float]
+    coeff_stats: Dict[str, float]
+    batch_stats: Dict[str, float]
 
 
 class TrainingStepExecutor:
@@ -108,6 +110,42 @@ class TrainingStepExecutor:
             fft_norm=self.fft_norm,
         )
 
+        snr = (noise_batch.sqrt_alpha_t**2) / (
+            noise_batch.sqrt_one_minus_alpha_t**2 + 1e-8
+        )
+        coeff_stats = {
+            "timestep_min": float(timesteps.min().item()),
+            "timestep_max": float(timesteps.max().item()),
+            "timestep_mean": float(timesteps.float().mean().item()),
+            "sqrt_alpha_min": float(noise_batch.sqrt_alpha_t.min().item()),
+            "sqrt_alpha_max": float(noise_batch.sqrt_alpha_t.max().item()),
+            "sqrt_alpha_mean": float(noise_batch.sqrt_alpha_t.mean().item()),
+            "sqrt_one_minus_min": float(
+                noise_batch.sqrt_one_minus_alpha_t.min().item()
+            ),
+            "sqrt_one_minus_max": float(
+                noise_batch.sqrt_one_minus_alpha_t.max().item()
+            ),
+            "sqrt_one_minus_mean": float(
+                noise_batch.sqrt_one_minus_alpha_t.mean().item()
+            ),
+            "snr_min": float(snr.min().item()),
+            "snr_max": float(snr.max().item()),
+            "snr_mean": float(snr.mean().item()),
+        }
+
+        batch_stats = {
+            "prediction_mean": float(prediction.detach().mean().item()),
+            "prediction_std": float(prediction.detach().std().item()),
+            "prediction_abs_max": float(prediction.detach().abs().max().item()),
+            "target_mean": float(target.detach().mean().item()),
+            "target_std": float(target.detach().std().item()),
+            "target_abs_max": float(target.detach().abs().max().item()),
+            "residual_mean": float(residual.detach().mean().item()),
+            "residual_std": float(residual.detach().std().item()),
+            "residual_abs_max": float(residual.detach().abs().max().item()),
+        }
+
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm = grad_callback() if grad_callback else None
@@ -118,4 +156,6 @@ class TrainingStepExecutor:
             mae=float(mae.detach().cpu()),
             grad_norm=grad_norm,
             fft_feedback=fft_feedback,
+            coeff_stats=coeff_stats,
+            batch_stats=batch_stats,
         )

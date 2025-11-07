@@ -88,6 +88,8 @@ class TrainingPipeline:
             "imag_mae": [],
             "complex_mae": [],
         }
+        coeff_history: Dict[str, list[float]] = {}
+        batch_history: Dict[str, list[float]] = {}
 
         for epoch in range(epochs):
             for batch_idx, (xb, _) in enumerate(self.loader):
@@ -120,11 +122,17 @@ class TrainingPipeline:
                 diagnostics.record_mae(step, outcome.mae)
                 diagnostics.record_noise_norm(step, noise_batch.eps_norm)
                 diagnostics.record_fft_feedback(step, outcome.fft_feedback)
+                diagnostics.record_coeff_stats(step, outcome.coeff_stats)
+                diagnostics.record_batch_stats(step, outcome.batch_stats)
 
                 for key, values in fft_feedback_history.items():
                     metric_val = outcome.fft_feedback.get(key)
                     if metric_val is not None:
                         values.append(float(metric_val))
+                for key, value in outcome.coeff_stats.items():
+                    coeff_history.setdefault(key, []).append(float(value))
+                for key, value in outcome.batch_stats.items():
+                    batch_history.setdefault(key, []).append(float(value))
 
                 if step % log_every == 0:
                     mean_val = noise_batch.stats.get("noisy_mean") if noise_batch.stats else None
@@ -180,6 +188,14 @@ class TrainingPipeline:
             f"fft_{key}_mean": (mean(vals) if vals else None)
             for key, vals in fft_feedback_history.items()
         }
+        coeff_means = {
+            f"diffusion_{key}_mean": (mean(vals) if vals else None)
+            for key, vals in coeff_history.items()
+        }
+        batch_means = {
+            f"batch_{key}_mean": (mean(vals) if vals else None)
+            for key, vals in batch_history.items()
+        }
         metrics = compute_basic_metrics(
             loss_history=loss_history,
             mae_history=mae_history,
@@ -208,6 +224,18 @@ class TrainingPipeline:
                     if vals
                 },
                 **fft_means,
+                **{
+                    f"diffusion_{key}_history": [float(v) for v in vals]
+                    for key, vals in coeff_history.items()
+                    if vals
+                },
+                **coeff_means,
+                **{
+                    f"batch_{key}_history": [float(v) for v in vals]
+                    for key, vals in batch_history.items()
+                    if vals
+                },
+                **batch_means,
             },
         )
         diagnostics.finalise()

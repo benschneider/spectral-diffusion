@@ -120,6 +120,8 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
             "complex_mae": 0.5,
         },
     )
+    diagnostics.record_coeff_stats(1, {"timestep_mean": 3.0, "snr_mean": 1.5})
+    diagnostics.record_batch_stats(1, {"prediction_mean": 0.1, "target_std": 0.05})
 
     diagnostics.finalise()
 
@@ -144,6 +146,13 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     fft_feedback_file = diagnostics.diagnostics_dir / "fft_feedback.json"
     assert fft_feedback_file.exists()
     assert (spectral_dir / "fft_feedback_demo.json").exists()
+
+    coeff_file = diagnostics.diagnostics_dir / "diffusion_coefficients.json"
+    batch_file = diagnostics.diagnostics_dir / "batch_signal_stats.json"
+    assert coeff_file.exists()
+    assert batch_file.exists()
+    assert (spectral_dir / "diffusion_coefficients_demo.json").exists()
+    assert (spectral_dir / "batch_signal_stats_demo.json").exists()
 
     assert plotter.loss_calls
     assert plotter.tail_calls

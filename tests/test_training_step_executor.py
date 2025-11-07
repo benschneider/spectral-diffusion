@@ -83,6 +83,8 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
     assert outcome.loss > 0
     assert outcome.fft_feedback["amplitude_mae"] == pytest.approx(1.0)
     assert captured["fft_norm"] == "ortho"
+    assert "timestep_mean" in outcome.coeff_stats
+    assert "prediction_mean" in outcome.batch_stats
 
 
 def test_step_executor_handles_absent_weight(monkeypatch):

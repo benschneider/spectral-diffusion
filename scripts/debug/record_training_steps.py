@@ -320,6 +320,25 @@ def run_step_recorder(
         loss_value = float(loss.detach().cpu())
         mae_value = float(mae.detach().cpu())
 
+        timestep_min = int(t.min().item())
+        timestep_max = int(t.max().item())
+        timestep_mean = float(t.float().mean().item())
+        snr_vals = (sqrt_alpha_t**2) / (sqrt_one_minus_t**2 + 1e-8)
+        snr_min = float(snr_vals.min().item())
+        snr_max = float(snr_vals.max().item())
+        snr_mean = float(snr_vals.mean().item())
+        sqrt_alpha_min = float(sqrt_alpha_t.min().item())
+        sqrt_alpha_max = float(sqrt_alpha_t.max().item())
+        sqrt_one_minus_min = float(sqrt_one_minus_t.min().item())
+        sqrt_one_minus_max = float(sqrt_one_minus_t.max().item())
+
+        target_mean = float(target.detach().mean().item())
+        target_std = float(target.detach().std().item())
+        target_abs_max = float(target.detach().abs().max().item())
+        residual_mean = float(residual.detach().mean().item())
+        residual_std = float(residual.detach().std().item())
+        residual_abs_max = float(residual.detach().abs().max().item())
+
         optimiser.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm = _grad_norm(model)
@@ -345,6 +364,22 @@ def run_step_recorder(
             "structure_corr": corr,
             "phase_rms": _phase_rms(xb.detach(), x_t.detach(), norm=fft_norm),
             "prediction_type": prediction_type,
+            "timestep_min": timestep_min,
+            "timestep_max": timestep_max,
+            "timestep_mean": timestep_mean,
+            "sqrt_alpha_min": sqrt_alpha_min,
+            "sqrt_alpha_max": sqrt_alpha_max,
+            "sqrt_one_minus_min": sqrt_one_minus_min,
+            "sqrt_one_minus_max": sqrt_one_minus_max,
+            "snr_min": snr_min,
+            "snr_max": snr_max,
+            "snr_mean": snr_mean,
+            "target_mean": target_mean,
+            "target_std": target_std,
+            "target_abs_max": target_abs_max,
+            "residual_mean": residual_mean,
+            "residual_std": residual_std,
+            "residual_abs_max": residual_abs_max,
         }
         if noise_stats:
             record["structure_corr_pre"] = noise_stats.get("structure_corr_pre")
@@ -394,6 +429,33 @@ def run_step_recorder(
                         "imag_mae",
                         "complex_mae",
                     ]
+                )
+            )
+            print(
+                "[Timesteps] min={:d} max={:d} mean={:.1f} "
+                "sqrt_alpha_min={:.4f} sqrt_alpha_max={:.4f} "
+                "snr_min={:.4f} snr_max={:.4f}".format(
+                    timestep_min,
+                    timestep_max,
+                    timestep_mean,
+                    sqrt_alpha_min,
+                    sqrt_alpha_max,
+                    snr_min,
+                    snr_max,
+                )
+            )
+            print(
+                "[Targets] mean={:.6f} std={:.6f} abs_max={:.6f}".format(
+                    target_mean,
+                    target_std,
+                    target_abs_max,
+                )
+            )
+            print(
+                "[Residual] mean={:.6f} std={:.6f} abs_max={:.6f}".format(
+                    residual_mean,
+                    residual_std,
+                    residual_abs_max,
                 )
             )
 
