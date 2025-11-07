@@ -211,21 +211,23 @@ def add_uniform_frequency_noise(
         noise_component = noise_component * scale
         snr_scale_tensor = scale
 
-    noise_component_fft = torch.fft.fftn(noise_component, dim=(-2, -1), norm=fft_norm)
-    _check_parseval_consistency(noise_component, noise_component_fft, fft_norm, "noise")
+    x_t_pre = signal_component + noise_component
+    sim_pre = _compute_similarity_metrics(x0, x_t_pre)
+
+    if adaptive_rescale and target_corr is not None and sim_pre["corr"] < target_corr:
+        scale_factor = max(0.0, min(1.0, (sim_pre["corr"] / target_corr) ** 0.5))
+        noise_component = noise_component * scale_factor
+        snr_scale_tensor = snr_scale_tensor * scale_factor
 
     x_t = signal_component + noise_component
+
+    noise_component_fft = torch.fft.fftn(noise_component, dim=(-2, -1), norm=fft_norm)
+    _check_parseval_consistency(noise_component, noise_component_fft, fft_norm, "noise")
 
     X_t = torch.fft.fftn(x_t, dim=(-2, -1), norm=fft_norm)
     _check_parseval_consistency(x_t, X_t, fft_norm, "noised")
 
-    sim_pre = _compute_similarity_metrics(x0, x_t)
     fft_corr = _compute_fft_correlation(x0, x_t, norm=fft_norm)
-
-    if adaptive_rescale and target_corr is not None and sim_pre["corr"] < target_corr:
-        scale_factor = max(0.0, min(1.0, (sim_pre["corr"] / target_corr) ** 0.5))
-        x_t = x0 * (1.0 - scale_factor) + x_t * scale_factor
-
     sim_post = _compute_similarity_metrics(x0, x_t)
     if stats is not None:
         stats["structure_corr_pre"] = sim_pre["corr"]

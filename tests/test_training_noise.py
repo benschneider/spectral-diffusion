@@ -76,3 +76,40 @@ def test_noise_preparer_prepare_uses_adapter(monkeypatch):
     assert batch.eps_norm == pytest.approx(1.0)
     assert batch.sqrt_alpha_t.shape == (2, 1, 1, 1)
     assert batch.sqrt_one_minus_alpha_t.shape == (2, 1, 1, 1)
+
+
+class _DummyCoeffs:
+    def __init__(self):
+        values = torch.linspace(0.15, 0.95, steps=10)
+        self.sqrt_alphas_cumprod = values
+        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - values**2)
+
+
+@pytest.mark.parametrize(
+    "uniform_corruption, adaptive_rescale",
+    [(False, False), (True, False), (True, True)],
+)
+def test_eps_mode_reconstruction_matches_clean(uniform_corruption, adaptive_rescale):
+    torch.manual_seed(0)
+
+    config = {
+        "diffusion": {
+            "uniform_corruption": uniform_corruption,
+            "adaptive_rescale": adaptive_rescale,
+            "similarity_target": 0.95 if adaptive_rescale else None,
+            "snr_ratio": 1.0,
+        }
+    }
+
+    preparer = NoisePreparer.from_config(config)
+    coeffs = _DummyCoeffs()
+    clean = torch.rand((2, 3, 16, 16))
+    timesteps = torch.tensor([2, 7])
+
+    batch = preparer.prepare(clean, coeffs, timesteps)
+
+    reconstructed = (batch.noisy - batch.sqrt_one_minus_alpha_t * batch.eps) / (
+        batch.sqrt_alpha_t + 1e-8
+    )
+
+    assert torch.allclose(reconstructed, clean, atol=1e-5)

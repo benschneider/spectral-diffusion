@@ -107,7 +107,8 @@ def test_parseval_consistency_signal_and_noised(fft_norm):
 
 
 @pytest.mark.parametrize("uniform", [False, True])
-def test_return_noise_matches_residual(uniform):
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_return_noise_matches_residual(uniform, adaptive):
     torch.manual_seed(123)
     b, c, h, w = 2, 3, 16, 16
     x = torch.rand(b, c, h, w)
@@ -122,6 +123,8 @@ def test_return_noise_matches_residual(uniform):
         "snr_ratio": 1.0,
         "return_noise": True,
     }
+    if adaptive:
+        kwargs.update({"adaptive_rescale": True, "target_corr": 0.95})
 
     x_t, eps = add_uniform_frequency_noise(
         x,
