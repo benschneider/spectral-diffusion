@@ -124,6 +124,19 @@ class SpectralAdapter(nn.Module):
         x_fft = x_fft * weight
         out = torch.fft.irfft2(x_fft, s=x.shape[-2:], norm=norm)
 
+        pred_mean = out.mean()
+        pred_std = out.std(unbiased=False)
+        input_std = x.std(unbiased=False)
+        if torch.isfinite(pred_std) and torch.isfinite(input_std) and input_std > 0:
+            ratio = float((pred_std / input_std).item())
+        else:
+            ratio = float("inf")
+
+        if ratio > 3.0 or ratio < (1.0 / 3.0):
+            out = out - pred_mean
+            scale = input_std / (pred_std + 1e-6)
+            out = out * scale
+
         if cuda_timing:
             self._end_evt.record()
             torch.cuda.synchronize()

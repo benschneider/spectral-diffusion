@@ -5,7 +5,13 @@ from typing import Any, Dict, Mapping, Optional
 
 import torch
 
+from src.core.numeric import safe_clamp
 from src.spectral.fft_adapter import add_uniform_frequency_noise
+
+
+ALPHA_MIN = 0.01
+ALPHA_MAX = 0.999
+SIGMA_MIN = 1e-4
 
 
 @dataclass
@@ -105,10 +111,14 @@ class NoisePreparer:
         sqrt_alpha_t = (
             coeffs.sqrt_alphas_cumprod[timesteps].view(batch_size, 1, 1, 1).to(device)
         )
+        sqrt_alpha_t = safe_clamp(sqrt_alpha_t, min_value=ALPHA_MIN, max_value=ALPHA_MAX)
         sqrt_one_minus_alpha_t = (
             coeffs.sqrt_one_minus_alphas_cumprod[timesteps]
             .view(batch_size, 1, 1, 1)
             .to(device)
+        )
+        sqrt_one_minus_alpha_t = safe_clamp(
+            sqrt_one_minus_alpha_t, min_value=SIGMA_MIN
         )
 
         noise = base_noise if base_noise is not None else torch.randn_like(clean_batch)

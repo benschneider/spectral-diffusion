@@ -182,5 +182,7 @@ def test_step_executor_reports_full_snr(monkeypatch, capsys):
     outcome = executor.run_step(clean, noise_batch, timesteps)
 
     captured = capsys.readouterr()
-    assert "SNR overflow detected" not in captured.out
-    assert outcome.coeff_stats["snr_max"] == pytest.approx(1e8, rel=1e-3)
+    assert "[WARN] SNR overflow detected" in captured.out
+    assert outcome.coeff_stats["snr_max"] == pytest.approx(250.0, rel=1e-5)
+    assert outcome.coeff_stats["snr_raw_max"] > outcome.coeff_stats["snr_max"]
+    assert outcome.coeff_stats["snr_raw_max"] >= 1e6

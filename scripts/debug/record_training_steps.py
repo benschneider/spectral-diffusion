@@ -38,6 +38,10 @@ from src.utils.sanity_checks import check_fft_sanity
 
 SNR_SPIKE_THRESHOLD = 1_000.0
 SNR_SPIKE_TOP_K = 3
+SIGMA_MIN = 1e-4
+SNR_CLIP = 250.0
+PRED_STD_WARN_FACTOR = 5.0
+FFT_HIGH_WARN_THRESHOLD = 0.8
 
 
 def _cycle(loader: Iterable) -> Iterator:
@@ -461,10 +465,19 @@ def run_step_recorder(
         timestep_min = int(t.min().item())
         timestep_max = int(t.max().item())
         timestep_mean = float(t.float().mean().item())
-        snr_vals = (sqrt_alpha_t**2) / (sqrt_one_minus_t**2 + 1e-8)
+        snr_den = torch.clamp(sqrt_one_minus_t**2, min=SIGMA_MIN**2)
+        snr_raw = (sqrt_alpha_t**2) / snr_den
+        snr_vals = torch.clamp(snr_raw, max=SNR_CLIP)
         snr_min = float(snr_vals.min().item())
         snr_max = float(snr_vals.max().item())
         snr_mean = float(snr_vals.mean().item())
+        snr_raw_max = float(snr_raw.max().item())
+        if snr_raw_max > SNR_CLIP:
+            overflow = int((snr_raw > SNR_CLIP).sum().item())
+            print(
+                f"[WARN] SNR overflow detected at step {step}: max={snr_raw_max:.1f} (>"
+                f"{SNR_CLIP}), count={overflow}"
+            )
 
         snr_spike_summary = _summarise_snr_spikes(
             snr_vals=snr_vals.detach(),
@@ -498,6 +511,27 @@ def run_step_recorder(
 
         param_delta = _parameter_delta(model, previous_state)
         output_fft = _fft_band_means(pred.detach())
+        prediction_std_val = float(pred.detach().std().item())
+        input_std_val = float(xb.detach().std().item())
+        if input_std_val > 0:
+            std_ratio = prediction_std_val / max(input_std_val, 1e-8)
+            if std_ratio > PRED_STD_WARN_FACTOR:
+                print(
+                    "[WARN] Prediction std drift at step {step}: "
+                    "std={std:.3f}, input_std={input_std:.3f}, ratio={ratio:.2f}".format(
+                        step=step,
+                        std=prediction_std_val,
+                        input_std=input_std_val,
+                        ratio=std_ratio,
+                    )
+                )
+        else:
+            std_ratio = float("inf")
+        fft_high_val = output_fft.get("fft_high", float("nan"))
+        if not math.isnan(fft_high_val) and fft_high_val > FFT_HIGH_WARN_THRESHOLD:
+            print(
+                f"[WARN] Spectral blowup suspected at step {step}: fft_high={fft_high_val:.3f}"
+            )
         input_fft = _fft_band_means(xb.detach())
         noisy_fft = _fft_band_means(x_t.detach())
         corr = _structure_correlation(xb.detach(), x_t.detach())
@@ -526,6 +560,7 @@ def run_step_recorder(
             "snr_min": snr_min,
             "snr_max": snr_max,
             "snr_mean": snr_mean,
+            "snr_raw_max": snr_raw_max,
             "target_mean": target_mean,
             "target_std": target_std,
             "target_abs_max": target_abs_max,
@@ -533,6 +568,9 @@ def run_step_recorder(
             "residual_std": residual_std,
             "residual_abs_max": residual_abs_max,
             "residual_mse": float(residual.detach().pow(2).mean().item()),
+            "input_std": input_std_val,
+            "prediction_std_ratio": std_ratio,
+            "prediction_std_drift": prediction_std_val,
         }
         if noise_stats:
             record["structure_corr_pre"] = noise_stats.get("structure_corr_pre")

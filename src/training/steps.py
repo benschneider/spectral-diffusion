@@ -3,14 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
+import math
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
 from src.core.functional import compute_snr_weight, compute_target
-from src.core.numeric import safe_ratio
+from src.core.numeric import safe_clamp, safe_ratio
 from src.training.noise import NoiseBatch
 
+
+ALPHA_MIN = 0.01
+ALPHA_MAX = 0.999
+SIGMA_MIN = 1e-4
+SNR_CLIP = 250.0
+PRED_STD_WARN_FACTOR = 5.0
+SPECTRAL_WARN_THRESHOLD = 0.8
 
 def _radial_frequency_masks(
     height: int, width: int, device: torch.device, boundaries: tuple[float, ...]
@@ -91,6 +99,31 @@ def compute_fft_feedback(
     }
 
 
+def _fft_high_mean(tensor: Tensor) -> float:
+    """Return the mean magnitude of the high-frequency FFT band."""
+
+    if tensor.ndim < 3:
+        return float("nan")
+    complex_tensor = (
+        tensor
+        if tensor.is_complex()
+        else torch.complex(tensor, torch.zeros_like(tensor))
+    )
+    fft = torch.fft.fftn(complex_tensor, dim=(-2, -1), norm="ortho")
+    fft = torch.fft.fftshift(fft, dim=(-2, -1))
+    magnitude = fft.abs()
+    height, width = magnitude.shape[-2:]
+    fy = torch.fft.fftfreq(height, device=tensor.device)
+    fx = torch.fft.fftfreq(width, device=tensor.device)
+    yy = fy[:, None]
+    xx = fx[None, :]
+    radius = torch.sqrt(xx**2 + yy**2)
+    mask_high = radius >= 0.25
+    if not torch.any(mask_high):
+        return float("nan")
+    return float(magnitude[..., mask_high].mean().item())
+
+
 @dataclass
 class StepOutcome:
     """Scalar metrics emitted by a single training step."""
@@ -133,21 +166,30 @@ class TrainingStepExecutor:
         timesteps: Tensor,
         grad_callback: Optional[Callable[[], Optional[float]]] = None,
     ) -> StepOutcome:
+        sqrt_alpha_t = safe_clamp(
+            noise_batch.sqrt_alpha_t,
+            min_value=ALPHA_MIN,
+            max_value=ALPHA_MAX,
+        )
+        sqrt_one_minus_alpha_t = safe_clamp(
+            noise_batch.sqrt_one_minus_alpha_t, min_value=SIGMA_MIN
+        )
+
         prediction = self.model(noise_batch.noisy, timesteps)
         target = compute_target(
             self.prediction_type,
             clean_batch,
             noise_batch.noisy,
             noise_batch.eps,
-            noise_batch.sqrt_alpha_t,
-            noise_batch.sqrt_one_minus_alpha_t,
+            sqrt_alpha_t,
+            sqrt_one_minus_alpha_t,
         )
         residual = prediction - target
         weight: Optional[Tensor] = None
         if self.snr_weighting:
             weight = compute_snr_weight(
-                noise_batch.sqrt_alpha_t,
-                noise_batch.sqrt_one_minus_alpha_t,
+                sqrt_alpha_t,
+                sqrt_one_minus_alpha_t,
                 transform=self.snr_transform,
             )
         loss = self.loss_fn(residual, weight)
@@ -167,35 +209,59 @@ class TrainingStepExecutor:
             fft_norm=self.fft_norm,
         )
 
-        snr = safe_ratio(
-            noise_batch.sqrt_alpha_t**2,
-            noise_batch.sqrt_one_minus_alpha_t**2,
-            min_den=1e-8,
+        snr_raw = safe_ratio(
+            sqrt_alpha_t**2,
+            sqrt_one_minus_alpha_t**2,
+            min_den=SIGMA_MIN**2,
         )
+        snr = safe_clamp(snr_raw, max_value=SNR_CLIP)
+        if torch.any(snr_raw > SNR_CLIP):
+            overflow = float(snr_raw.max().item())
+            count = int(torch.count_nonzero(snr_raw > SNR_CLIP).item())
+            print(
+                f"[WARN] SNR overflow detected: max={overflow:.1f} (>{SNR_CLIP}), "
+                f"count={count}"
+            )
         coeff_stats = {
             "timestep_min": float(timesteps.min().item()),
             "timestep_max": float(timesteps.max().item()),
             "timestep_mean": float(timesteps.float().mean().item()),
-            "sqrt_alpha_min": float(noise_batch.sqrt_alpha_t.min().item()),
-            "sqrt_alpha_max": float(noise_batch.sqrt_alpha_t.max().item()),
-            "sqrt_alpha_mean": float(noise_batch.sqrt_alpha_t.mean().item()),
-            "sqrt_one_minus_min": float(
-                noise_batch.sqrt_one_minus_alpha_t.min().item()
-            ),
-            "sqrt_one_minus_max": float(
-                noise_batch.sqrt_one_minus_alpha_t.max().item()
-            ),
-            "sqrt_one_minus_mean": float(
-                noise_batch.sqrt_one_minus_alpha_t.mean().item()
-            ),
+            "sqrt_alpha_min": float(sqrt_alpha_t.min().item()),
+            "sqrt_alpha_max": float(sqrt_alpha_t.max().item()),
+            "sqrt_alpha_mean": float(sqrt_alpha_t.mean().item()),
+            "sqrt_one_minus_min": float(sqrt_one_minus_alpha_t.min().item()),
+            "sqrt_one_minus_max": float(sqrt_one_minus_alpha_t.max().item()),
+            "sqrt_one_minus_mean": float(sqrt_one_minus_alpha_t.mean().item()),
             "snr_min": float(snr.min().item()),
             "snr_max": float(snr.max().item()),
             "snr_mean": float(snr.mean().item()),
+            "snr_raw_max": float(snr_raw.max().item()),
         }
 
+        prediction_mean = float(prediction.detach().mean().item())
+        prediction_std = float(prediction.detach().std().item())
+        input_std = float(clean_batch.detach().std().item())
+        if input_std > 0:
+            std_ratio = prediction_std / max(input_std, 1e-8)
+            if std_ratio > PRED_STD_WARN_FACTOR:
+                print(
+                    "[WARN] Prediction std drift: "
+                    f"std={prediction_std:.3f}, input_std={input_std:.3f}, "
+                    f"ratio={std_ratio:.2f}"
+                )
+        else:
+            std_ratio = float("inf")
+
+        fft_high = _fft_high_mean(prediction.detach())
+        if not math.isnan(fft_high) and fft_high > SPECTRAL_WARN_THRESHOLD:
+            print(
+                "[WARN] Spectral blowup suspected: "
+                f"fft_high_mean={fft_high:.3f}"
+            )
+
         batch_stats = {
-            "prediction_mean": float(prediction.detach().mean().item()),
-            "prediction_std": float(prediction.detach().std().item()),
+            "prediction_mean": prediction_mean,
+            "prediction_std": prediction_std,
             "prediction_abs_max": float(prediction.detach().abs().max().item()),
             "target_mean": float(target.detach().mean().item()),
             "target_std": float(target.detach().std().item()),
@@ -204,6 +270,9 @@ class TrainingStepExecutor:
             "residual_std": float(residual.detach().std().item()),
             "residual_abs_max": float(residual.detach().abs().max().item()),
             "residual_mse": float(residual.detach().pow(2).mean().item()),
+            "input_std": input_std,
+            "prediction_std_ratio": std_ratio,
+            "prediction_fft_high": fft_high,
         }
 
         self.optimizer.zero_grad(set_to_none=True)
