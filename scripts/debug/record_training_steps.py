@@ -36,6 +36,10 @@ from src.training.steps import compute_fft_feedback
 from src.utils.sanity_checks import check_fft_sanity
 
 
+SNR_SPIKE_THRESHOLD = 1_000.0
+SNR_SPIKE_TOP_K = 3
+
+
 def _cycle(loader: Iterable) -> Iterator:
     """Infinite iterator over a dataloader."""
     while True:
@@ -130,6 +134,118 @@ def _predict_x0(
     if prediction_type == "v":
         return sqrt_alpha_t * x_t - sqrt_one_minus_alpha_t * prediction
     raise ValueError(f"Unsupported prediction_type '{prediction_type}'")
+
+
+def _centered_rms(tensor: torch.Tensor) -> float:
+    centered = tensor - tensor.mean()
+    return float(centered.pow(2).mean().sqrt().item())
+
+
+def _summarise_snr_spikes(
+    *,
+    snr_vals: torch.Tensor,
+    sqrt_alpha_t: torch.Tensor,
+    sqrt_one_minus_t: torch.Tensor,
+    timesteps: torch.Tensor,
+    clean: torch.Tensor,
+    noisy: torch.Tensor,
+    noise: torch.Tensor,
+    target: torch.Tensor,
+    prediction: torch.Tensor,
+    threshold: float = SNR_SPIKE_THRESHOLD,
+    top_k: int = SNR_SPIKE_TOP_K,
+) -> Optional[Dict[str, Any]]:
+    """Return summary statistics when SNR ratios exceed ``threshold``."""
+
+    if snr_vals.numel() == 0:
+        return None
+
+    snr_flat = snr_vals.view(-1)
+    mask = snr_flat > threshold
+    if not torch.any(mask):
+        return None
+
+    candidate_indices = torch.nonzero(mask, as_tuple=False).view(-1)
+    candidate_snr = snr_flat[candidate_indices]
+    order = torch.argsort(candidate_snr, descending=True)
+    selected = candidate_indices[order][: top_k if top_k > 0 else None]
+
+    sqrt_alpha_flat = sqrt_alpha_t.view(-1)
+    sqrt_one_minus_flat = sqrt_one_minus_t.view(-1)
+    timesteps_flat = timesteps.view(-1)
+
+    def _gather(batch: torch.Tensor, index: int) -> torch.Tensor:
+        if batch.numel() == 0:
+            return batch
+        return batch[index]
+
+    entries: List[Dict[str, Any]] = []
+    for idx in selected.tolist():
+        sqrt_alpha = sqrt_alpha_flat[idx]
+        sqrt_one_minus = sqrt_one_minus_flat[idx]
+        alpha = sqrt_alpha.pow(2)
+        one_minus_alpha = sqrt_one_minus.pow(2)
+
+        clean_sample = _gather(clean, idx)
+        noisy_sample = _gather(noisy, idx)
+        noise_sample = _gather(noise, idx)
+        target_sample = _gather(target, idx)
+        prediction_sample = _gather(prediction, idx)
+
+        signal_rms = _centered_rms(clean_sample)
+        noisy_rms = _centered_rms(noisy_sample)
+        noise_rms = float(noise_sample.detach().pow(2).mean().sqrt().item())
+        noise_mean = float(noise_sample.detach().mean().item())
+        target_std = float(target_sample.detach().std().item())
+        prediction_std = float(prediction_sample.detach().std().item())
+
+        entries.append(
+            {
+                "sample_index": int(idx),
+                "timestep": int(timesteps_flat[idx].item()),
+                "snr": float(snr_flat[idx].item()),
+                "sqrt_alpha": float(sqrt_alpha.item()),
+                "sqrt_one_minus_alpha": float(sqrt_one_minus.item()),
+                "alpha": float(alpha.item()),
+                "one_minus_alpha": float(one_minus_alpha.item()),
+                "signal_rms": signal_rms,
+                "noisy_rms": noisy_rms,
+                "noise_rms": noise_rms,
+                "noise_mean": noise_mean,
+                "target_std": target_std,
+                "prediction_std": prediction_std,
+            }
+        )
+
+    return {
+        "threshold": float(threshold),
+        "count": int(candidate_indices.numel()),
+        "max_snr": float(candidate_snr.max().item()),
+        "top_timesteps": [entry["timestep"] for entry in entries],
+        "entries": entries,
+    }
+
+
+def _log_snr_spike(summary: Dict[str, Any]) -> None:
+    header = (
+        "[SNRSpike] count={count} threshold={threshold:.1f} max_snr={max_snr:.2f}".format(
+            count=summary["count"],
+            threshold=summary["threshold"],
+            max_snr=summary["max_snr"],
+        )
+    )
+    print(header)
+    for entry in summary["entries"]:
+        print(
+            "[SNRSpike] sample={sample_index} t={timestep} "
+            "snr={snr:.2f} sqrt_alpha={sqrt_alpha:.6f} "
+            "sqrt_one_minus_alpha={sqrt_one_minus_alpha:.6f} "
+            "one_minus_alpha={one_minus_alpha:.8f} signal_rms={signal_rms:.6f} "
+            "noisy_rms={noisy_rms:.6f} noise_rms={noise_rms:.6f} noise_mean={noise_mean:+.6f} "
+            "target_std={target_std:.6f} prediction_std={prediction_std:.6f}".format(
+                **entry
+            )
+        )
 
 
 def run_step_recorder(
@@ -349,6 +465,20 @@ def run_step_recorder(
         snr_min = float(snr_vals.min().item())
         snr_max = float(snr_vals.max().item())
         snr_mean = float(snr_vals.mean().item())
+
+        snr_spike_summary = _summarise_snr_spikes(
+            snr_vals=snr_vals.detach(),
+            sqrt_alpha_t=sqrt_alpha_t.detach(),
+            sqrt_one_minus_t=sqrt_one_minus_t.detach(),
+            timesteps=t.detach(),
+            clean=xb.detach(),
+            noisy=x_t.detach(),
+            noise=effective_noise.detach(),
+            target=target.detach(),
+            prediction=pred.detach(),
+        )
+        if snr_spike_summary:
+            _log_snr_spike(snr_spike_summary)
         sqrt_alpha_min = float(sqrt_alpha_t.min().item())
         sqrt_alpha_max = float(sqrt_alpha_t.max().item())
         sqrt_one_minus_min = float(sqrt_one_minus_t.min().item())
@@ -426,6 +556,10 @@ def run_step_recorder(
 
         if effective_snr_ratio is not None:
             record["snr_ratio"] = effective_snr_ratio
+        if snr_spike_summary:
+            record["snr_spike_count"] = snr_spike_summary["count"]
+            record["snr_spike_max"] = snr_spike_summary["max_snr"]
+            record["snr_spike_top_timesteps"] = snr_spike_summary["top_timesteps"]
 
         for key, value in fft_feedback.items():
             record[f"fft_{key}"] = float(value)
