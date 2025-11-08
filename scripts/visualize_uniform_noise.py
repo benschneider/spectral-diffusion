@@ -160,11 +160,12 @@ def main() -> None:
             )
         )
         coeffs = build_diffusion(num_steps, schedule)
+        effective_steps = coeffs.num_timesteps
         if args.t_index is not None:
             t = int(args.t_index)
         else:
-            t = num_steps // 2
-        t = max(0, min(num_steps - 1, t))
+            t = effective_steps // 2
+        t = max(0, min(effective_steps - 1, t))
         sqrt_alpha = coeffs.sqrt_alphas_cumprod[t].item()
         sqrt_one_minus = coeffs.sqrt_one_minus_alphas_cumprod[t].item()
     else:

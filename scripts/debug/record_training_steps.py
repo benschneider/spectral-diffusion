@@ -223,9 +223,12 @@ def run_step_recorder(
     spectral_cfg["dc_scale_factor"] = effective_dc_scale
 
     coeffs = build_diffusion(T, schedule)
-    min_timestep = coeffs.min_safe_timestep
     print(
-        f"[Schedule] min_safe_timestep={min_timestep} min_safe_sigma={coeffs.min_safe_sigma:.4f}"
+        "[Schedule] trim_offset=%d num_timesteps=%d min_sigma=%.4f" % (
+            coeffs.trim_offset,
+            coeffs.num_timesteps,
+            coeffs.min_safe_sigma,
+        )
     )
 
     step_records: List[Dict[str, Any]] = []
@@ -239,9 +242,8 @@ def run_step_recorder(
         B = xb.shape[0]
         t = sample_timesteps(
             B,
-            T,
+            coeffs.num_timesteps,
             xb.device,
-            min_timestep=min_timestep,
         )
         sqrt_alpha_t = coeffs.sqrt_alphas_cumprod[t].view(B, 1, 1, 1).to(device_obj)
         sqrt_one_minus_t = coeffs.sqrt_one_minus_alphas_cumprod[t].view(B, 1, 1, 1).to(device_obj)

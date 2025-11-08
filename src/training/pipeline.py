@@ -79,7 +79,13 @@ class TrainingPipeline:
         wall_start = perf_counter()
         T, schedule = self._diffusion_params()
         coeffs = build_diffusion(T, schedule)
-        min_timestep = coeffs.min_safe_timestep
+        total_timesteps = coeffs.num_timesteps
+        if coeffs.trim_offset > 0:
+            self.logger.info(
+                "Trimmed %d unstable diffusion steps (min_sigma=%.4f)",
+                coeffs.trim_offset,
+                coeffs.min_safe_sigma,
+            )
         snr_ratio_value = noise_preparer.snr_ratio
         dc_scale_factor = noise_preparer.dc_scale_factor
 
@@ -97,9 +103,8 @@ class TrainingPipeline:
                 B = xb.shape[0]
                 timesteps = sample_timesteps(
                     B,
-                    T,
+                    total_timesteps,
                     xb.device,
-                    min_timestep=min_timestep,
                 )
                 noise_batch = noise_preparer.prepare(
                     xb,
