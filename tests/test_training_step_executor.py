@@ -140,7 +140,7 @@ def test_step_executor_handles_absent_weight(monkeypatch):
     assert outcome.weight_stats is None
 
 
-def test_step_executor_clamps_and_reports_snr(monkeypatch, capsys):
+def test_step_executor_reports_full_snr(monkeypatch, capsys):
     class ZeroModel(nn.Module):
         def __init__(self):
             super().__init__()
@@ -182,6 +182,5 @@ def test_step_executor_clamps_and_reports_snr(monkeypatch, capsys):
     outcome = executor.run_step(clean, noise_batch, timesteps)
 
     captured = capsys.readouterr()
-    assert "SNR overflow detected" in captured.out
-    assert outcome.coeff_stats["snr_max"] <= 1e3 + 1e-6
-    assert outcome.coeff_stats["snr_raw_max"] > 1e3
+    assert "SNR overflow detected" not in captured.out
+    assert outcome.coeff_stats["snr_max"] == pytest.approx(1e8, rel=1e-3)

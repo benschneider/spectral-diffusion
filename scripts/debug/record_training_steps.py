@@ -223,6 +223,10 @@ def run_step_recorder(
     spectral_cfg["dc_scale_factor"] = effective_dc_scale
 
     coeffs = build_diffusion(T, schedule)
+    min_timestep = coeffs.min_safe_timestep
+    print(
+        f"[Schedule] min_safe_timestep={min_timestep} min_safe_sigma={coeffs.min_safe_sigma:.4f}"
+    )
 
     step_records: List[Dict[str, Any]] = []
     previous_state: Dict[str, torch.Tensor] = {}
@@ -233,7 +237,12 @@ def run_step_recorder(
         model.train()
 
         B = xb.shape[0]
-        t = sample_timesteps(B, T, xb.device)
+        t = sample_timesteps(
+            B,
+            T,
+            xb.device,
+            min_timestep=min_timestep,
+        )
         sqrt_alpha_t = coeffs.sqrt_alphas_cumprod[t].view(B, 1, 1, 1).to(device_obj)
         sqrt_one_minus_t = coeffs.sqrt_one_minus_alphas_cumprod[t].view(B, 1, 1, 1).to(device_obj)
 

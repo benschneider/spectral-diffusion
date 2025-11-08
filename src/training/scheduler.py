@@ -8,6 +8,9 @@ import torch
 from src.core.numeric import safe_clamp, safe_sqrt
 
 
+MIN_SIGMA_THRESHOLD = 0.03
+
+
 @dataclass
 class DiffusionCoeffs:
     betas: torch.Tensor
@@ -16,6 +19,8 @@ class DiffusionCoeffs:
     alphas_cumprod_prev: torch.Tensor
     sqrt_alphas_cumprod: torch.Tensor
     sqrt_one_minus_alphas_cumprod: torch.Tensor
+    min_safe_timestep: int
+    min_safe_sigma: float
 
 
 def make_beta_schedule(T: int, kind: str = "linear") -> torch.Tensor:
@@ -40,6 +45,12 @@ def build_diffusion(T: int, kind: str) -> DiffusionCoeffs:
     sqrt_alphas = safe_sqrt(safe_clamp(a_bar, min_value=1e-12, max_value=1.0))
     sqrt_one_minus = safe_sqrt(safe_clamp(1.0 - a_bar, min_value=1e-6))
 
+    eligible = torch.nonzero(
+        sqrt_one_minus >= MIN_SIGMA_THRESHOLD, as_tuple=False
+    )
+    min_safe_timestep = int(eligible[0].item()) if eligible.numel() > 0 else 0
+    min_safe_sigma = float(sqrt_one_minus[min_safe_timestep].item())
+
     return DiffusionCoeffs(
         betas=betas,
         alphas=alphas,
@@ -47,8 +58,20 @@ def build_diffusion(T: int, kind: str) -> DiffusionCoeffs:
         alphas_cumprod_prev=a_bar_prev,
         sqrt_alphas_cumprod=sqrt_alphas,
         sqrt_one_minus_alphas_cumprod=sqrt_one_minus,
+        min_safe_timestep=min_safe_timestep,
+        min_safe_sigma=min_safe_sigma,
     )
 
 
-def sample_timesteps(B: int, T: int, device: torch.device) -> torch.Tensor:
-    return torch.randint(0, T, (B,), device=device, dtype=torch.long)
+def sample_timesteps(
+    B: int,
+    T: int,
+    device: torch.device,
+    *,
+    min_timestep: int = 0,
+) -> torch.Tensor:
+    if not 0 <= min_timestep < T:
+        raise ValueError(
+            f"min_timestep={min_timestep} is outside the valid range [0, {T - 1}]"
+        )
+    return torch.randint(min_timestep, T, (B,), device=device, dtype=torch.long)

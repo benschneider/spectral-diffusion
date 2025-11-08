@@ -79,6 +79,7 @@ class TrainingPipeline:
         wall_start = perf_counter()
         T, schedule = self._diffusion_params()
         coeffs = build_diffusion(T, schedule)
+        min_timestep = coeffs.min_safe_timestep
         snr_ratio_value = noise_preparer.snr_ratio
         dc_scale_factor = noise_preparer.dc_scale_factor
 
@@ -94,7 +95,12 @@ class TrainingPipeline:
                 diagnostics.capture_initial_batch(xb)
 
                 B = xb.shape[0]
-                timesteps = sample_timesteps(B, T, xb.device)
+                timesteps = sample_timesteps(
+                    B,
+                    T,
+                    xb.device,
+                    min_timestep=min_timestep,
+                )
                 noise_batch = noise_preparer.prepare(
                     xb,
                     coeffs,
