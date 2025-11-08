@@ -26,7 +26,7 @@ def test_compute_snr_weight_clamps_extremes() -> None:
     snr_sqrt = compute_snr_weight(alpha, sigma, transform="snr_sqrt")
     assert torch.isfinite(snr).all()
     assert torch.isfinite(snr_sqrt).all()
-    assert snr.max().item() <= 1e4 + 1e-5
+    assert snr.max().item() <= 1e3 + 1e-5
     assert snr_sqrt.max().item() <= 100.0 + 1e-3
 
 

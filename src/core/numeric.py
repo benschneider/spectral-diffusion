@@ -57,7 +57,7 @@ def compute_snr(
     sigma_t: torch.Tensor,
     *,
     min_sigma: float = EPS,
-    max_value: float = 1e4,
+    max_value: float = 1e3,
 ) -> torch.Tensor:
     """Return a diffusion signal-to-noise ratio with shared safeguards."""
 

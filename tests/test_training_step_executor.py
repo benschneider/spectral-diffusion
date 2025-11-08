@@ -138,3 +138,50 @@ def test_step_executor_handles_absent_weight(monkeypatch):
 
     assert loss_weights[-1] is None
     assert outcome.weight_stats is None
+
+
+def test_step_executor_clamps_and_reports_snr(monkeypatch, capsys):
+    class ZeroModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = nn.Parameter(torch.tensor(0.0))
+
+        def forward(self, x, timesteps):  # pylint: disable=unused-argument
+            return self.weight * torch.ones_like(x)
+
+    model = ZeroModel()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+
+    monkeypatch.setattr(
+        "src.training.steps.compute_target",
+        lambda *args, **kwargs: torch.zeros_like(args[1]),
+    )
+
+    executor = TrainingStepExecutor(
+        model=model,
+        optimizer=optimizer,
+        loss_fn=lambda residual, weight: residual.pow(2).mean(),
+        prediction_type="eps",
+        snr_weighting=False,
+        snr_transform="snr",
+        fft_norm="ortho",
+    )
+
+    clean = torch.zeros((1, 1, 2, 2))
+    tiny = torch.full((1, 1, 1, 1), 1e-5)
+    noise_batch = NoiseBatch(
+        noisy=torch.zeros_like(clean),
+        eps=torch.zeros_like(clean),
+        sqrt_alpha_t=torch.ones((1, 1, 1, 1)),
+        sqrt_one_minus_alpha_t=tiny,
+        stats={},
+        eps_norm=0.0,
+    )
+    timesteps = torch.tensor([0])
+
+    outcome = executor.run_step(clean, noise_batch, timesteps)
+
+    captured = capsys.readouterr()
+    assert "SNR overflow detected" in captured.out
+    assert outcome.coeff_stats["snr_max"] <= 1e3 + 1e-6
+    assert outcome.coeff_stats["snr_raw_max"] > 1e3

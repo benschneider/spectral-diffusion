@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from src.core.functional import compute_snr_weight, compute_target
-from src.core.numeric import safe_ratio
+from src.core.numeric import safe_clamp, safe_ratio
 from src.training.noise import NoiseBatch
 
 
@@ -104,6 +104,9 @@ class StepOutcome:
     weight_stats: Optional[Dict[str, float]] = None
 
 
+SNR_MAX = 1e3
+
+
 class TrainingStepExecutor:
     """Encapsulate the forward/backward pass for a training iteration."""
 
@@ -167,11 +170,15 @@ class TrainingStepExecutor:
             fft_norm=self.fft_norm,
         )
 
-        snr = safe_ratio(
+        snr_raw = safe_ratio(
             noise_batch.sqrt_alpha_t**2,
             noise_batch.sqrt_one_minus_alpha_t**2,
             min_den=1e-8,
         )
+        if torch.any(snr_raw > SNR_MAX):
+            max_value = float(snr_raw.max().item())
+            print(f"[WARN] SNR overflow detected: snr_max={max_value:.2f}")
+        snr = safe_clamp(snr_raw, max_value=SNR_MAX)
         coeff_stats = {
             "timestep_min": float(timesteps.min().item()),
             "timestep_max": float(timesteps.max().item()),
@@ -191,6 +198,7 @@ class TrainingStepExecutor:
             "snr_min": float(snr.min().item()),
             "snr_max": float(snr.max().item()),
             "snr_mean": float(snr.mean().item()),
+            "snr_raw_max": float(snr_raw.max().item()),
         }
 
         batch_stats = {
