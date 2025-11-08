@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from src.core.functional import compute_snr_weight, compute_target
+from src.core.numeric import safe_ratio
 from src.training.noise import NoiseBatch
 
 
@@ -166,8 +167,10 @@ class TrainingStepExecutor:
             fft_norm=self.fft_norm,
         )
 
-        snr = (noise_batch.sqrt_alpha_t**2) / (
-            noise_batch.sqrt_one_minus_alpha_t**2 + 1e-8
+        snr = safe_ratio(
+            noise_batch.sqrt_alpha_t**2,
+            noise_batch.sqrt_one_minus_alpha_t**2,
+            min_den=1e-8,
         )
         coeff_stats = {
             "timestep_min": float(timesteps.min().item()),

@@ -6,6 +6,8 @@ from typing import Dict, Iterable, Optional, Sequence, Tuple, Type
 
 import torch
 
+from src.core.numeric import safe_clamp, safe_ratio, safe_reciprocal, safe_sqrt
+
 from src.training.scheduler import DiffusionCoeffs
 
 
@@ -76,20 +78,25 @@ class DDPMSampler(Sampler):
             alpha_t = coeffs.alphas[t]
             alpha_bar_t = coeffs.alphas_cumprod[t]
 
-            sqrt_alpha_t = torch.sqrt(alpha_t)
-            sqrt_one_minus = torch.sqrt(1.0 - alpha_bar_t)
+            sqrt_alpha_t = safe_sqrt(alpha_t)
+            sqrt_one_minus = safe_sqrt(1.0 - alpha_bar_t)
+            sqrt_alpha_bar = safe_sqrt(alpha_bar_t)
 
-            pred_x0 = (x - sqrt_one_minus * eps) / torch.sqrt(alpha_bar_t)
+            pred_x0 = safe_ratio(x - sqrt_one_minus * eps, sqrt_alpha_bar)
 
             if t > 0:
                 noise = torch.randn_like(x)
-                sigma_t = torch.sqrt(beta_t)
+                sigma_t = safe_sqrt(beta_t)
+                inv_sqrt_alpha_t = safe_reciprocal(sqrt_alpha_t)
+                noise_scale = safe_ratio(beta_t, sqrt_one_minus)
                 x = (
-                    (1.0 / sqrt_alpha_t) * (x - beta_t / sqrt_one_minus * eps)
+                    inv_sqrt_alpha_t * (x - noise_scale * eps)
                     + sigma_t * noise
                 )
             else:
-                x = (1.0 / sqrt_alpha_t) * (x - beta_t / sqrt_one_minus * eps)
+                inv_sqrt_alpha_t = safe_reciprocal(sqrt_alpha_t)
+                noise_scale = safe_ratio(beta_t, sqrt_one_minus)
+                x = inv_sqrt_alpha_t * (x - noise_scale * eps)
 
             x = torch.clamp(x, -1.0, 1.0)
         return x
@@ -171,18 +178,22 @@ class MASFSampler(Sampler):
             alpha_t = coeffs.alphas[t]
             alpha_bar_t = coeffs.alphas_cumprod[t]
 
-            sqrt_alpha_t = torch.sqrt(alpha_t)
-            sqrt_one_minus = torch.sqrt(1.0 - alpha_bar_t)
+            sqrt_alpha_t = safe_sqrt(alpha_t)
+            sqrt_one_minus = safe_sqrt(1.0 - alpha_bar_t)
 
             if t > 0:
                 noise = torch.randn_like(x)
-                sigma_t = torch.sqrt(beta_t)
+                sigma_t = safe_sqrt(beta_t)
+                inv_sqrt_alpha_t = safe_reciprocal(sqrt_alpha_t)
+                noise_scale = safe_ratio(beta_t, sqrt_one_minus)
                 x = (
-                    (1.0 / sqrt_alpha_t) * (x - beta_t / sqrt_one_minus * eps)
+                    inv_sqrt_alpha_t * (x - noise_scale * eps)
                     + sigma_t * noise
                 )
             else:
-                x = (1.0 / sqrt_alpha_t) * (x - beta_t / sqrt_one_minus * eps)
+                inv_sqrt_alpha_t = safe_reciprocal(sqrt_alpha_t)
+                noise_scale = safe_ratio(beta_t, sqrt_one_minus)
+                x = inv_sqrt_alpha_t * (x - noise_scale * eps)
 
             x = torch.clamp(x, -1.0, 1.0)
         return x
@@ -213,15 +224,15 @@ class DDIMSampler(Sampler):
             eps = self.model(x, t_batch)
 
             alpha_t = coeffs.alphas_cumprod[t].to(device=device).view(1, 1, 1, 1)
-            sqrt_alpha_t = torch.sqrt(alpha_t)
-            sqrt_one_minus_t = torch.sqrt(1.0 - alpha_t)
+            sqrt_alpha_t = safe_sqrt(alpha_t)
+            sqrt_one_minus_t = safe_sqrt(1.0 - alpha_t)
 
-            pred_x0 = (x - sqrt_one_minus_t * eps) / sqrt_alpha_t
+            pred_x0 = safe_ratio(x - sqrt_one_minus_t * eps, sqrt_alpha_t)
 
             if next_t >= 0:
                 alpha_next = coeffs.alphas_cumprod[next_t].to(device=device).view(1, 1, 1, 1)
-                sqrt_alpha_next = torch.sqrt(alpha_next)
-                sqrt_one_minus_next = torch.sqrt(1.0 - alpha_next)
+                sqrt_alpha_next = safe_sqrt(alpha_next)
+                sqrt_one_minus_next = safe_sqrt(1.0 - alpha_next)
                 x = sqrt_alpha_next * pred_x0 + sqrt_one_minus_next * eps
             else:
                 x = pred_x0
@@ -254,16 +265,16 @@ class DPMSolverPlusPlusSampler(Sampler):
             eps = self.model(x, t_batch)
 
             alpha_t = coeffs.alphas_cumprod[t].to(device=device).view(1, 1, 1, 1)
-            sqrt_alpha_t = torch.sqrt(alpha_t)
-            sigma_t = torch.sqrt(1.0 - alpha_t)
-            pred_x0 = (x - sigma_t * eps) / sqrt_alpha_t
+            sqrt_alpha_t = safe_sqrt(alpha_t)
+            sigma_t = safe_sqrt(1.0 - alpha_t)
+            pred_x0 = safe_ratio(x - sigma_t * eps, sqrt_alpha_t)
 
             if next_t >= 0:
                 alpha_next = coeffs.alphas_cumprod[next_t].to(device=device).view(1, 1, 1, 1)
-                sqrt_alpha_next = torch.sqrt(alpha_next)
-                sigma_next = torch.sqrt(1.0 - alpha_next)
+                sqrt_alpha_next = safe_sqrt(alpha_next)
+                sigma_next = safe_sqrt(1.0 - alpha_next)
                 # Use epsilon re-scaled for first-order DPM-Solver++
-                eps_prime = eps * (sigma_next / sigma_t.clamp_min(1e-8))
+                eps_prime = eps * safe_ratio(sigma_next, sigma_t)
                 x = sqrt_alpha_next * pred_x0 + sigma_next * eps_prime
             else:
                 x = pred_x0
@@ -297,23 +308,32 @@ class AncestralSampler(Sampler):
             eps = self.model(x, t_batch)
 
             alpha_t = coeffs.alphas_cumprod[t].to(device=device)
-            sqrt_alpha_t = torch.sqrt(alpha_t).view(1, *([1] * (x.dim() - 1)))
-            sigma_t = torch.sqrt(1.0 - alpha_t).view(1, *([1] * (x.dim() - 1)))
-            pred_x0 = (x - sigma_t * eps) / sqrt_alpha_t
+            sqrt_alpha_t = safe_sqrt(alpha_t).view(1, *([1] * (x.dim() - 1)))
+            sigma_t = safe_sqrt(1.0 - alpha_t).view(1, *([1] * (x.dim() - 1)))
+            pred_x0 = safe_ratio(x - sigma_t * eps, sqrt_alpha_t)
 
             if next_t >= 0:
                 alpha_next = coeffs.alphas_cumprod[next_t].to(device=device)
-                sqrt_alpha_next = torch.sqrt(alpha_next).view(1, *([1] * (x.dim() - 1)))
-                sigma_next = torch.sqrt(1.0 - alpha_next).view(1, *([1] * (x.dim() - 1)))
+                sqrt_alpha_next = safe_sqrt(alpha_next).view(1, *([1] * (x.dim() - 1)))
+                sigma_next = safe_sqrt(1.0 - alpha_next).view(1, *([1] * (x.dim() - 1)))
 
                 noise = torch.randn_like(x)
-                coef = self.eta * torch.sqrt(
-                    torch.clamp(
-                        (1 - alpha_t / alpha_next) * (1 - alpha_next) / (1 - alpha_t),
-                        min=0.0,
+                denom = safe_clamp(1 - alpha_t, min_value=1e-6)
+                coef_inner = safe_ratio(
+                    (1 - alpha_t / alpha_next) * (1 - alpha_next),
+                    denom,
+                    min_den=1e-6,
+                )
+                coef = (
+                    self.eta
+                    * safe_sqrt(safe_clamp(coef_inner, min_value=0.0)).view(
+                        1, *([1] * (x.dim() - 1))
                     )
-                ).view(1, *([1] * (x.dim() - 1)))
-                eps_rescaled = torch.sqrt(torch.clamp(sigma_next**2 - coef**2, min=0.0))
+                )
+                eps_rescaled = safe_sqrt(
+                    safe_clamp(sigma_next**2 - coef**2, min_value=0.0),
+                    min_value=0.0,
+                )
                 x = sqrt_alpha_next * pred_x0 + eps_rescaled * eps + coef * noise
             else:
                 x = pred_x0
@@ -343,9 +363,9 @@ class DPMSolver2Sampler(Sampler):
             eps = self.model(x, t_batch)
 
             alpha_t = coeffs.alphas_cumprod[t].to(device=device)
-            sqrt_alpha_t = torch.sqrt(alpha_t).view(1, *([1] * (x.dim() - 1)))
-            sigma_t = torch.sqrt(1.0 - alpha_t).view(1, *([1] * (x.dim() - 1)))
-            pred_x0 = (x - sigma_t * eps) / sqrt_alpha_t
+            sqrt_alpha_t = safe_sqrt(alpha_t).view(1, *([1] * (x.dim() - 1)))
+            sigma_t = safe_sqrt(1.0 - alpha_t).view(1, *([1] * (x.dim() - 1)))
+            pred_x0 = safe_ratio(x - sigma_t * eps, sqrt_alpha_t)
 
             if eps_prev is not None:
                 eps = 0.5 * (eps + eps_prev)
@@ -354,8 +374,8 @@ class DPMSolver2Sampler(Sampler):
             if idx + 1 < len(timesteps):
                 next_t = timesteps[idx + 1]
                 alpha_next = coeffs.alphas_cumprod[next_t].to(device=device)
-                sqrt_alpha_next = torch.sqrt(alpha_next).view(1, *([1] * (x.dim() - 1)))
-                sigma_next = torch.sqrt(1.0 - alpha_next).view(1, *([1] * (x.dim() - 1)))
+                sqrt_alpha_next = safe_sqrt(alpha_next).view(1, *([1] * (x.dim() - 1)))
+                sigma_next = safe_sqrt(1.0 - alpha_next).view(1, *([1] * (x.dim() - 1)))
                 x = sqrt_alpha_next * pred_x0 + sigma_next * eps
             else:
                 x = pred_x0

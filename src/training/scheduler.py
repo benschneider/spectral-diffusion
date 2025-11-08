@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import torch
 
+from src.core.numeric import safe_clamp, safe_sqrt
+
 
 @dataclass
 class DiffusionCoeffs:
@@ -35,13 +37,16 @@ def build_diffusion(T: int, kind: str) -> DiffusionCoeffs:
     alphas = 1.0 - betas
     a_bar = torch.cumprod(alphas, dim=0)
     a_bar_prev = torch.cat([torch.tensor([1.0], dtype=a_bar.dtype), a_bar[:-1]], dim=0)
+    sqrt_alphas = safe_sqrt(safe_clamp(a_bar, min_value=1e-12, max_value=1.0))
+    sqrt_one_minus = safe_sqrt(safe_clamp(1.0 - a_bar, min_value=1e-6))
+
     return DiffusionCoeffs(
         betas=betas,
         alphas=alphas,
         alphas_cumprod=a_bar,
         alphas_cumprod_prev=a_bar_prev,
-        sqrt_alphas_cumprod=torch.sqrt(a_bar),
-        sqrt_one_minus_alphas_cumprod=torch.sqrt(1.0 - a_bar),
+        sqrt_alphas_cumprod=sqrt_alphas,
+        sqrt_one_minus_alphas_cumprod=sqrt_one_minus,
     )
 
 

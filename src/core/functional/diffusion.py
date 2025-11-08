@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import torch
+
+from src.core.numeric import compute_snr, safe_clamp, safe_sqrt
 
 
 def compute_target(
@@ -27,11 +27,11 @@ def compute_snr_weight(
     sigma_t: torch.Tensor,
     transform: str = "snr",
 ) -> torch.Tensor:
-    snr = (alpha_t**2) / (sigma_t**2 + 1e-8)
+    snr = compute_snr(alpha_t, sigma_t)
     if transform == "snr":
-        return snr
+        return torch.clamp(snr, max=1e4)
     if transform == "snr_sqrt":
-        return torch.sqrt(snr)
+        return safe_sqrt(safe_clamp(snr, min_value=0.0))
     if transform == "snr_clamped":
-        return torch.minimum(snr, torch.full_like(snr, 10.0))
+        return safe_clamp(snr, max_value=10.0)
     raise ValueError(f"Unknown SNR transform '{transform}'")
