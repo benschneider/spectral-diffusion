@@ -288,6 +288,15 @@ def run_step_recorder(
     diffusion_cfg = config.get("diffusion", {}) or {}
     T = int(diffusion_cfg.get("num_timesteps", 1000))
     schedule = diffusion_cfg.get("beta_schedule", "cosine")
+    schedule_kwargs: Dict[str, float] = dict(
+        diffusion_cfg.get("schedule_kwargs", {}) or {}
+    )
+    schedule_key = schedule.replace("-", "_").lower()
+    if schedule_key == "logsnr_cosine":
+        logsnr_cfg = diffusion_cfg.get("logsnr", {}) or {}
+        for key in ("lambda_min", "lambda_max", "delta"):
+            if key in logsnr_cfg and key not in schedule_kwargs:
+                schedule_kwargs[key] = float(logsnr_cfg[key])
     prediction_type = diffusion_cfg.get("prediction_type", "eps")
     snr_weighting = bool(diffusion_cfg.get("snr_weighting", False))
     snr_transform = diffusion_cfg.get("snr_transform", "snr")
@@ -342,7 +351,14 @@ def run_step_recorder(
     diffusion_cfg["dc_scale_factor"] = effective_dc_scale
     spectral_cfg["dc_scale_factor"] = effective_dc_scale
 
-    coeffs = build_diffusion(T, schedule)
+    coeffs = build_diffusion(T, schedule, schedule_kwargs)
+    if schedule_key == "logsnr_cosine":
+        lam_min = float(schedule_kwargs.get("lambda_min", -13.0))
+        lam_max = float(schedule_kwargs.get("lambda_max", 13.0))
+        delta = float(schedule_kwargs.get("delta", 0.008))
+        print(
+            f"[Schedule] mode=logsnr_cosine λ∈[{lam_min:.3g},{lam_max:.3g}] δ={delta:.3g}"
+        )
     print(
         "[Schedule] trim_offset=%d num_timesteps=%d min_sigma=%.4f" % (
             coeffs.trim_offset,

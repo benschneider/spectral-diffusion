@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import math
 from pathlib import Path
+from typing import Dict
 
 import torch
 from PIL import Image
@@ -153,13 +154,22 @@ def main() -> None:
         diffusion_cfg = cfg.get("diffusion", {})
         num_steps = int(diffusion_cfg.get("num_timesteps", 1000))
         schedule = diffusion_cfg.get("beta_schedule", "cosine")
+        schedule_kwargs: Dict[str, float] = dict(
+            diffusion_cfg.get("schedule_kwargs", {}) or {}
+        )
+        schedule_key = schedule.replace("-", "_").lower()
+        if schedule_key == "logsnr_cosine":
+            logsnr_cfg = diffusion_cfg.get("logsnr", {}) or {}
+            for key in ("lambda_min", "lambda_max", "delta"):
+                if key in logsnr_cfg and key not in schedule_kwargs:
+                    schedule_kwargs[key] = float(logsnr_cfg[key])
         uniform_scale = float(
             diffusion_cfg.get(
                 "uniform_corruption_scale",
                 cfg.get("spectral", {}).get("uniform_corruption_scale", 1.0),
             )
         )
-        coeffs = build_diffusion(num_steps, schedule)
+        coeffs = build_diffusion(num_steps, schedule, schedule_kwargs)
         effective_steps = coeffs.num_timesteps
         if args.t_index is not None:
             t = int(args.t_index)

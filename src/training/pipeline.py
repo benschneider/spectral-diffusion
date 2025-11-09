@@ -77,8 +77,19 @@ class TrainingPipeline:
         threshold_steps: Optional[int] = None
         threshold_time: Optional[float] = None
         wall_start = perf_counter()
-        T, schedule = self._diffusion_params()
-        coeffs = build_diffusion(T, schedule)
+        T, schedule, schedule_kwargs = self._diffusion_params()
+        coeffs = build_diffusion(T, schedule, schedule_kwargs)
+        schedule_key = schedule.replace("-", "_").lower()
+        if schedule_key == "logsnr_cosine":
+            lam_min = float(schedule_kwargs.get("lambda_min", -13.0))
+            lam_max = float(schedule_kwargs.get("lambda_max", 13.0))
+            delta = float(schedule_kwargs.get("delta", 0.008))
+            self.logger.info(
+                "[Schedule] mode=logsnr_cosine λ∈[%.3f, %.3f] δ=%.3f",
+                lam_min,
+                lam_max,
+                delta,
+            )
         total_timesteps = coeffs.num_timesteps
         if coeffs.trim_offset > 0:
             self.logger.info(
@@ -273,11 +284,20 @@ class TrainingPipeline:
         self.logger.info("Training metrics: %s", metrics)
         return metrics
 
-    def _diffusion_params(self) -> Tuple[int, str]:
+    def _diffusion_params(self) -> Tuple[int, str, Dict[str, float]]:
         diffusion_cfg = self.config.get("diffusion", {})
         T = int(diffusion_cfg.get("num_timesteps", 1000))
         schedule = diffusion_cfg.get("beta_schedule", "cosine")
-        return T, schedule
+        schedule_kwargs: Dict[str, float] = dict(
+            diffusion_cfg.get("schedule_kwargs", {}) or {}
+        )
+        schedule_key = schedule.replace("-", "_").lower()
+        if schedule_key == "logsnr_cosine":
+            logsnr_cfg = diffusion_cfg.get("logsnr", {}) or {}
+            for key in ("lambda_min", "lambda_max", "delta"):
+                if key in logsnr_cfg and key not in schedule_kwargs:
+                    schedule_kwargs[key] = float(logsnr_cfg[key])
+        return T, schedule, schedule_kwargs
 
     def _prepare_instrumentation(self) -> None:
         factor_levels = self.config.get("taguchi", {}).get("factor_levels", {}) or {}
@@ -340,8 +360,18 @@ class TrainingPipeline:
         if sampler_type is not None:
             sampling_cfg["sampler_type"] = str(sampler_type)
 
-        T, schedule = self._diffusion_params()
-        coeffs = build_diffusion(T, schedule)
+        T, schedule, schedule_kwargs = self._diffusion_params()
+        coeffs = build_diffusion(T, schedule, schedule_kwargs)
+        if schedule.replace("-", "_").lower() == "logsnr_cosine":
+            lam_min = float(schedule_kwargs.get("lambda_min", -13.0))
+            lam_max = float(schedule_kwargs.get("lambda_max", 13.0))
+            delta = float(schedule_kwargs.get("delta", 0.008))
+            self.logger.info(
+                "[Schedule] mode=logsnr_cosine λ∈[%.3f, %.3f] δ=%.3f",
+                lam_min,
+                lam_max,
+                delta,
+            )
 
         sampler = sampling_cfg.get("sampler_type", "ddpm").lower()
         try:

@@ -111,3 +111,16 @@ The project's central experiment is a comparison between two different architect
     ```text
     FFT -> [Encoder (ComplexResidual + Downsample)xL] -> Bottleneck -> [Decoder (Upsample + Skip)xL] -> iFFT
     ```
+
+## 9. Diffusion schedule stability
+
+Recent runs use a **log-SNR cosine schedule** popularised by Karras et al. (2022) and the SD3/Flux reports. Instead of hand-crafted β sequences we parameterise the cumulative signal-to-noise ratio via
+
+```
+λ(t) = λ_min + (λ_max − λ_min) · f(t)
+f(t) = cos^2\left(\frac{π}{2}·\frac{t + δ}{1 + δ}\right) / cos^2\left(\frac{π}{2}·\frac{δ}{1 + δ}\right)
+ᾱ(t) = sigmoid(λ(t))
+σ(t) = sqrt(1 − ᾱ(t))
+```
+
+The default bounds (λ_min = −13, λ_max = 13, δ = 0.008) keep `ᾱ(t)` strictly within (0, 1), preventing the denormal divisions and SNR spikes that plagued the trimmed linear/cosine schedules. Every training or sampling component now queries `build_diffusion(..., beta_schedule="logsnr_cosine")`, which materialises these tensors once and reuses them across the loop.

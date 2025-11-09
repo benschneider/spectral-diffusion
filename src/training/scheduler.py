@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Dict, Optional
 
 import torch
 
@@ -38,11 +39,62 @@ def make_beta_schedule(T: int, kind: str = "linear") -> torch.Tensor:
     raise ValueError(f"Unknown beta_schedule '{kind}'")
 
 
-def build_diffusion(T: int, kind: str) -> DiffusionCoeffs:
-    original_betas = make_beta_schedule(T, kind)
-    original_alphas = 1.0 - original_betas
-    original_a_bar = torch.cumprod(original_alphas, dim=0)
-    original_sigma = safe_sqrt(safe_clamp(1.0 - original_a_bar, min_value=1e-8))
+def logsnr_cosine_schedule(
+    num_steps: int,
+    lambda_min: float = -13.0,
+    lambda_max: float = 13.0,
+    delta: float = 0.008,
+) -> Dict[str, torch.Tensor]:
+    """Return ᾱ, σ, and log-SNR for the SD3/Flux cosine schedule.
+
+    Implements λ(t) = λ_min + (λ_max − λ_min)·f(t) with
+    f(t) = cos²(((t + δ)/(1 + δ))·π/2) normalised by its value at t = 0.
+    The cumulative signal weight is ᾱ(t) = sigmoid(λ(t)), and σ(t) = sqrt(1 − ᾱ(t)).
+    """
+
+    if num_steps <= 0:
+        raise ValueError("num_steps must be positive for log-SNR cosine schedule")
+
+    t = torch.linspace(0.0, 1.0, num_steps, dtype=torch.float32)
+    base = math.pi * 0.5
+    denom = math.cos(base * delta / (1.0 + delta)) ** 2
+    f_t = torch.cos(base * (t + delta) / (1.0 + delta)) ** 2
+    f_t = (f_t / denom).clamp(0.0, 1.0)
+
+    log_snr = torch.lerp(
+        torch.full_like(f_t, float(lambda_min)),
+        torch.full_like(f_t, float(lambda_max)),
+        f_t,
+    )
+    alpha = torch.sigmoid(log_snr)
+    sigma = safe_sqrt(safe_clamp(1.0 - alpha, min_value=1e-12))
+
+    return {"alpha": alpha, "sigma": sigma, "log_snr": log_snr}
+
+
+def build_diffusion(
+    T: int,
+    kind: str,
+    schedule_kwargs: Optional[Dict[str, float]] = None,
+) -> DiffusionCoeffs:
+    schedule_kwargs = dict(schedule_kwargs or {})
+    lower_kind = kind.replace("-", "_").lower()
+
+    if lower_kind == "logsnr_cosine":
+        schedule = logsnr_cosine_schedule(
+            T,
+            lambda_min=float(schedule_kwargs.get("lambda_min", -13.0)),
+            lambda_max=float(schedule_kwargs.get("lambda_max", 13.0)),
+            delta=float(schedule_kwargs.get("delta", 0.008)),
+        )
+        original_a_bar = schedule["alpha"].to(torch.float32)
+        original_sigma = schedule["sigma"].to(torch.float32)
+        original_betas = None
+    else:
+        original_betas = make_beta_schedule(T, lower_kind)
+        original_alphas = 1.0 - original_betas
+        original_a_bar = torch.cumprod(original_alphas, dim=0)
+        original_sigma = safe_sqrt(safe_clamp(1.0 - original_a_bar, min_value=1e-8))
 
     eligible = torch.nonzero(original_sigma >= MIN_SIGMA_THRESHOLD, as_tuple=False)
     trim_offset = int(eligible[0].item()) if eligible.numel() > 0 else 0
