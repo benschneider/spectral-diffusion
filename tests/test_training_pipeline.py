@@ -67,8 +67,8 @@ def test_training_pipeline_runs_end_to_end(tmp_path):
     assert metrics["fft_amplitude_mae_history"]
     assert metrics["diffusion_timestep_mean_history"]
     assert metrics["batch_prediction_mean_history"]
-    assert metrics["snr_weight_min_mean"] is not None
-    assert metrics["snr_weight_min_history"]
+    assert metrics["snr_weight_mean_weight_mean"] is not None
+    assert metrics["snr_weight_mean_weight_history"]
     assert "sampling_images_dir" not in metrics
 
     sanity_dir = tmp_path / "sanity"
@@ -130,8 +130,8 @@ def test_training_pipeline_regression_baseline(tmp_path):
     pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
     metrics = pipeline.run()
 
-    expected_loss = 9.3600
-    expected_loss_drop = -0.4518
+    expected_loss = 0.35697
+    expected_loss_drop = -0.29705
     assert metrics["status"] == "ok"
     assert pytest.approx(metrics["loss_mean"], rel=0.05) == expected_loss
     assert pytest.approx(metrics["loss_drop"], rel=0.1) == expected_loss_drop

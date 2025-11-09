@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import math
 import torch
@@ -135,6 +135,7 @@ class StepOutcome:
     coeff_stats: Dict[str, float]
     batch_stats: Dict[str, float]
     weight_stats: Optional[Dict[str, float]] = None
+    residual_mode: Optional[str] = None
 
 
 class TrainingStepExecutor:
@@ -144,10 +145,10 @@ class TrainingStepExecutor:
         self,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
-        loss_fn: Callable[[Tensor, Optional[Tensor]], Tensor],
+        loss_fn: Callable[..., Tensor],
         *,
         prediction_type: str,
-        snr_weighting: bool,
+        snr_weighting: Optional[bool],
         snr_transform: str,
         fft_norm: str,
     ) -> None:
@@ -155,7 +156,13 @@ class TrainingStepExecutor:
         self.optimizer = optimizer
         self.loss_fn = loss_fn
         self.prediction_type = prediction_type
-        self.snr_weighting = snr_weighting
+        default_weighting = getattr(self.loss_fn, "use_weighting", True)
+        if hasattr(self.loss_fn, "set_weighting_enabled"):
+            enabled = default_weighting if snr_weighting is None else bool(snr_weighting)
+            self.loss_fn.set_weighting_enabled(enabled)
+            self.snr_weighting = enabled
+        else:
+            self.snr_weighting = bool(snr_weighting) if snr_weighting is not None else default_weighting
         self.snr_transform = snr_transform
         self.fft_norm = fft_norm
 
@@ -185,18 +192,52 @@ class TrainingStepExecutor:
             sqrt_one_minus_alpha_t,
         )
         residual = prediction - target
-        weight: Optional[Tensor] = None
-        if self.snr_weighting:
+
+        loss_diag: Optional[Dict[str, Any]] = None
+        fallback_weight: Optional[Tensor] = None
+        try:
+            loss_result = self.loss_fn(
+                prediction,
+                target,
+                sqrt_alpha_t,
+                sqrt_one_minus_alpha_t,
+            )
+        except TypeError:
+            if self.snr_weighting:
+                fallback_weight = compute_snr_weight(
+                    sqrt_alpha_t,
+                    sqrt_one_minus_alpha_t,
+                    transform=self.snr_transform,
+                )
+            loss = self.loss_fn(residual, fallback_weight)
+        else:
+            if isinstance(loss_result, tuple):
+                loss, loss_diag = loss_result
+            else:
+                loss = loss_result
+
+        mae = F.l1_loss(prediction, target)
+
+        weight_stats: Optional[Dict[str, float]] = None
+        if loss_diag:
+            weight_stats = {
+                key: float(value)
+                for key, value in loss_diag.items()
+                if isinstance(value, (int, float))
+            }
+        elif fallback_weight is not None:
+            weight = fallback_weight
+            weight_stats = {
+                "min": float(weight.min().item()),
+                "max": float(weight.max().item()),
+                "mean": float(weight.mean().item()),
+            }
+        elif self.snr_weighting:
             weight = compute_snr_weight(
                 sqrt_alpha_t,
                 sqrt_one_minus_alpha_t,
                 transform=self.snr_transform,
             )
-        loss = self.loss_fn(residual, weight)
-        mae = F.l1_loss(prediction, target)
-
-        weight_stats: Optional[Dict[str, float]] = None
-        if weight is not None:
             weight_stats = {
                 "min": float(weight.min().item()),
                 "max": float(weight.max().item()),
@@ -280,6 +321,8 @@ class TrainingStepExecutor:
         grad_norm = grad_callback() if grad_callback else None
         self.optimizer.step()
 
+        residual_mode = getattr(self.loss_fn, "mode", None)
+
         return StepOutcome(
             loss=float(loss.detach().cpu()),
             mae=float(mae.detach().cpu()),
@@ -288,4 +331,5 @@ class TrainingStepExecutor:
             coeff_stats=coeff_stats,
             batch_stats=batch_stats,
             weight_stats=weight_stats,
+            residual_mode=residual_mode,
         )

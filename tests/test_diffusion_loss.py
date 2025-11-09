@@ -3,18 +3,33 @@ import torch
 from src.core.losses import DiffusionLoss
 
 
+def _coef(shape):
+    return (
+        torch.full((shape[0], 1, 1, 1), 0.9),
+        torch.full((shape[0], 1, 1, 1), 0.4),
+    )
+
+
 def test_diffusion_loss_no_weighting_matches_mse():
-    residual = torch.tensor([[1.0, -2.0], [3.0, -4.0]])
-    loss = DiffusionLoss({"spectral_weighting": "none", "reduction": "mean"})
-    mse = (residual**2).mean()
-    assert torch.allclose(loss(residual), mse)
+    prediction = torch.tensor([[1.0, -2.0], [3.0, -4.0]], dtype=torch.float32).unsqueeze(0)
+    target = torch.zeros_like(prediction)
+    sqrt_alpha, sqrt_one_minus = _coef(prediction.shape)
+    loss_fn = DiffusionLoss({"use_weighting": False})
+    loss, _ = loss_fn(prediction, target, sqrt_alpha, sqrt_one_minus)
+    expected = (prediction - target).pow(2).mean()
+    assert torch.allclose(loss, expected)
 
 
 def test_diffusion_loss_with_weighting_changes_value():
-    residual = torch.randn(2, 3, 8, 8)
-    loss_none = DiffusionLoss({"spectral_weighting": "none", "reduction": "mean"})
-    baseline = loss_none(residual)
+    prediction = torch.randn(2, 3, 8, 8)
+    target = torch.randn_like(prediction)
+    sqrt_alpha, sqrt_one_minus = _coef(prediction.shape)
 
-    loss_radial = DiffusionLoss({"spectral_weighting": "radial", "reduction": "mean"})
-    weighted = loss_radial(residual)
+    loss_none = DiffusionLoss({"use_weighting": False})
+    baseline, _ = loss_none(prediction, target, sqrt_alpha, sqrt_one_minus)
+
+    loss_adaptive = DiffusionLoss({})
+    weighted, diag = loss_adaptive(prediction, target, sqrt_alpha, sqrt_one_minus)
+
     assert not torch.allclose(baseline, weighted)
+    assert "mean_weight" in diag

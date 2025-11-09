@@ -327,7 +327,7 @@ class TrainingPipeline:
         if self._step_executor is None:
             diffusion_cfg = self.config.get("diffusion", {}) or {}
             prediction_type = diffusion_cfg.get("prediction_type", "eps")
-            snr_weighting = bool(diffusion_cfg.get("snr_weighting", False))
+            snr_weighting = diffusion_cfg.get("snr_weighting")
             snr_transform = str(diffusion_cfg.get("snr_transform", "snr"))
             fft_norm = (
                 getattr(self._noise_preparer, "fft_norm", None)
@@ -342,6 +342,9 @@ class TrainingPipeline:
                 snr_transform=snr_transform,
                 fft_norm=str(fft_norm),
             )
+            marker = getattr(self.loss_fn, "residual_marker", None)
+            if callable(marker):
+                self.logger.info(marker())
 
 
     def generate_samples(

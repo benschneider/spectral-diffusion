@@ -6,6 +6,30 @@ from src.training.noise import NoiseBatch
 from src.training.steps import TrainingStepExecutor
 
 
+class DummyLoss:
+    def __init__(self, *, mean_weight: float = 1.0) -> None:
+        self.mode = "pixel"
+        self.use_weighting = True
+        self.calls = 0
+        self.mean_weight = mean_weight
+
+    def set_weighting_enabled(self, enabled: bool) -> None:  # pragma: no cover - simple state toggle
+        self.use_weighting = enabled
+
+    def __call__(self, prediction, target, sqrt_alpha, sqrt_one_minus):
+        self.calls += 1
+        residual = target - prediction
+        loss = residual.pow(2).mean()
+        diag = {
+            "mean_weight": self.mean_weight if self.use_weighting else 1.0,
+            "max_weight": 1.0,
+            "kappa": 0.0,
+            "ema": 0.0,
+            "norm": float(residual.shape[-2] * residual.shape[-1]),
+        }
+        return loss, diag
+
+
 def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
     class ConstantModel(nn.Module):
         def __init__(self):
@@ -24,10 +48,6 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
         captured["target_args"] = (pred_type, clean_batch.shape)
         return torch.zeros_like(noisy_batch)
 
-    def fake_compute_snr_weight(sqrt_alpha, sqrt_one_minus, transform="snr"):
-        captured["weight_args"] = transform
-        return torch.ones_like(sqrt_alpha)
-
     def fake_fft_feedback(prediction, target, fft_norm="ortho"):
         captured["fft_norm"] = fft_norm
         return {
@@ -39,12 +59,9 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
         }
 
     monkeypatch.setattr("src.training.steps.compute_target", fake_compute_target)
-    monkeypatch.setattr("src.training.steps.compute_snr_weight", fake_compute_snr_weight)
     monkeypatch.setattr("src.training.steps.compute_fft_feedback", fake_fft_feedback)
 
-    def loss_fn(residual, weight):
-        captured["loss_weight"] = weight
-        return residual.mean()
+    loss_fn = DummyLoss()
 
     executor = TrainingStepExecutor(
         model=model,
@@ -77,8 +94,7 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
 
     assert callback_called
     assert captured["target_args"][0] == "eps"
-    assert captured["weight_args"] == "logsnr"
-    assert captured["loss_weight"].shape == (1, 1, 1, 1)
+    assert loss_fn.calls == 1
     assert outcome.grad_norm == pytest.approx(3.0)
     assert outcome.loss > 0
     assert outcome.fft_feedback["amplitude_mae"] == pytest.approx(1.0)
@@ -86,12 +102,11 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
     assert "timestep_mean" in outcome.coeff_stats
     assert "prediction_mean" in outcome.batch_stats
     assert outcome.weight_stats is not None
-    assert outcome.weight_stats["min"] == pytest.approx(1.0)
-    assert outcome.weight_stats["max"] == pytest.approx(1.0)
-    assert outcome.weight_stats["mean"] == pytest.approx(1.0)
+    assert outcome.weight_stats["mean_weight"] == pytest.approx(1.0)
+    assert outcome.weight_stats["max_weight"] == pytest.approx(1.0)
 
 
-def test_step_executor_handles_absent_weight(monkeypatch):
+def test_step_executor_handles_weight_toggle(monkeypatch):
     class SimpleModel(nn.Module):
         def __init__(self):
             super().__init__()
@@ -107,11 +122,7 @@ def test_step_executor_handles_absent_weight(monkeypatch):
         "src.training.steps.compute_target", lambda *args, **kwargs: torch.zeros_like(args[1])
     )
 
-    loss_weights = []
-
-    def loss_fn(residual, weight):
-        loss_weights.append(weight)
-        return residual.pow(2).mean()
+    loss_fn = DummyLoss()
 
     executor = TrainingStepExecutor(
         model=model,
@@ -136,8 +147,9 @@ def test_step_executor_handles_absent_weight(monkeypatch):
 
     outcome = executor.run_step(clean, noise_batch, timesteps)
 
-    assert loss_weights[-1] is None
-    assert outcome.weight_stats is None
+    assert loss_fn.use_weighting is False
+    assert outcome.weight_stats is not None
+    assert outcome.weight_stats["mean_weight"] == pytest.approx(1.0)
 
 
 def test_step_executor_reports_full_snr(monkeypatch, capsys):

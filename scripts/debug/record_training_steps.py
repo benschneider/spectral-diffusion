@@ -280,12 +280,26 @@ def run_step_recorder(
 
     model = build_model(config.get("model", {}))
     loss_fn = get_loss_fn(config.get("loss", {}))
+    marker = getattr(loss_fn, "residual_marker", None)
+    if callable(marker):
+        print(marker())
+    diffusion_cfg = config.get("diffusion", {}) or {}
+    snr_weighting_cfg = diffusion_cfg.get("snr_weighting")
+    if hasattr(loss_fn, "set_weighting_enabled"):
+        if snr_weighting_cfg is None:
+            loss_fn.set_weighting_enabled(getattr(loss_fn, "use_weighting", True))
+        else:
+            loss_fn.set_weighting_enabled(bool(snr_weighting_cfg))
+    snr_weighting = (
+        getattr(loss_fn, "use_weighting", True)
+        if snr_weighting_cfg is None
+        else bool(snr_weighting_cfg)
+    )
     optimiser = build_optimizer(model, config)
 
     device_obj = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model.to(device_obj)
 
-    diffusion_cfg = config.get("diffusion", {}) or {}
     T = int(diffusion_cfg.get("num_timesteps", 1000))
     schedule = diffusion_cfg.get("beta_schedule", "cosine")
     schedule_kwargs: Dict[str, float] = dict(
@@ -298,8 +312,8 @@ def run_step_recorder(
             if key in logsnr_cfg and key not in schedule_kwargs:
                 schedule_kwargs[key] = float(logsnr_cfg[key])
     prediction_type = diffusion_cfg.get("prediction_type", "eps")
-    snr_weighting = bool(diffusion_cfg.get("snr_weighting", False))
     snr_transform = diffusion_cfg.get("snr_transform", "snr")
+    snr_transform = str(snr_transform)
     uniform_corruption = bool(diffusion_cfg.get("uniform_corruption", False))
     corruption_scale = float(
         diffusion_cfg.get(
@@ -460,18 +474,42 @@ def run_step_recorder(
             denoised = None
 
         residual = pred - target
-        weight = (
-            compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform)
-            if snr_weighting
-            else None
-        )
-        loss = loss_fn(residual, weight)
+        adaptive_diag: Optional[Dict[str, float]] = None
+        try:
+            loss_result = loss_fn(pred, target, sqrt_alpha_t, sqrt_one_minus_t)
+        except TypeError:
+            weight = (
+                compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform)
+                if snr_weighting
+                else None
+            )
+            loss = loss_fn(residual, weight)
+        else:
+            if isinstance(loss_result, tuple):
+                loss, adaptive_diag = loss_result
+            else:
+                loss = loss_result
         mae = F.l1_loss(pred.detach(), target.detach())
         fft_feedback = compute_fft_feedback(pred, target, fft_norm=fft_norm)
         loss_value = float(loss.detach().cpu())
         mae_value = float(mae.detach().cpu())
         weight_stats = None
-        if weight is not None:
+        if adaptive_diag:
+            weight_stats = {
+                key: float(value)
+                for key, value in adaptive_diag.items()
+                if isinstance(value, (int, float))
+            }
+            print(
+                "[AdaptiveSNR] "
+                f"kappa={adaptive_diag.get('kappa', 0.0):.4e}, "
+                f"ema={adaptive_diag.get('ema', 0.0):.4e}, "
+                f"norm={adaptive_diag.get('norm', 1.0):.2f}, "
+                f"w_mean={adaptive_diag.get('mean_weight', 1.0):.3f}, "
+                f"w_max={adaptive_diag.get('max_weight', 1.0):.3f}"
+            )
+        elif snr_weighting:
+            weight = compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform)
             weight_stats = {
                 "snr_weight_min": float(weight.min().item()),
                 "snr_weight_max": float(weight.max().item()),
@@ -672,13 +710,22 @@ def run_step_recorder(
                 )
             )
             if weight_stats:
-                print(
-                    "[SNRWeight] min={:.6f} max={:.6f} mean={:.6f}".format(
-                        weight_stats["snr_weight_min"],
-                        weight_stats["snr_weight_max"],
-                        weight_stats["snr_weight_mean"],
+                if {"snr_weight_min", "snr_weight_max", "snr_weight_mean"}.issubset(weight_stats):
+                    print(
+                        "[SNRWeight] min={:.6f} max={:.6f} mean={:.6f}".format(
+                            weight_stats["snr_weight_min"],
+                            weight_stats["snr_weight_max"],
+                            weight_stats["snr_weight_mean"],
+                        )
                     )
-                )
+                else:
+                    print(
+                        "[AdaptiveSNRWeight] mean={:.6f} max={:.6f} kappa={:.4e}".format(
+                            weight_stats.get("mean_weight", 1.0),
+                            weight_stats.get("max_weight", 1.0),
+                            weight_stats.get("kappa", 0.0),
+                        )
+                    )
 
             def _save_raw(tensor: torch.Tensor, path: Path, name: str) -> None:
                 tensor = tensor.detach().cpu()

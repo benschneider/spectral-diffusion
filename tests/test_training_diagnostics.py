@@ -126,7 +126,10 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     )
     diagnostics.record_coeff_stats(1, {"timestep_mean": 3.0, "snr_mean": 1.5})
     diagnostics.record_batch_stats(1, {"prediction_mean": 0.1, "target_std": 0.05})
-    diagnostics.record_weight_stats(1, {"snr_weight_min": 0.2, "snr_weight_max": 0.4})
+    diagnostics.record_weight_stats(
+        1,
+        {"snr_weight_mean_weight": 0.2, "snr_weight_max_weight": 0.4},
+    )
 
     diagnostics.finalise()
 
