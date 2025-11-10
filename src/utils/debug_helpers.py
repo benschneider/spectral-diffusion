@@ -101,7 +101,7 @@ def summarise_snr_spikes(
     target: torch.Tensor,
     prediction: torch.Tensor,
     threshold: float,
-    top_k: int,
+    top_k: int = 3,
 ) -> Optional[Dict[str, Any]]:
     if snr_vals.numel() == 0:
         return None

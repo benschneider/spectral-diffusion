@@ -66,24 +66,30 @@ class AdaptiveSNRWeight:
         kappa_floor: float = 1e-6,
         freeze_ratio: float = 5.0,
         delta: float = 1e-3,
+        delta_growth: float = 1.0,
         overflow_target: float = 0.01,
         overflow_decay: float = 0.9,
         change_threshold: float = 0.1,
         log_interval: int = 200,
+        snr_clip: Optional[float] = None,
     ) -> None:
         self.beta = float(beta)
         self.ema_decay = float(ema_decay)
         self.gamma_alpha = float(gamma_alpha)
         self.kappa_floor = float(kappa_floor)
         self.freeze_ratio = float(freeze_ratio)
+        self._delta_base = float(delta)
         self.delta = float(delta)
+        self.delta_growth = float(delta_growth)
         self.overflow_target = float(overflow_target)
         self.overflow_decay = float(overflow_decay)
         self.change_threshold = float(change_threshold)
         self.log_interval = int(log_interval)
+        self.snr_clip = float(snr_clip) if snr_clip is not None else None
 
         self._ema_val: Optional[torch.Tensor] = None
         self._overflow_ema: float = 0.0
+        self._overflow_actual_ema: float = 0.0
         self._step = 0
         self._last_log_step = 0
         self._last_diag: Dict[str, float] = {}
@@ -140,9 +146,11 @@ class AdaptiveSNRWeight:
 
         overflow_adj = 1.0
         if self.overflow_target > 0:
-            overflow_adj += max(0.0, self._overflow_ema - self.overflow_target) / self.overflow_target
+            excess = max(0.0, self._overflow_actual_ema - self.overflow_target) / self.overflow_target
+            overflow_adj += excess * max(self.delta_growth, 0.0)
 
-        delta_eff = self.delta * overflow_adj
+        delta_eff = self._delta_base * overflow_adj
+        self.delta = delta_eff
 
         kappa_per_example = torch.clamp(
             torch.abs(per_example_value) * self.beta * alpha_term,
@@ -185,37 +193,69 @@ class AdaptiveSNRWeight:
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         """Return adaptive weights and diagnostics."""
 
+        snr_in = snr
+        clip_mask: Optional[torch.Tensor] = None
+        if self.snr_clip is not None:
+            clip_mask = (snr_in > self.snr_clip).to(snr_in.dtype)
+            snr_in = snr_in.clamp(min=0.0, max=self.snr_clip)
+        overflow_tensor: Optional[torch.Tensor] = None
+        if overflow_mask is not None:
+            overflow_tensor = overflow_mask.detach().float()
+        ratio_mask: Optional[torch.Tensor] = None
+        if clip_mask is not None and overflow_tensor is not None:
+            ratio_mask = torch.maximum(
+                _expand_to(clip_mask, snr_in), _expand_to(overflow_tensor, snr_in)
+            )
+        elif clip_mask is not None:
+            ratio_mask = _expand_to(clip_mask, snr_in)
+        elif overflow_tensor is not None:
+            ratio_mask = _expand_to(overflow_tensor, snr_in)
+
         weight, kappa_value, ema_value, alpha_fac, delta_eff = self._compute_weight_core(
-            snr, raw_loss, alpha_t
+            snr_in, raw_loss, alpha_t
         )
 
-        overflow_ratio = 0.0
-        if overflow_mask is not None:
-            overflow_mask = _expand_to(overflow_mask.detach().float(), weight)
-            if torch.any(overflow_mask > 0):
-                weight = torch.where(overflow_mask > 0, torch.zeros_like(weight), weight)
-                overflow_ratio = float(overflow_mask.mean().item())
+        combined_ratio = 0.0
+        if ratio_mask is not None:
+            combined_ratio = float(ratio_mask.detach().float().mean().item())
 
+        actual_ratio = 0.0
+        if overflow_tensor is not None:
+            overflow_expanded = _expand_to(overflow_tensor, weight)
+            actual_ratio = float(overflow_expanded.detach().float().mean().item())
+            if torch.any(overflow_expanded > 0):
+                weight = torch.where(overflow_expanded > 0, torch.zeros_like(weight), weight)
+
+        self._overflow_actual_ema = (
+            self.overflow_decay * self._overflow_actual_ema
+            + (1.0 - self.overflow_decay) * actual_ratio
+        )
         self._overflow_ema = (
             self.overflow_decay * self._overflow_ema
-            + (1.0 - self.overflow_decay) * overflow_ratio
+            + (1.0 - self.overflow_decay) * combined_ratio
         )
 
         mean_weight = float(weight.detach().mean().item())
         max_weight = float(weight.detach().max().item())
 
+        clip_ratio = float(clip_mask.mean().item()) if clip_mask is not None else 0.0
         diag = {
             "mean_weight": mean_weight,
             "max_weight": max_weight,
             "kappa": kappa_value,
             "ema": ema_value,
             "alpha_fac": alpha_fac,
-            "overflow": overflow_ratio,
+            "overflow": combined_ratio,
+            "overflow_actual": actual_ratio,
             "overflow_ema": self._overflow_ema,
+            "overflow_actual_ema": self._overflow_actual_ema,
             "delta": delta_eff,
+            "clip_overflow": clip_ratio,
         }
         if diag_extra:
-            diag.update(diag_extra)
+            for key, value in diag_extra.items():
+                if key not in diag:
+                    diag[key] = value
 
         self._step += 1
         should_log = self._should_log(diag)

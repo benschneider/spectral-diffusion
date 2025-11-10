@@ -16,7 +16,7 @@ from src.training.builders import build_dataloader, build_optimizer
 from src.training.diagnostics import TaguchiAggregator, TrainingDiagnostics
 from src.training.noise import NoisePreparer
 from src.training.sampling import build_sampler
-from src.training.scheduler import build_diffusion, sample_timesteps
+from src.training.scheduler import build_diffusion, loss_aware_timesteps, sample_timesteps
 from src.training.steps import TrainingStepExecutor
 from src.training.visualization import DiagnosticsPlotter
 
@@ -104,6 +104,17 @@ class TrainingPipeline:
         coeff_history: Dict[str, list[float]] = {}
         batch_history: Dict[str, list[float]] = {}
         weight_history: Dict[str, list[float]] = defaultdict(list)
+        diffusion_cfg = self.config.get("diffusion", {})
+        loss_aware_enabled = bool(diffusion_cfg.get("loss_aware_sampling", False))
+        lais_temperature = float(diffusion_cfg.get("lais_temperature", 1.2))
+        lais_decay = float(diffusion_cfg.get("lais_decay", 0.95))
+        loss_landscape = (
+            torch.ones(coeffs.num_timesteps, device=self.device)
+            if loss_aware_enabled
+            else None
+        )
+        warmup_repeats = int(self.config.get("training", {}).get("warmup_repeats", 1))
+        warmup_repeats = max(1, warmup_repeats)
 
         for epoch in range(epochs):
             for batch_idx, (xb, _) in enumerate(self.loader):
@@ -112,11 +123,39 @@ class TrainingPipeline:
                 diagnostics.capture_initial_batch(xb)
 
                 B = xb.shape[0]
-                timesteps = sample_timesteps(
-                    B,
-                    total_timesteps,
-                    xb.device,
-                )
+                if loss_aware_enabled and warmup_repeats > 1:
+                    for _ in range(warmup_repeats - 1):
+                        warm_timesteps = loss_aware_timesteps(
+                            B,
+                            loss_landscape,
+                            device=xb.device,
+                            temperature=lais_temperature,
+                        )
+                        warm_noise = noise_preparer.prepare(
+                            xb,
+                            coeffs,
+                            warm_timesteps,
+                            base_noise=torch.randn_like(xb),
+                        )
+                        step_executor.run_step(
+                            xb,
+                            warm_noise,
+                            warm_timesteps,
+                        )
+
+                if loss_aware_enabled and loss_landscape is not None:
+                    timesteps = loss_aware_timesteps(
+                        B,
+                        loss_landscape,
+                        device=xb.device,
+                        temperature=lais_temperature,
+                    )
+                else:
+                    timesteps = sample_timesteps(
+                        B,
+                        total_timesteps,
+                        xb.device,
+                    )
                 noise_batch = noise_preparer.prepare(
                     xb,
                     coeffs,
@@ -158,6 +197,26 @@ class TrainingPipeline:
                 if outcome.weight_stats:
                     for key, value in outcome.weight_stats.items():
                         weight_history[key].append(float(value))
+
+                if (
+                    loss_aware_enabled
+                    and loss_landscape is not None
+                    and outcome.per_example_mse is not None
+                ):
+                    per_example = outcome.per_example_mse.to(device=loss_landscape.device, dtype=loss_landscape.dtype)
+                    buckets = torch.zeros_like(loss_landscape)
+                    buckets.scatter_add_(0, timesteps.to(loss_landscape.device), per_example)
+                    counts = torch.bincount(
+                        timesteps.to(loss_landscape.device), minlength=loss_landscape.numel()
+                    ).to(loss_landscape.dtype)
+                    mask = counts > 0
+                    averages = torch.zeros_like(loss_landscape)
+                    averages[mask] = buckets[mask] / counts[mask]
+                    loss_landscape = torch.where(
+                        mask,
+                        loss_landscape * lais_decay + averages * (1.0 - lais_decay),
+                        loss_landscape,
+                    )
 
                 if step % log_every == 0:
                     mean_val = noise_batch.stats.get("noisy_mean") if noise_batch.stats else None

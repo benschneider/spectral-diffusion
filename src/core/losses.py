@@ -51,14 +51,20 @@ class DiffusionLoss(nn.Module):
             "kappa_floor": float(self.config.get("adaptive_kappa_floor", 1e-6)),
             "freeze_ratio": float(self.config.get("adaptive_freeze_ratio", 5.0)),
             "delta": float(self.config.get("adaptive_delta", self.config.get("adaptive_eps", 1e-3))),
+            "delta_growth": float(self.config.get("adaptive_delta_growth", 1.0)),
             "overflow_target": float(self.config.get("adaptive_overflow_target", 0.01)),
             "overflow_decay": float(self.config.get("adaptive_overflow_decay", 0.9)),
             "change_threshold": float(self.config.get("adaptive_change_threshold", 0.1)),
             "log_interval": int(self.config.get("adaptive_log_interval", 200)),
+            "snr_clip": float(
+                self.config.get("adaptive_snr_clip", self.config.get("snr_clip", 250.0))
+            ),
         }
         self._adaptive_requested = adaptive_default
         self.snr_clip = float(self.config.get("snr_clip", 250.0))
         self.log_snr_smooth = bool(self.config.get("log_snr_smooth", True))
+        self.use_overflow_bridge = bool(self.config.get("overflow_bridge", False))
+        self.overflow_renorm = bool(self.config.get("overflow_renorm", False))
         self.adaptive = (
             AdaptiveSNRWeight(**self._adaptive_params)
             if self.use_weighting and self._adaptive_requested
@@ -108,9 +114,6 @@ class DiffusionLoss(nn.Module):
         snr_soft = stats.snr_weight if self.log_snr_smooth else snr_raw
         snr_for_weight = stats.snr_clamped if self.log_snr_smooth else snr_raw
 
-        residual = compute_residual(prediction, target, mode=self.mode)
-        residual = self._apply_spectral_weighting(residual)
-
         alpha_t = sqrt_alpha ** 2
         input_std = float(target.detach().std().item()) if target.numel() else 0.0
 
@@ -123,22 +126,30 @@ class DiffusionLoss(nn.Module):
         raw_loss_override: Optional[torch.Tensor] = None
         mae_tensor: Optional[torch.Tensor] = None
 
-        if torch.any(overflow_mask) and x_t is not None and x0 is not None:
+        if (
+            self.use_overflow_bridge
+            and torch.any(overflow_mask)
+            and x_t is not None
+            and x0 is not None
+        ):
             x0_pred = predict_x0(prediction, prediction_type, x_t, sqrt_alpha, sigma_t)
             combined_prediction = torch.where(mask_broadcast, x0_pred, prediction)
             combined_target = torch.where(mask_broadcast, x0, target)
 
-            residual = combined_target - combined_prediction
-            l2_loss = residual.pow(2)
-            l1_loss = residual.abs()
+            residual_pixel = combined_target - combined_prediction
+            l2_loss = residual_pixel.pow(2)
+            l1_loss = residual_pixel.abs()
             raw_loss_override = torch.where(mask_broadcast, l1_loss, l2_loss)
-            mae_tensor = residual.abs()
+            mae_tensor = residual_pixel.abs()
         else:
-            mae_tensor = (combined_target - combined_prediction).abs()
-            residual = combined_target - combined_prediction
+            residual_pixel = combined_target - combined_prediction
+            mae_tensor = residual_pixel.abs()
+
+        residual = compute_residual(combined_prediction, combined_target, mode=self.mode)
+        residual = self._apply_spectral_weighting(residual)
 
         overflow_ratio = float(overflow_mask.float().mean().item())
-        diag_extra = {"overflow": overflow_ratio}
+        diag_extra = {"overflow_mask_ratio": overflow_ratio}
         if self.adaptive is not None:
             diag_extra["overflow_ema"] = getattr(self.adaptive, "_overflow_ema", 0.0)
 

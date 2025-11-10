@@ -21,13 +21,23 @@ class OverflowStats:
 class OverflowHandler:
     """Track and mitigate extremely high-SNR regimes."""
 
-    def __init__(self, *, snr_clip: float = 250.0, ema_decay: float = 0.9) -> None:
+    def __init__(
+        self,
+        *,
+        snr_clip: float = 250.0,
+        ema_decay: float = 0.9,
+        enable_renorm: bool = False,
+    ) -> None:
         self.snr_clip = float(snr_clip)
         self.ema_decay = float(ema_decay)
+        self.enable_renorm = bool(enable_renorm)
         self._ema = 0.0
 
     def renormalise(self, prediction: Tensor, overflow_mask: Tensor) -> Tensor:
         """Renormalise overflowing predictions to limit variance growth."""
+
+        if not self.enable_renorm:
+            return prediction
 
         if not torch.any(overflow_mask):
             return prediction

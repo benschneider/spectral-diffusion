@@ -110,15 +110,22 @@ def weighted_residual_loss(
             overflow_mask=overflow_mask,
             diag_extra=diag_extra,
         )
+        mean_weight_raw = float(weight.detach().mean().item())
+        max_weight_raw = float(weight.detach().max().item())
         # Normalize weights so their mean is approx 1.0 for stable loss scaling
-        mean_weight = weight.detach().mean().item()
+        mean_weight = mean_weight_raw
         if mean_weight > 0:
             weight = weight / mean_weight
             diag["mean_weight"] = 1.0
             diag["max_weight"] = float(weight.detach().max().item())
+            diag["mean_weight_normalized"] = float(weight.detach().mean().item())
+            diag["max_weight_raw"] = max_weight_raw
+            diag["mean_weight_raw"] = mean_weight_raw
         else:
             diag["mean_weight"] = 0.0
             diag["max_weight"] = 0.0
+            diag["mean_weight_raw"] = 0.0
+            diag["max_weight_raw"] = 0.0
         diag["adaptive"] = 1.0
         diag.setdefault("frozen", False)
     else:
@@ -136,6 +143,8 @@ def weighted_residual_loss(
             "frozen": False,
             "delta": 0.0,
         }
+        diag["mean_weight_raw"] = diag["mean_weight"]
+        diag["max_weight_raw"] = diag["max_weight"]
         _merge_diag(diag, diag_extra)
 
     weighted = weight * raw_loss

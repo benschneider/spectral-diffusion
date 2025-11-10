@@ -36,6 +36,7 @@ class StepOutcome:
     batch_stats: Dict[str, float]
     weight_stats: Optional[Dict[str, float]] = None
     residual_mode: Optional[str] = None
+    per_example_mse: Optional[torch.Tensor] = None
 
 
 class TrainingStepExecutor:
@@ -66,9 +67,14 @@ class TrainingStepExecutor:
         self.snr_transform = snr_transform
         self.fft_norm = fft_norm
         self.snr_clip = getattr(self.loss_fn, "snr_clip", SNR_CLIP)
+        enable_overflow_renorm = bool(getattr(self.loss_fn, "overflow_renorm", False))
         self._overflow_decay = 0.9
         self._overflow_ema = 0.0
-        self.overflow_handler = OverflowHandler(snr_clip=self.snr_clip, ema_decay=self._overflow_decay)
+        self.overflow_handler = OverflowHandler(
+            snr_clip=self.snr_clip,
+            ema_decay=self._overflow_decay,
+            enable_renorm=enable_overflow_renorm,
+        )
 
     def run_step(
         self,
@@ -107,6 +113,10 @@ class TrainingStepExecutor:
         prediction = self.overflow_handler.renormalise(prediction, overflow_mask)
 
         residual = prediction - target
+        B = residual.shape[0]
+        per_example_mse = (
+            residual.detach().view(B, -1).pow(2).mean(dim=1).to(device=residual.device)
+        )
 
         loss_diag: Optional[Dict[str, Any]] = None
         fallback_weight: Optional[Tensor] = None
@@ -250,4 +260,5 @@ class TrainingStepExecutor:
             batch_stats=batch_stats,
             weight_stats=weight_stats,
             residual_mode=residual_mode,
+            per_example_mse=per_example_mse.detach().cpu(),
         )

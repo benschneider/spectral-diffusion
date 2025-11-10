@@ -43,8 +43,10 @@ from src.utils.debug_helpers import (
     structure_correlation,
     summarise_snr_spikes,
 )
-from src.utils.sanity_checks import check_fft_sanity
 
+# Backwards compatibility for downstream tooling/tests relying on the legacy name.
+_summarise_snr_spikes = summarise_snr_spikes
+from src.utils.sanity_checks import check_fft_sanity
 
 SNR_SPIKE_THRESHOLD = 1_000.0
 SNR_SPIKE_TOP_K = 3
@@ -193,11 +195,10 @@ def run_step_recorder(
         lam_min = float(schedule_kwargs.get("lambda_min", -13.0))
         lam_max = float(schedule_kwargs.get("lambda_max", 13.0))
         delta = float(schedule_kwargs.get("delta", 0.008))
-        print(
-            f"[Schedule] mode=logsnr_cosine λ∈[{lam_min:.3g},{lam_max:.3g}] δ={delta:.3g}"
-        )
+        print(f"[Schedule] mode=logsnr_cosine λ∈[{lam_min:.3g},{lam_max:.3g}] δ={delta:.3g}")
     print(
-        "[Schedule] trim_offset=%d num_timesteps=%d min_sigma=%.4f" % (
+        "[Schedule] trim_offset=%d num_timesteps=%d min_sigma=%.4f"
+        % (
             coeffs.trim_offset,
             coeffs.num_timesteps,
             coeffs.min_safe_sigma,
@@ -227,6 +228,8 @@ def run_step_recorder(
 
     step_records: List[Dict[str, Any]] = []
     snr_summaries: List[Dict[str, Any]] = []
+    overflow_log_count = 0
+    overflow_log_limit = 5
     previous_state: Dict[str, torch.Tensor] = {}
 
     # Adaptive SNR controller state
@@ -411,10 +414,12 @@ def run_step_recorder(
         snr_raw_max = float(snr_raw.max().item())
         if snr_raw_max > SNR_CLIP:
             overflow = int((snr_raw > SNR_CLIP).sum().item())
-            _log_diag(step, "OverflowHandler",
-                f"[OverflowHandler] step={step} mode=deterministic "
-                f"snr={min(snr_raw_max, SNR_CLIP):.1f} loss_mode=x0 count={overflow}"
-            )
+            if overflow_log_count < overflow_log_limit:
+                print(
+                    f"[OverflowHandler] step={step} mode=deterministic "
+                    f"snr={min(snr_raw_max, SNR_CLIP):.1f} loss_mode=x0 count={overflow}"
+                )
+            overflow_log_count += 1
 
         snr_spike_summary = summarise_snr_spikes(
             snr_vals=snr_vals.detach(),
@@ -481,10 +486,65 @@ def run_step_recorder(
             record["snr_spike_max"] = snr_spike_summary["max_snr"]
             record["snr_spike_top_timesteps"] = snr_spike_summary["top_timesteps"]
 
-        for key, value in fft_feedback.items():
-            record[f"fft_{key}"] = float(value)
-        if weight_stats:
+        if noise_stats:
+            for key, value in noise_stats.items():
+                record[key] = value
+        record.update({f"fft_{key}": float(value) for key, value in fft_feedback.items()})
+        record.update({f"output_{k}": v for k, v in output_fft.items()})
+        record.update({f"input_{k}": v for k, v in input_fft.items()})
+        record.update({f"noisy_{k}": v for k, v in noisy_fft.items()})
+
+        if denoised is not None:
+            record["denoised_corr"] = structure_correlation(xb.detach(), denoised.detach())
+
+        weight_stats = None
+        if adaptive_diag:
+            weight_stats = {
+                key: float(value)
+                for key, value in adaptive_diag.items()
+                if isinstance(value, (int, float))
+            }
             record.update(weight_stats)
+        elif snr_weighting:
+            weight = compute_snr_weight(
+                sqrt_alpha_t,
+                sqrt_one_minus_t,
+                snr_transform,
+                min_snr=min_snr_weight,
+                max_snr=max_snr_weight,
+            )
+            weight_stats = {
+                "snr_weight_min": float(weight.min().item()),
+                "snr_weight_max": float(weight.max().item()),
+                "snr_weight_mean": float(weight.mean().item()),
+            }
+            record.update(weight_stats)
+
+        if controller is not None:
+            new_ratio, note = controller.update(
+                loss=loss_value,
+                grad_norm=grad_norm_value,
+                fft_feedback=fft_feedback,
+                adaptive_diag=adaptive_diag,
+                snr_vals=snr_vals,
+            )
+            effective_snr_ratio = new_ratio
+            record.update(controller.latest_metrics)
+            if note:
+                print(f"[AdaptiveSNR] {note}")
+
+        if log_snr_json:
+            snr_entry = {
+                "step": step,
+                "snr_min": snr_min,
+                "snr_max": snr_max,
+                "snr_mean": snr_mean,
+                "snr_raw_max": snr_raw_max,
+            }
+            if controller is not None:
+                snr_entry.update(controller.latest_metrics)
+            snr_summaries.append(snr_entry)
+
         step_records.append(record)
 
         if loss_aware_enabled:
@@ -560,12 +620,14 @@ def run_step_recorder(
                         weight_stats["snr_weight_mean"],
                     ))
                 else:
-                    _log_diag(step, "AdaptiveSNRWeight",
+                    mean_val = weight_stats.get("mean_weight_raw", weight_stats.get("mean_weight", 1.0))
+                    max_val = weight_stats.get("max_weight_raw", weight_stats.get("max_weight", 1.0))
+                    print(
                         "[AdaptiveSNRWeight] mean={:.6f} max={:.6f} kappa={:.4e} "
                         "alpha_fac={:.2f} overflow={:.3f} overflow_ema={:.3f} "
                         "delta={:.3e}{}".format(
-                            weight_stats.get("mean_weight", 1.0),
-                            weight_stats.get("max_weight", 1.0),
+                            mean_val,
+                            max_val,
                             weight_stats.get("kappa", 0.0),
                             weight_stats.get("alpha_fac", 1.0),
                             weight_stats.get("overflow", 0.0),
