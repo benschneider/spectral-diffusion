@@ -172,7 +172,7 @@ class TrainingStepExecutor:
         )
         snr = snr_stats.snr_clamped
         overflow_stats = self.overflow_handler.update(overflow_mask)
-        self.overflow_handler.log(snr_raw, regimes)
+        self.overflow_handler.log(snr_stats.snr_clamped, regimes)
 
         batch_snr = measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t)
 

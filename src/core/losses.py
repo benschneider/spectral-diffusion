@@ -106,6 +106,7 @@ class DiffusionLoss(nn.Module):
         overflow_mask = regimes["overflow"]
 
         snr_soft = stats.snr_weight if self.log_snr_smooth else snr_raw
+        snr_for_weight = stats.snr_clamped if self.log_snr_smooth else snr_raw
 
         residual = compute_residual(prediction, target, mode=self.mode)
         residual = self._apply_spectral_weighting(residual)
@@ -144,7 +145,7 @@ class DiffusionLoss(nn.Module):
         loss, diag = weighted_residual_loss(
             combined_prediction,
             combined_target,
-            snr_soft,
+            snr_for_weight,
             alpha_t=alpha_t,
             adaptive=self.adaptive if self.use_weighting else None,
             mode="pixel",

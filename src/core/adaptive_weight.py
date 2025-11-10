@@ -125,7 +125,8 @@ class AdaptiveSNRWeight:
         soft_weight = torch.tanh(0.5 * log_snr).clamp(0.0, 1.0)
         soft_weight = soft_weight + EPS
 
-        value = (soft_weight * norm_loss).mean()
+        per_example_value = (soft_weight * norm_loss).clamp_min(EPS)
+        value = per_example_value.mean()
         if self._ema_val is None or torch.isnan(self._ema_val):
             self._ema_val = value.detach()
         else:
@@ -137,14 +138,25 @@ class AdaptiveSNRWeight:
         alpha_gap = (1.0 - alpha_detached.clamp(0.0, 1.0)).mean()
         alpha_term = 1.0 + self.gamma_alpha * float(alpha_gap.item())
 
-        base = torch.abs(self._ema_val) * self.beta
-        kappa = torch.clamp(base * alpha_term + self.delta, min=self.kappa_floor)
+        overflow_adj = 1.0
+        if self.overflow_target > 0:
+            overflow_adj += max(0.0, self._overflow_ema - self.overflow_target) / self.overflow_target
+
+        delta_eff = self.delta * overflow_adj
+
+        kappa_per_example = torch.clamp(
+            torch.abs(per_example_value) * self.beta * alpha_term,
+            min=self.kappa_floor,
+        )
+        kappa_per_example = kappa_per_example + 0.05 * soft_weight + delta_eff
 
         expanded_soft = _expand_to(soft_weight, loss_detached).to(raw_loss.dtype)
-        kappa_expanded = _expand_to(kappa, expanded_soft)
+        kappa_expanded = _expand_to(kappa_per_example, expanded_soft).to(raw_loss.dtype)
         weight = expanded_soft / (expanded_soft + kappa_expanded + EPS)
 
-        return weight, float(kappa.item()), float(self._ema_val.item()), alpha_term
+        kappa_mean = float(kappa_per_example.mean().item())
+
+        return weight, kappa_mean, float(self._ema_val.item()), alpha_term, float(delta_eff)
 
     def _should_log(self, diag: Dict[str, float]) -> bool:
         if not self._last_diag:
@@ -173,7 +185,7 @@ class AdaptiveSNRWeight:
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         """Return adaptive weights and diagnostics."""
 
-        weight, kappa_value, ema_value, alpha_fac = self._compute_weight_core(
+        weight, kappa_value, ema_value, alpha_fac, delta_eff = self._compute_weight_core(
             snr, raw_loss, alpha_t
         )
 
@@ -200,7 +212,7 @@ class AdaptiveSNRWeight:
             "alpha_fac": alpha_fac,
             "overflow": overflow_ratio,
             "overflow_ema": self._overflow_ema,
-            "delta": self.delta,
+            "delta": delta_eff,
         }
         if diag_extra:
             diag.update(diag_extra)

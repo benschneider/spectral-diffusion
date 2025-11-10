@@ -50,13 +50,13 @@ class OverflowHandler:
         count = int(torch.count_nonzero(overflow_mask).item())
         return OverflowStats(ratio=ratio, ema=self._ema, count=count)
 
-    def log(self, snr_raw: Tensor, regimes: Dict[str, Tensor]) -> None:
+    def log(self, snr_display: Tensor, regimes: Dict[str, Tensor]) -> None:
         if not torch.any(regimes["overflow"]):
             return
         mode, loss_mode = describe_regime(regimes)
         print(
             "[OverflowHandler] mode="
-            f"{mode} snr={float(snr_raw.max().item()):.1f} "
+            f"{mode} snr={float(snr_display.max().item()):.1f} "
             f"loss_mode={loss_mode} count="
             f"{int(torch.count_nonzero(regimes['overflow']).item())}"
         )

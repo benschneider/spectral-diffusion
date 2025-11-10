@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
 import json
+import re
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -173,3 +176,55 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     assert plotter.tail_calls
     assert plotter.noise_calls
     assert plotter.phase_calls
+
+
+def _run_step_recorder(output_dir, *, steps=20):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        sys.executable,
+        "scripts/debug/record_training_steps.py",
+        "--config",
+        "configs/test_synthetic_spectral.yaml",
+        "--steps",
+        str(steps),
+        "--log-interval",
+        "1",
+        "--output-dir",
+        str(output_dir),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, f"record_training_steps.py failed: {combined}"
+    return combined
+
+
+def test_step_recorder_diagnostics_stability(tmp_path):
+    out_dir = tmp_path / "diagnostics_run"
+    log = _run_step_recorder(out_dir, steps=20)
+
+    assert "Traceback" not in log
+    assert "Step recorder artefacts written" in log
+
+    loss_matches = [float(m) for m in re.findall(r"\[Loss\] step=\d+ loss=([0-9eE+\-.]+)", log)]
+    assert loss_matches, "No loss lines captured"
+    assert all(0.0 < value < 10.0 for value in loss_matches)
+
+    pred_stds = [float(m) for m in re.findall(r"\[prediction\][^\n]*std=([0-9eE+\-.]+)", log)]
+    assert pred_stds, "No prediction std values captured"
+    assert max(pred_stds) < 50.0
+
+    weight_means = [float(m) for m in re.findall(r"\[AdaptiveSNRWeight\] mean=([0-9eE+\-.]+)", log)]
+    assert weight_means, "Adaptive weights not logged"
+    assert max(weight_means) - min(weight_means) > 1e-3
+
+    overflow_entries = re.findall(
+        r"\[OverflowHandler\] step=\d+ mode=deterministic snr=([0-9eE+\-.]+) loss_mode=x0 count=(\d+)",
+        log,
+    )
+    assert overflow_entries, "Deterministic overflow regime not observed"
+    snr_values = [float(s) for s, _ in overflow_entries]
+    assert max(snr_values) <= 300.0
+    assert len(overflow_entries) <= 5
+
+    second_log = _run_step_recorder(out_dir, steps=5)
+    assert "Step recorder artefacts written" in second_log

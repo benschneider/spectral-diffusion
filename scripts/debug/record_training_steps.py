@@ -285,16 +285,24 @@ def run_step_recorder(
         print(marker())
     diffusion_cfg = config.get("diffusion", {}) or {}
     snr_weighting_cfg = diffusion_cfg.get("snr_weighting")
+    force_weighting = diffusion_cfg.get("diagnostic_force_weighting", True)
     if hasattr(loss_fn, "set_weighting_enabled"):
-        if snr_weighting_cfg is None:
-            loss_fn.set_weighting_enabled(getattr(loss_fn, "use_weighting", True))
+        if force_weighting:
+            loss_fn.set_weighting_enabled(True)
+            snr_weighting = True
+            print("[RecordTrainingSteps] forcing adaptive weighting on for diagnostics")
         else:
-            loss_fn.set_weighting_enabled(bool(snr_weighting_cfg))
-    snr_weighting = (
-        getattr(loss_fn, "use_weighting", True)
-        if snr_weighting_cfg is None
-        else bool(snr_weighting_cfg)
-    )
+            if snr_weighting_cfg is None:
+                enabled = getattr(loss_fn, "use_weighting", True)
+            else:
+                enabled = bool(snr_weighting_cfg)
+            loss_fn.set_weighting_enabled(enabled)
+            snr_weighting = enabled
+    else:
+        if snr_weighting_cfg is None:
+            snr_weighting = getattr(loss_fn, "use_weighting", True)
+        else:
+            snr_weighting = bool(snr_weighting_cfg)
     optimiser = build_optimizer(model, config)
 
     device_obj = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -536,7 +544,7 @@ def run_step_recorder(
             overflow = int((snr_raw > SNR_CLIP).sum().item())
             print(
                 f"[OverflowHandler] step={step} mode=deterministic "
-                f"snr={snr_raw_max:.1f} loss_mode=x0 count={overflow}"
+                f"snr={min(snr_raw_max, SNR_CLIP):.1f} loss_mode=x0 count={overflow}"
             )
 
         snr_spike_summary = _summarise_snr_spikes(
