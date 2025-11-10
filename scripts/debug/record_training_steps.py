@@ -378,7 +378,7 @@ def run_step_recorder(
     cooldown_steps = 2    # require N quiet steps between changes
     last_change_step = -10
 
-    summary_enabled = not verbose_logs and log_interval >= SUMMARY_LOG_THRESHOLD
+    summary_enabled = not verbose_logs
 
     # returns updated_ema
     def _ewma(prev: Optional[float], value: float, beta: float) -> float:
