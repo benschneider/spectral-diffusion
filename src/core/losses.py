@@ -42,14 +42,13 @@ class DiffusionLoss(nn.Module):
         adaptive_default = bool(self.config.get("adaptive_snr", self.use_weighting))
         beta_value = float(self.config.get("adaptive_beta", 0.3))
         self._adaptive_params = {
-            "beta_init": float(self.config.get("adaptive_beta_init", beta_value)),
             "beta": beta_value,
-            "ema_decay": float(self.config.get("adaptive_ema_decay", 0.99)),
-            "running_decay": float(self.config.get("adaptive_running_decay", 0.98)),
+            "ema_decay": float(self.config.get("adaptive_ema_decay", 0.98)),
+            "gamma_alpha": float(self.config.get("adaptive_gamma_alpha", 0.25)),
             "eps": float(self.config.get("adaptive_eps", 1e-8)),
-            "target_val": float(self.config.get("adaptive_target_val", 1e-2)),
             "snr_clip": float(self.config.get("adaptive_snr_clip", 250.0)),
             "kappa_floor": float(self.config.get("adaptive_kappa_floor", 1e-6)),
+            "freeze_ratio": float(self.config.get("adaptive_freeze_ratio", 5.0)),
             "log_interval": int(self.config.get("adaptive_log_interval", 200)),
             "change_threshold": float(self.config.get("adaptive_change_threshold", 0.1)),
         }
@@ -86,21 +85,27 @@ class DiffusionLoss(nn.Module):
         sqrt_alpha_t: torch.Tensor,
         sqrt_one_minus_alpha_t: torch.Tensor,
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        sqrt_alpha = safe_clamp(sqrt_alpha_t, min_value=1e-6)
         sigma_t = safe_clamp(sqrt_one_minus_alpha_t, min_value=1e-6)
-        snr = compute_snr(safe_clamp(sqrt_alpha_t, min_value=1e-6), sigma_t)
+        snr = compute_snr(sqrt_alpha, sigma_t)
 
         residual = compute_residual(prediction, target, mode=self.mode)
         residual = self._apply_spectral_weighting(residual)
+
+        alpha_t = sqrt_alpha ** 2
+        input_std = float(target.detach().std().item()) if target.numel() else 0.0
 
         loss, diag = weighted_residual_loss(
             prediction,
             target,
             snr,
+            alpha_t=alpha_t,
             adaptive=self.adaptive if self.use_weighting else None,
             mode="pixel",
             enable_weighting=self.use_weighting,
             residual=residual,
             reduction=self.reduction,
+            input_std=input_std,
         )
 
         diag["spectral_weighting"] = 1.0 if self.spectral_adapter is not None else 0.0
@@ -112,13 +117,14 @@ class DiffusionLoss(nn.Module):
 
         adaptive_flag = 1 if self.adaptive is not None else 0
         return (
-            "[Residuals] mode=adaptive_snr v1.3 "
-            f"beta0={self._adaptive_params['beta_init']:.3f} "
+            "[Residuals] mode=adaptive_snr v1.4 "
+            f"beta={self._adaptive_params['beta']:.3f} "
             f"ema={self._adaptive_params['ema_decay']:.3f} "
-            f"target={self._adaptive_params['target_val']:.1e} "
+            f"gamma_alpha={self._adaptive_params['gamma_alpha']:.2f} "
             f"snr_clip={self._adaptive_params['snr_clip']:.1f} "
+            f"freeze={self._adaptive_params['freeze_ratio']:.1f}x "
             f"kappa_floor={self._adaptive_params['kappa_floor']:.2e} "
-            f"quant_safe=True scale_norm=True residual_mode={self.mode} "
+            f"residual_mode={self.mode} "
             f"weighting={'on' if self.use_weighting else 'off'} "
             f"adaptive={bool(adaptive_flag)}"
         )

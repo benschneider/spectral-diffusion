@@ -504,18 +504,13 @@ def run_step_recorder(
                 print(
                     "[AdaptiveSNR] "
                     f"step={step:04d} "
-                    f"beta_eff={adaptive_diag.get('beta_eff', 0.0):.4e}, "
                     f"kappa={adaptive_diag.get('kappa', 0.0):.4e}, "
                     f"ema={adaptive_diag.get('ema', 0.0):.4e}, "
-                    f"val={adaptive_diag.get('val', 0.0):.4e}, "
-                    f"sigma_val={adaptive_diag.get('running_std', 0.0):.4e}, "
+                    f"alpha_fac={adaptive_diag.get('alpha_fac', 1.0):.2f}, "
+                    f"overflow={adaptive_diag.get('overflow', 0.0):.3f}, "
                     f"w_mean={adaptive_diag.get('mean_weight', 1.0):.3f}, "
                     f"w_max={adaptive_diag.get('max_weight', 1.0):.3f}"
-                    + (
-                        " snr_clipped"
-                        if adaptive_diag.get("snr_clipped")
-                        else ""
-                    )
+                    + (" frozen" if adaptive_diag.get("frozen") else "")
                 )
         elif snr_weighting:
             weight = compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform)
@@ -729,10 +724,14 @@ def run_step_recorder(
                     )
                 else:
                     print(
-                        "[AdaptiveSNRWeight] mean={:.6f} max={:.6f} kappa={:.4e}".format(
+                        "[AdaptiveSNRWeight] mean={:.6f} max={:.6f} kappa={:.4e} "
+                        "alpha_fac={:.2f} overflow={:.3f}{}".format(
                             weight_stats.get("mean_weight", 1.0),
                             weight_stats.get("max_weight", 1.0),
                             weight_stats.get("kappa", 0.0),
+                            weight_stats.get("alpha_fac", 1.0),
+                            weight_stats.get("overflow", 0.0),
+                            " frozen" if weight_stats.get("frozen") else "",
                         )
                     )
 

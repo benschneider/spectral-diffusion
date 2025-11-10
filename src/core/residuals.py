@@ -2,184 +2,158 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
 import torch
 
 
-class AdaptiveSNRWeight:
-    """Self-tuning adaptive SNR weighting.
+def _expand_like(tensor: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    """Broadcast ``tensor`` to match ``reference`` dimensionality."""
 
-    The implementation keeps all running statistics in ``float32`` and adjusts
-    the effective gain so that the balance term ``kappa`` remains numerically
-    meaningful (roughly ``1e-3`` – ``1e-1``).  The normalisation uses the
-    current sample's spatial extent instead of a static reference and the raw
-    SNR is clipped before weighting which prevents overflow gradients.  Logging
-    happens only when the internal state changes significantly or a periodic
-    interval elapses, keeping diagnostics informative without spamming output.
-    """
+    if tensor.ndim >= reference.ndim:
+        return tensor
+    view = list(tensor.shape) + [1] * (reference.ndim - tensor.ndim)
+    return tensor.view(*view)
+
+
+class AdaptiveSNRv14:
+    """Log-SNR adaptive weighting with α-residual stabilisation and auto-freeze."""
 
     def __init__(
         self,
         *,
         beta: float = 0.3,
-        beta_init: Optional[float] = None,
-        ema_decay: float = 0.99,
-        running_decay: float = 0.98,
+        ema_decay: float = 0.98,
+        gamma_alpha: float = 0.25,
         eps: float = 1e-8,
-        target_val: float = 1e-2,
         snr_clip: float = 250.0,
         kappa_floor: float = 1e-6,
+        freeze_ratio: float = 5.0,
         log_interval: int = 200,
         change_threshold: float = 0.1,
-        device: Optional[torch.device] = None,
-        **_unused: object,
     ) -> None:
-        base_beta = beta_init if beta_init is not None else beta
-        self.base_beta = float(base_beta)
-        self.beta = float(base_beta)
+        self.beta = float(beta)
         self.ema_decay = float(ema_decay)
-        self.running_decay = float(running_decay)
+        self.gamma_alpha = float(gamma_alpha)
         self.eps = float(eps)
-        self.target_val = float(target_val)
         self.snr_clip = float(snr_clip)
         self.kappa_floor = float(kappa_floor)
+        self.freeze_ratio = float(freeze_ratio)
         self.log_interval = int(log_interval)
         self.change_threshold = float(change_threshold)
-        self.device = device
 
         self._ema_val: Optional[torch.Tensor] = None
-        self._running_mean: Optional[torch.Tensor] = None
-        self._running_std: Optional[torch.Tensor] = None
         self._step = 0
         self._last_log_step = 0
         self._last_logged: Dict[str, float] = {}
 
-    def to(self, device: torch.device) -> None:
-        """Attach the adaptive state to ``device`` when known."""
-
-        self.device = device
+    def to(self, device: torch.device) -> None:  # pragma: no cover - helper
         if self._ema_val is not None:
             self._ema_val = self._ema_val.to(device=device, dtype=torch.float32)
 
     def reset(self) -> None:
-        """Forget the accumulated EMA statistics."""
+        """Forget accumulated EMA statistics."""
 
         self._ema_val = None
-        self._running_mean = None
-        self._running_std = None
+        self._step = 0
+        self._last_log_step = 0
+        self._last_logged.clear()
+
+    def _centre(self, tensor: torch.Tensor) -> torch.Tensor:
+        if tensor.ndim <= 1:
+            return tensor - tensor.mean()
+        dims: Iterable[int] = tuple(range(1, tensor.ndim))
+        return tensor - tensor.mean(dim=dims, keepdim=True)
+
+    def _should_log(self, diag: Dict[str, float]) -> bool:
+        if not self._last_logged:
+            return True
+        if self.change_threshold > 0.0:
+            for key in ("kappa", "ema", "mean_weight"):
+                previous = self._last_logged.get(key)
+                if previous is None:
+                    return True
+                baseline = max(abs(previous), 1e-6)
+                if abs(diag[key] - previous) / baseline >= self.change_threshold:
+                    return True
+        if self.log_interval > 0 and (self._step - self._last_log_step) >= self.log_interval:
+            return True
+        return False
 
     def update(
         self,
         snr: torch.Tensor,
         raw_loss: torch.Tensor,
+        alpha_t: torch.Tensor,
+        diag_extra: Optional[Dict[str, float]] = None,
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
-        """Return an adaptive weight tensor and diagnostic statistics."""
+        """Return adaptive weights and diagnostics for the provided tensors."""
 
-        target_device = self.device or snr.device
+        snr_detached = torch.clamp(
+            snr.detach().to(dtype=torch.float32), min=self.eps, max=self.snr_clip
+        )
+        loss_detached = raw_loss.detach().to(dtype=torch.float32)
+        alpha_detached = alpha_t.detach().to(dtype=torch.float32)
 
-        loss_detached = raw_loss.detach().to(dtype=torch.float32, device=target_device)
-        snr_detached = snr.detach().to(dtype=torch.float32, device=target_device)
+        snr_detached = _expand_like(snr_detached, loss_detached)
+        alpha_detached = _expand_like(alpha_detached, snr_detached)
 
-        if snr_detached.ndim < loss_detached.ndim:
-            view_shape = list(snr_detached.shape) + [1] * (
-                loss_detached.ndim - snr_detached.ndim
-            )
-            snr_detached = snr_detached.view(*view_shape)
+        logsnr = self._centre(torch.log(snr_detached + self.eps))
+        loss_scale = loss_detached.abs().mean().clamp_min(self.eps)
+        loss_norm = loss_detached / loss_scale
 
-        if loss_detached.ndim >= 3:
-            area = float(loss_detached.shape[-2] * loss_detached.shape[-1])
+        exp_logsnr = torch.exp(logsnr)
+        if loss_norm.ndim > 1:
+            dims: Iterable[int] = tuple(range(1, loss_norm.ndim))
+            per_example = (loss_norm * exp_logsnr).mean(dim=dims)
         else:
-            area = 1.0
-        sqrt_area = area**0.5
+            per_example = (loss_norm * exp_logsnr).mean()
 
-        snr_clamped = torch.clamp(snr_detached, max=self.snr_clip)
-        snr_norm = snr_clamped / (sqrt_area + self.eps)
-
-        product = snr_norm * loss_detached
-        if product.ndim > 1:
-            per_example = product.reshape(product.shape[0], -1).mean(dim=1)
-        else:
-            per_example = product
         val_mean = per_example.mean()
-
-        if self._running_mean is None:
-            self._running_mean = val_mean.detach()
-            self._running_std = torch.abs(val_mean.detach()) + self.eps
-        else:
-            self._running_mean = (
-                self._running_mean * self.running_decay
-                + val_mean.detach() * (1.0 - self.running_decay)
-            )
-            deviation = torch.abs(val_mean.detach() - self._running_mean)
-            self._running_std = (
-                self._running_std * self.running_decay
-                + deviation * (1.0 - self.running_decay)
-            )
-            self._running_std = torch.clamp(self._running_std, min=self.eps)
-
-        normed_val = val_mean.detach() / (self._running_std + self.eps)
-
         if self._ema_val is None or torch.isnan(self._ema_val):
-            self._ema_val = normed_val
+            self._ema_val = val_mean
         else:
             self._ema_val = (
-                self._ema_val * self.ema_decay
-                + normed_val * (1.0 - self.ema_decay)
+                self._ema_val * self.ema_decay + val_mean * (1.0 - self.ema_decay)
+            )
+        self._ema_val = self._ema_val.to(dtype=torch.float32)
+
+        alpha_fac = 1.0 + self.gamma_alpha * (1.0 - alpha_detached.clamp(0.0, 1.0)).mean()
+        kappa = torch.clamp(self.beta * self._ema_val * alpha_fac, min=self.kappa_floor)
+
+        kappa_broadcast = _expand_like(kappa, snr_detached)
+        weight = snr_detached / (snr_detached + kappa_broadcast + self.eps)
+
+        overflow_mask = snr_detached >= (self.snr_clip * 0.9)
+        if overflow_mask.any():
+            weight = torch.where(overflow_mask, torch.zeros_like(weight), weight)
+
+        weight = weight.to(dtype=raw_loss.dtype)
+        self._step += 1
+
+        diag = {
+            "kappa": float(kappa.detach().item()),
+            "ema": float(self._ema_val.detach().item()),
+            "alpha_fac": float(alpha_fac.detach().item()),
+            "overflow": float(overflow_mask.float().mean().item()),
+            "mean_weight": float(weight.detach().mean().item()),
+            "max_weight": float(weight.detach().max().item()),
+        }
+        if diag_extra:
+            diag.update(diag_extra)
+
+        log_event = self._should_log(diag)
+        diag["log_event"] = log_event
+        if log_event:
+            self._last_log_step = self._step
+            self._last_logged = {key: diag[key] for key in ("kappa", "ema", "mean_weight")}
+            print(
+                "[AdaptiveSNRv14] step="
+                f"{self._step:04d} κ={diag['kappa']:.3e} ema={diag['ema']:.3e} "
+                f"α_fac={diag['alpha_fac']:.2f} overflow={diag['overflow']:.3f}"
             )
 
-        self._ema_val = self._ema_val.to(dtype=torch.float32, device=target_device)
-        self._running_mean = self._running_mean.to(dtype=torch.float32, device=target_device)
-        self._running_std = self._running_std.to(dtype=torch.float32, device=target_device)
-
-        beta_adjust = self.target_val / (torch.abs(self._ema_val) + self.eps)
-        beta_eff = torch.clamp(
-            self.base_beta * beta_adjust,
-            min=0.1 * self.base_beta,
-            max=10.0 * self.base_beta,
-        )
-
-        kappa = torch.clamp(beta_eff * torch.abs(self._ema_val), min=self.kappa_floor)
-        adaptive_weight = (snr_norm / (snr_norm + kappa + self.eps)).to(raw_loss.dtype)
-
-        self._step += 1
-        diag = {
-            "kappa": float(kappa.detach().mean().item()),
-            "ema": float(self._ema_val.detach().item()),
-            "running_std": float(self._running_std.detach().item()),
-            "beta_eff": float(beta_eff.detach().item()),
-            "norm": float(sqrt_area),
-            "scale": float(sqrt_area),
-            "val": float(val_mean.detach().item()),
-            "mean_weight": float(adaptive_weight.detach().mean().item()),
-            "max_weight": float(adaptive_weight.detach().max().item()),
-        }
-
-        should_log = False
-        if not self._last_logged:
-            should_log = True
-        elif self.change_threshold > 0.0:
-            for key in ("kappa", "beta_eff", "ema"):
-                previous = self._last_logged.get(key)
-                current = diag[key]
-                if previous is None:
-                    should_log = True
-                    break
-                baseline = max(abs(previous), 1e-6)
-                if abs(current - previous) / baseline >= self.change_threshold:
-                    should_log = True
-                    break
-        if not should_log and self.log_interval > 0:
-            if (self._step - self._last_log_step) >= self.log_interval:
-                should_log = True
-
-        if should_log:
-            self._last_log_step = self._step
-            self._last_logged = {key: diag[key] for key in ("kappa", "beta_eff", "ema")}
-
-        diag["log_event"] = bool(should_log)
-        diag["snr_clipped"] = bool((snr_detached > self.snr_clip).any().item())
-        return adaptive_weight, diag
+        return weight, diag
 
 
 def compute_residual(
@@ -204,11 +178,13 @@ def weighted_residual_loss(
     target: torch.Tensor,
     snr: torch.Tensor,
     *,
-    adaptive: Optional[AdaptiveSNRWeight] = None,
+    alpha_t: Optional[torch.Tensor] = None,
+    adaptive: Optional[AdaptiveSNRv14] = None,
     mode: str = "pixel",
     enable_weighting: bool = True,
     residual: Optional[torch.Tensor] = None,
     reduction: str = "mean",
+    input_std: Optional[float] = None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Return a weighted residual MSE and associated diagnostics."""
 
@@ -217,59 +193,70 @@ def weighted_residual_loss(
     raw_loss = residual.pow(2)
 
     if not enable_weighting:
-        if reduction == "sum":
-            loss_val = raw_loss.sum()
-        else:
-            loss_val = raw_loss.mean()
-        if raw_loss.ndim >= 3:
-            norm_val = float((raw_loss.shape[-2] * raw_loss.shape[-1]) ** 0.5)
-        else:
-            norm_val = 1.0
+        loss_val = raw_loss.sum() if reduction == "sum" else raw_loss.mean()
         diag = {
             "mean_weight": 1.0,
             "max_weight": 1.0,
             "kappa": 0.0,
             "ema": 0.0,
-            "norm": norm_val,
+            "alpha_fac": 1.0,
+            "overflow": 0.0,
             "adaptive": 0.0,
-            "scale": 1.0,
-            "val": 0.0,
             "log_event": False,
-            "beta_eff": 0.0,
-            "running_std": 0.0,
-            "snr_clipped": False,
+            "frozen": False,
         }
         return loss_val, diag
 
+    if adaptive is not None and input_std is not None:
+        baseline = max(input_std, 1e-6)
+        if float(pred.detach().std().item()) > adaptive.freeze_ratio * baseline:
+            loss_val = pred.sum() * 0.0
+            ema_val = 0.0
+            if getattr(adaptive, "_ema_val", None) is not None:  # pylint: disable=protected-access
+                ema_tensor = adaptive._ema_val  # type: ignore[attr-defined]  # pylint: disable=protected-access
+                ema_val = float(ema_tensor.detach().item())
+            diag = {
+                "mean_weight": 0.0,
+                "max_weight": 0.0,
+                "kappa": 0.0,
+                "ema": ema_val,
+                "alpha_fac": 1.0,
+                "overflow": 0.0,
+                "adaptive": 1.0,
+                "log_event": False,
+                "frozen": True,
+            }
+            return loss_val, diag
+
     if adaptive is not None:
+        if alpha_t is None:
+            raise ValueError("alpha_t must be provided when using adaptive weighting")
         adaptive.to(pred.device)
-        weight, diag = adaptive.update(snr, raw_loss)
+        weight, diag = adaptive.update(snr, raw_loss, alpha_t)
         diag["adaptive"] = 1.0
+        diag.setdefault("frozen", False)
     else:
-        weight = snr / (1.0 + snr)
-        if raw_loss.ndim >= 3:
-            norm_val = float((raw_loss.shape[-2] * raw_loss.shape[-1]) ** 0.5)
-        else:
-            norm_val = 1.0
+        weight = (snr / (1.0 + snr)).to(dtype=raw_loss.dtype)
         diag = {
             "mean_weight": float(weight.detach().mean().item()),
             "max_weight": float(weight.detach().max().item()),
             "kappa": 0.0,
             "ema": 0.0,
-            "norm": norm_val,
+            "alpha_fac": 1.0,
+            "overflow": 0.0,
             "adaptive": 0.0,
-            "scale": 1.0,
-            "val": 0.0,
             "log_event": False,
-            "beta_eff": 0.0,
-            "running_std": 0.0,
-            "snr_clipped": False,
+            "frozen": False,
         }
 
     weighted = weight * raw_loss
-    if reduction == "sum":
-        loss_val = weighted.sum()
-    else:
-        loss_val = weighted.mean()
+    loss_val = weighted.sum() if reduction == "sum" else weighted.mean()
+    diag.setdefault("mean_weight", float(weight.detach().mean().item()))
+    diag.setdefault("max_weight", float(weight.detach().max().item()))
     return loss_val, diag
+
+
+# Backwards compatibility alias -------------------------------------------------
+
+AdaptiveSNRWeight = AdaptiveSNRv14
 
