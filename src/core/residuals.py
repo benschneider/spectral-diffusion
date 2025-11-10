@@ -44,6 +44,10 @@ def weighted_residual_loss(
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute a weighted loss and return diagnostic statistics."""
 
+    def _merge_diag(diag: Dict[str, float], extra: Optional[Dict[str, float]]) -> None:
+        if extra:
+            diag.update(extra)
+
     if residual is None:
         residual = compute_residual(prediction, target, mode=mode)
     if raw_loss is None:
@@ -67,8 +71,7 @@ def weighted_residual_loss(
             "frozen": False,
             "delta": 0.0,
         }
-        if diag_extra:
-            diag.update(diag_extra)
+        _merge_diag(diag, diag_extra)
         return loss_val, diag
 
     if adaptive is not None and input_std is not None:
@@ -87,25 +90,35 @@ def weighted_residual_loss(
                 "overflow": 0.0,
                 "overflow_ema": getattr(adaptive, "_overflow_ema", 0.0),
                 "adaptive": 1.0,
-                "log_event": False,
+                "log_event": True,
                 "frozen": True,
                 "delta": adaptive.delta,
             }
-            if diag_extra:
-                diag.update(diag_extra)
+            _merge_diag(diag, diag_extra)
             return loss_val, diag
 
     if adaptive is not None:
         if alpha_t is None:
             raise ValueError("alpha_t must be provided when using adaptive weighting")
         adaptive.to(prediction.device)
+        # Clamp snr_weight to avoid overflow propagation
+        snr_clamped = snr_weight.clamp(min=0.0, max=1e6)
         weight, diag = adaptive.update(
-            snr_weight,
+            snr_clamped,
             raw_loss,
             alpha_t,
             overflow_mask=overflow_mask,
             diag_extra=diag_extra,
         )
+        # Normalize weights so their mean is approx 1.0 for stable loss scaling
+        mean_weight = weight.detach().mean().item()
+        if mean_weight > 0:
+            weight = weight / mean_weight
+            diag["mean_weight"] = 1.0
+            diag["max_weight"] = float(weight.detach().max().item())
+        else:
+            diag["mean_weight"] = 0.0
+            diag["max_weight"] = 0.0
         diag["adaptive"] = 1.0
         diag.setdefault("frozen", False)
     else:
@@ -123,8 +136,7 @@ def weighted_residual_loss(
             "frozen": False,
             "delta": 0.0,
         }
-        if diag_extra:
-            diag.update(diag_extra)
+        _merge_diag(diag, diag_extra)
 
     weighted = weight * raw_loss
     loss_val = weighted.sum() if reduction == "sum" else weighted.mean()
@@ -136,4 +148,3 @@ def weighted_residual_loss(
 # Backwards-compatibility ----------------------------------------------------
 
 AdaptiveSNRWeightAlias = AdaptiveSNRWeight
-
