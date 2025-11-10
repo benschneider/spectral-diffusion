@@ -7,8 +7,9 @@ import argparse
 import json
 import math
 import sys
+from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, DefaultDict, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -53,6 +54,7 @@ SIGMA_MIN = 1e-4
 SNR_CLIP = 250.0
 PRED_STD_WARN_FACTOR = 5.0
 FFT_HIGH_WARN_THRESHOLD = 0.8
+SUMMARY_LOG_THRESHOLD = 100
 
 
 def run_step_recorder(
@@ -84,7 +86,8 @@ def run_step_recorder(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    diagnostic_events: List[Dict[str, Any]] = []
+    events_by_step: DefaultDict[int, List[Dict[str, Any]]] = defaultdict(list)
+    global_events: List[Dict[str, Any]] = []
 
     def _log_event(
         tag: str,
@@ -95,11 +98,20 @@ def run_step_recorder(
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         entry: Dict[str, Any] = {"tag": tag, "message": message, "level": level}
+        step_idx: Optional[int] = None
         if step is not None:
-            entry["step"] = step
+            try:
+                step_idx = int(step)
+            except (TypeError, ValueError):
+                step_idx = None
+            if step_idx is not None:
+                entry["step"] = step_idx
         if extra:
             entry.update(extra)
-        diagnostic_events.append(entry)
+        if step_idx is None:
+            global_events.append(entry)
+        else:
+            events_by_step[step_idx].append(entry)
         if verbose_logs:
             print(message)
 
@@ -322,6 +334,8 @@ def run_step_recorder(
     dec_armed = False     # hysteresis arm for decreases
     cooldown_steps = 2    # require N quiet steps between changes
     last_change_step = -10
+
+    summary_enabled = not verbose_logs and log_interval >= SUMMARY_LOG_THRESHOLD
 
     # returns updated_ema
     def _ewma(prev: Optional[float], value: float, beta: float) -> float:
@@ -717,18 +731,6 @@ def run_step_recorder(
         prev_snr_mean = snr_mean_val
         prev_snr_max = snr_max_val
 
-        if adaptive_snr and current_snr_ratio is not None and high_snr_fraction is None and snr_vals.numel() > 0:
-            high_snr_fraction = float((snr_vals > float(current_snr_ratio)).float().mean().item())
-
-        if adaptive_snr:
-            record["snr_headroom"] = headroom
-            record["snr_high_frac"] = high_snr_fraction
-            record["snr_mean_trend"] = snr_mean_trend
-            record["snr_max_trend"] = snr_max_trend
-
-        prev_snr_mean = snr_mean_val
-        prev_snr_max = snr_max_val
-
         if log_snr_json:
             snr_entry = {
                 "step": step,
@@ -914,9 +916,49 @@ def run_step_recorder(
                 )
                 if name in fft_feedback
             )
+            if phase_line:
+                _log_event(
+                    "FFTPhaseBands",
+                    f"[FFTPhaseBands] {phase_line}",
+                    step=step,
+                    extra={
+                        "phase_low_mae": fft_feedback.get("phase_low_mae"),
+                        "phase_mid_mae": fft_feedback.get("phase_mid_mae"),
+                        "phase_high_mae": fft_feedback.get("phase_high_mae"),
+                    },
+                )
+
+        if events_by_step.get(step):
+            record["events"] = events_by_step.pop(step)
+
+        if summary_enabled and (step % log_interval == 0 or step == steps - 1):
+            ratio_note = (
+                f" snr_ratio={current_snr_ratio:.3f}"
+                if current_snr_ratio is not None
+                else ""
+            )
+            headroom_note = (
+                f" headroom={headroom:.2f}"
+                if adaptive_snr and headroom is not None
+                else ""
+            )
+            print(
+                "[Summary] step={step:04d} loss={loss:.4f} mae={mae:.4f} grad_norm={grad:.4f} snr_mean={snr_mean:.3f}{ratio}{headroom}".format(
+                    step=step,
+                    loss=loss_value,
+                    mae=mae_value,
+                    grad=grad_norm_value,
+                    snr_mean=snr_mean_val,
+                    ratio=ratio_note,
+                    headroom=headroom_note,
+                )
+            )
 
     metrics_path = out_dir / "step_metrics.jsonl"
     with metrics_path.open("w", encoding="utf-8") as handle:
+        if global_events:
+            handle.write(json.dumps({"step": None, "events": global_events}))
+            handle.write("\n")
         for record in step_records:
             handle.write(json.dumps(record))
             handle.write("\n")
