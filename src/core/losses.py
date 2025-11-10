@@ -5,9 +5,11 @@ from typing import Any, Dict, Optional, Tuple
 import torch
 from torch import nn
 
-from src.core.denoise_step import describe_regime, predict_x0, select_regime
-from src.core.numeric import compute_snr, safe_clamp
-from src.core.residuals import AdaptiveSNRWeight, compute_residual, weighted_residual_loss
+from src.core.adaptive_weight import AdaptiveSNRWeight
+from src.core.diffusion_step import describe_regime, predict_x0, select_regime
+from src.core.numeric import safe_clamp
+from src.core.residuals import compute_residual, weighted_residual_loss
+from src.core.snr_scheduler import compute_snr_stats
 from src.spectral.adapter import SpectralAdapter
 
 
@@ -46,15 +48,16 @@ class DiffusionLoss(nn.Module):
             "beta": beta_value,
             "ema_decay": float(self.config.get("adaptive_ema_decay", 0.98)),
             "gamma_alpha": float(self.config.get("adaptive_gamma_alpha", 0.25)),
-            "eps": float(self.config.get("adaptive_eps", 1e-8)),
-            "snr_clip": float(self.config.get("adaptive_snr_clip", 250.0)),
             "kappa_floor": float(self.config.get("adaptive_kappa_floor", 1e-6)),
             "freeze_ratio": float(self.config.get("adaptive_freeze_ratio", 5.0)),
-            "log_interval": int(self.config.get("adaptive_log_interval", 200)),
+            "delta": float(self.config.get("adaptive_delta", self.config.get("adaptive_eps", 1e-3))),
+            "overflow_target": float(self.config.get("adaptive_overflow_target", 0.01)),
+            "overflow_decay": float(self.config.get("adaptive_overflow_decay", 0.9)),
             "change_threshold": float(self.config.get("adaptive_change_threshold", 0.1)),
+            "log_interval": int(self.config.get("adaptive_log_interval", 200)),
         }
         self._adaptive_requested = adaptive_default
-        self.snr_clip = float(self.config.get("snr_clip", self._adaptive_params["snr_clip"]))
+        self.snr_clip = float(self.config.get("snr_clip", 250.0))
         self.log_snr_smooth = bool(self.config.get("log_snr_smooth", True))
         self.adaptive = (
             AdaptiveSNRWeight(**self._adaptive_params)
@@ -94,18 +97,15 @@ class DiffusionLoss(nn.Module):
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         sqrt_alpha = safe_clamp(sqrt_alpha_t, min_value=1e-6)
         sigma_t = safe_clamp(sqrt_one_minus_alpha_t, min_value=1e-6)
-        snr_raw = compute_snr(sqrt_alpha, sigma_t)
+        stats = compute_snr_stats(sqrt_alpha, sigma_t, snr_clip=self.snr_clip)
+        snr_raw = stats.snr_raw
 
         snr_clip = self.snr_clip
         regimes = select_regime(snr_raw, snr_clip)
         regime_mode, loss_mode = describe_regime(regimes)
         overflow_mask = regimes["overflow"]
 
-        if self.log_snr_smooth:
-            snr_soft = torch.tanh(0.5 * torch.log(snr_raw + 1e-8))
-            snr_soft = snr_soft.clamp(min=0.0, max=1.0)
-        else:
-            snr_soft = snr_raw
+        snr_soft = stats.snr_weight if self.log_snr_smooth else snr_raw
 
         residual = compute_residual(prediction, target, mode=self.mode)
         residual = self._apply_spectral_weighting(residual)
@@ -136,6 +136,11 @@ class DiffusionLoss(nn.Module):
             mae_tensor = (combined_target - combined_prediction).abs()
             residual = combined_target - combined_prediction
 
+        overflow_ratio = float(overflow_mask.float().mean().item())
+        diag_extra = {"overflow": overflow_ratio}
+        if self.adaptive is not None:
+            diag_extra["overflow_ema"] = getattr(self.adaptive, "_overflow_ema", 0.0)
+
         loss, diag = weighted_residual_loss(
             combined_prediction,
             combined_target,
@@ -148,7 +153,8 @@ class DiffusionLoss(nn.Module):
             raw_loss=raw_loss_override,
             reduction=self.reduction,
             input_std=input_std,
-            snr_weight=snr_soft,
+            overflow_mask=overflow_mask,
+            diag_extra=diag_extra,
         )
 
         diag.update(
@@ -157,6 +163,7 @@ class DiffusionLoss(nn.Module):
                 "mode_code": 0.0 if self.mode == "pixel" else 1.0,
                 "snr_raw_max": float(snr_raw.max().detach().item()),
                 "snr_soft_mean": float(snr_soft.mean().detach().item()),
+                "snr_log_max": float(stats.log_snr.max().detach().item()),
                 "overflow_fraction": float(overflow_mask.float().mean().detach().item()),
                 "regime_mode_code": 2.0
                 if regime_mode == "deterministic"

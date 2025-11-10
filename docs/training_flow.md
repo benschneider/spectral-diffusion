@@ -26,3 +26,15 @@ Key parameters:
 - Overflow diagnostics and plots are written alongside the recorder artefacts in `scratch/<run>/diagnostics/overflow_snr.png`
 
 The deterministic branch keeps gradients stable and preserves residual magnitudes when the schedule enters the near-zero-noise regime.
+
+### Module layout
+
+The adaptive flow is implemented across a set of focused helpers:
+
+- `src/core/snr_scheduler.py` derives log-SNR weights, clamped ratios, and measured batch RMS values.
+- `src/core/adaptive_weight.py` maintains the EMA-based weighting logic and exposes change-aware diagnostics.
+- `src/core/overflow_handler.py` renormalises extreme predictions and emits `[OverflowHandler]` log lines.
+- `src/core/diffusion_step.py` hosts regime-selection utilities (`select_regime`, `describe_regime`, `predict_x0`).
+- `src/core/fft_feedback.py` centralises FFT residual metrics for both the recorder and the executor.
+
+`scripts/debug/record_training_steps.py` and `src/training/steps.py` compose these modules so the recorder and the main training loop share the same regime bookkeeping.

@@ -8,9 +8,12 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from src.core.denoise_step import describe_regime, select_regime
+from src.core.diffusion_step import describe_regime, select_regime
 from src.core.functional import compute_snr_weight, compute_target
-from src.core.numeric import safe_clamp, safe_ratio
+from src.core.numeric import safe_clamp
+from src.core.fft_feedback import compute_fft_feedback, fft_high_mean
+from src.core.overflow_handler import OverflowHandler
+from src.core.snr_scheduler import compute_snr_stats, measure_batch_snr
 from src.training.noise import NoiseBatch
 
 
@@ -20,110 +23,6 @@ SIGMA_MIN = 1e-4
 SNR_CLIP = 250.0
 PRED_STD_WARN_FACTOR = 5.0
 SPECTRAL_WARN_THRESHOLD = 0.8
-
-def _radial_frequency_masks(
-    height: int, width: int, device: torch.device, boundaries: tuple[float, ...]
-) -> Dict[str, torch.Tensor]:
-    """Return radial frequency masks for low/mid/high bands."""
-
-    if len(boundaries) != 4:
-        raise ValueError("Expected boundaries to describe three bands")
-
-    fy = torch.fft.fftfreq(height, device=device)
-    fx = torch.fft.fftfreq(width, device=device)
-    yy = fy[:, None]
-    xx = fx[None, :]
-    radius = torch.sqrt(xx**2 + yy**2)
-
-    labels = ("low", "mid", "high")
-    masks: Dict[str, torch.Tensor] = {}
-    for label, lower, upper in zip(labels, boundaries[:-1], boundaries[1:]):
-        mask = (radius >= lower) & (radius < upper)
-        if torch.any(mask):
-            masks[label] = mask
-    return masks
-
-
-def compute_fft_feedback(
-    prediction: Tensor, target: Tensor, *, fft_norm: str = "ortho"
-) -> Dict[str, float]:
-    """Return amplitude/phase residual statistics between prediction and target."""
-
-    pred_fft = torch.fft.fftn(prediction.detach(), dim=(-2, -1), norm=fft_norm)
-    target_fft = torch.fft.fftn(target.detach(), dim=(-2, -1), norm=fft_norm)
-
-    amplitude_delta = pred_fft.abs() - target_fft.abs()
-    amplitude_error = amplitude_delta.abs()
-    amplitude_mae = float(amplitude_error.mean().item())
-
-    phase_pred = torch.angle(pred_fft)
-    phase_target = torch.angle(target_fft)
-    phase_delta = torch.atan2(
-        torch.sin(phase_pred - phase_target),
-        torch.cos(phase_pred - phase_target),
-    )
-    phase_error = phase_delta.abs()
-    phase_mae = float(phase_error.mean().item())
-
-    real_mae = float((pred_fft.real - target_fft.real).abs().mean().item())
-    imag_mae = float((pred_fft.imag - target_fft.imag).abs().mean().item())
-    complex_delta = pred_fft - target_fft
-    complex_error = complex_delta.abs()
-    complex_mae = float(complex_error.mean().item())
-
-    height, width = prediction.shape[-2:]
-    boundaries = (0.0, 0.12, 0.28, float("inf"))
-    masks = _radial_frequency_masks(height, width, prediction.device, boundaries)
-
-    band_metrics: Dict[str, float] = {}
-    for label, mask in masks.items():
-        amplitude_band = amplitude_error[..., mask]
-        phase_band = phase_error[..., mask]
-        complex_band = complex_error[..., mask]
-        if amplitude_band.numel() > 0:
-            band_metrics[f"amplitude_{label}_mae"] = float(amplitude_band.mean().item())
-        if phase_band.numel() > 0:
-            band_metrics[f"phase_{label}_mae"] = float(phase_band.mean().item())
-        if complex_band.numel() > 0:
-            band_metrics[f"complex_{label}_mae"] = float(complex_band.mean().item())
-
-    dc_error = amplitude_error[..., 0, 0]
-    band_metrics["amplitude_dc_mae"] = float(dc_error.mean().item())
-
-    return {
-        "amplitude_mae": amplitude_mae,
-        "phase_mae": phase_mae,
-        "real_mae": real_mae,
-        "imag_mae": imag_mae,
-        "complex_mae": complex_mae,
-        **band_metrics,
-    }
-
-
-def _fft_high_mean(tensor: Tensor) -> float:
-    """Return the mean magnitude of the high-frequency FFT band."""
-
-    if tensor.ndim < 3:
-        return float("nan")
-    complex_tensor = (
-        tensor
-        if tensor.is_complex()
-        else torch.complex(tensor, torch.zeros_like(tensor))
-    )
-    fft = torch.fft.fftn(complex_tensor, dim=(-2, -1), norm="ortho")
-    fft = torch.fft.fftshift(fft, dim=(-2, -1))
-    magnitude = fft.abs()
-    height, width = magnitude.shape[-2:]
-    fy = torch.fft.fftfreq(height, device=tensor.device)
-    fx = torch.fft.fftfreq(width, device=tensor.device)
-    yy = fy[:, None]
-    xx = fx[None, :]
-    radius = torch.sqrt(xx**2 + yy**2)
-    mask_high = radius >= 0.25
-    if not torch.any(mask_high):
-        return float("nan")
-    return float(magnitude[..., mask_high].mean().item())
-
 
 @dataclass
 class StepOutcome:
@@ -169,6 +68,7 @@ class TrainingStepExecutor:
         self.snr_clip = getattr(self.loss_fn, "snr_clip", SNR_CLIP)
         self._overflow_decay = 0.9
         self._overflow_ema = 0.0
+        self.overflow_handler = OverflowHandler(snr_clip=self.snr_clip, ema_decay=self._overflow_decay)
 
     def run_step(
         self,
@@ -195,22 +95,16 @@ class TrainingStepExecutor:
             sqrt_alpha_t,
             sqrt_one_minus_alpha_t,
         )
-        snr_raw = safe_ratio(
-            sqrt_alpha_t**2,
-            sqrt_one_minus_alpha_t**2,
-            min_den=SIGMA_MIN**2,
+        snr_stats = compute_snr_stats(
+            sqrt_alpha_t,
+            sqrt_one_minus_alpha_t,
+            snr_clip=self.snr_clip,
+            min_sigma=SIGMA_MIN**2,
         )
+        snr_raw = snr_stats.snr_raw
         regimes = select_regime(snr_raw, self.snr_clip)
         overflow_mask = regimes["overflow"]
-        mask_broadcast = overflow_mask
-        while mask_broadcast.ndim < prediction.ndim:
-            mask_broadcast = mask_broadcast.unsqueeze(-1)
-        if torch.any(overflow_mask):
-            dims = tuple(range(1, prediction.ndim))
-            mean = prediction.mean(dim=dims, keepdim=True)
-            std = prediction.std(dim=dims, unbiased=False, keepdim=True)
-            renormed = (prediction - mean) / (std + 1e-6)
-            prediction = torch.where(mask_broadcast, renormed, prediction)
+        prediction = self.overflow_handler.renormalise(prediction, overflow_mask)
 
         residual = prediction - target
 
@@ -276,27 +170,11 @@ class TrainingStepExecutor:
             target,
             fft_norm=self.fft_norm,
         )
-        snr = safe_clamp(snr_raw, max_value=self.snr_clip)
-        overflow_count = int(torch.count_nonzero(overflow_mask).item())
-        overflow_ratio = float(overflow_mask.float().mean().item())
-        self._overflow_ema = (
-            self._overflow_decay * self._overflow_ema
-            + (1.0 - self._overflow_decay) * overflow_ratio
-        )
-        if torch.any(overflow_mask):
-            regime_mode, loss_mode = describe_regime(regimes)
-            print(
-                "[OverflowHandler] mode="
-                f"{regime_mode} snr={float(snr_raw.max().item()):.1f} "
-                f"loss_mode={loss_mode} count={overflow_count} "
-                f"ema={self._overflow_ema:.3f}"
-            )
+        snr = snr_stats.snr_clamped
+        overflow_stats = self.overflow_handler.update(overflow_mask)
+        self.overflow_handler.log(snr_raw, regimes)
 
-        centered_signal = clean_batch - clean_batch.mean(dim=(1, 2, 3), keepdim=True)
-        signal_rms = torch.sqrt(centered_signal.pow(2).mean(dim=(1, 2, 3)))
-        noise_component = noise_batch.noisy - sqrt_alpha_t * clean_batch
-        noise_rms = torch.sqrt(noise_component.pow(2).mean(dim=(1, 2, 3)))
-        snr_measured = safe_ratio(signal_rms.pow(2), noise_rms.pow(2), min_den=1e-8)
+        batch_snr = measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t)
 
         coeff_stats = {
             "timestep_min": float(timesteps.min().item()),
@@ -312,11 +190,11 @@ class TrainingStepExecutor:
             "snr_max": float(snr.max().item()),
             "snr_mean": float(snr.mean().item()),
             "snr_raw_max": float(snr_raw.max().item()),
-            "overflow_count": float(overflow_count),
-            "overflow_ema": float(self._overflow_ema),
-            "signal_rms": float(signal_rms.mean().item()),
-            "noise_rms": float(noise_rms.mean().item()),
-            "snr_measured": float(snr_measured.mean().item()),
+            "overflow_count": float(overflow_stats.count),
+            "overflow_ema": float(overflow_stats.ema),
+            "signal_rms": float(batch_snr.signal_rms.mean().item()),
+            "noise_rms": float(batch_snr.noise_rms.mean().item()),
+            "snr_measured": float(batch_snr.snr_measured.mean().item()),
         }
 
         prediction_mean = float(prediction.detach().mean().item())
@@ -333,7 +211,7 @@ class TrainingStepExecutor:
         else:
             std_ratio = float("inf")
 
-        fft_high = _fft_high_mean(prediction.detach())
+        fft_high = fft_high_mean(prediction.detach())
         if not math.isnan(fft_high) and fft_high > SPECTRAL_WARN_THRESHOLD:
             print(
                 "[WARN] Spectral blowup suspected: "

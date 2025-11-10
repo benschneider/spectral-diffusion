@@ -32,7 +32,7 @@ from src.core.functional import compute_snr_weight, compute_target
 from src.spectral.fft_adapter import add_uniform_frequency_noise
 from src.training.builders import build_dataloader, build_optimizer
 from src.training.scheduler import build_diffusion, sample_timesteps
-from src.training.steps import compute_fft_feedback
+from src.core.fft_feedback import compute_fft_feedback
 from src.utils.sanity_checks import check_fft_sanity
 
 
