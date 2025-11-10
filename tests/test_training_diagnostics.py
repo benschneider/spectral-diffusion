@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 import json
-import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -205,26 +204,37 @@ def test_step_recorder_diagnostics_stability(tmp_path):
     assert "Traceback" not in log
     assert "Step recorder artefacts written" in log
 
-    loss_matches = [float(m) for m in re.findall(r"\[Loss\] step=\d+ loss=([0-9eE+\-.]+)", log)]
-    assert loss_matches, "No loss lines captured"
-    assert all(0.0 < value < 10.0 for value in loss_matches)
+    diag_path = out_dir / "diagnostics.jsonl"
+    assert diag_path.exists()
+    diagnostics = [
+        json.loads(line)
+        for line in diag_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert diagnostics, "No diagnostics captured"
 
-    pred_stds = [float(m) for m in re.findall(r"\[prediction\][^\n]*std=([0-9eE+\-.]+)", log)]
-    assert pred_stds, "No prediction std values captured"
-    assert max(pred_stds) < 50.0
+    loss_events = [evt for evt in diagnostics if evt.get("tag") == "Loss"]
+    assert loss_events, "No loss events captured"
+    assert all(0.0 < float(evt.get("loss", 0.0)) < 10.0 for evt in loss_events)
 
-    weight_means = [float(m) for m in re.findall(r"\[AdaptiveSNRWeight\] mean=([0-9eE+\-.]+)", log)]
+    prediction_events = [
+        evt
+        for evt in diagnostics
+        if evt.get("tag") == "TensorPreview" and evt.get("tensor") == "prediction"
+    ]
+    assert prediction_events, "No prediction std values captured"
+    assert max(float(evt.get("std", 0.0)) for evt in prediction_events) < 50.0
+
+    weight_events = [evt for evt in diagnostics if evt.get("tag") == "AdaptiveSNRWeight"]
+    weight_means = [float(evt.get("mean_weight")) for evt in weight_events if evt.get("mean_weight") is not None]
     assert weight_means, "Adaptive weights not logged"
     assert max(weight_means) - min(weight_means) > 1e-3
 
-    overflow_entries = re.findall(
-        r"\[OverflowHandler\] step=\d+ mode=deterministic snr=([0-9eE+\-.]+) loss_mode=x0 count=(\d+)",
-        log,
-    )
-    assert overflow_entries, "Deterministic overflow regime not observed"
-    snr_values = [float(s) for s, _ in overflow_entries]
+    overflow_events = [evt for evt in diagnostics if evt.get("tag") == "OverflowHandler"]
+    assert overflow_events, "Deterministic overflow regime not observed"
+    snr_values = [float(evt.get("snr", evt.get("snr_raw_max", 0.0))) for evt in overflow_events]
     assert max(snr_values) <= 300.0
-    assert len(overflow_entries) <= 5
+    assert len(overflow_events) <= 5
 
     second_log = _run_step_recorder(out_dir, steps=5)
     assert "Step recorder artefacts written" in second_log

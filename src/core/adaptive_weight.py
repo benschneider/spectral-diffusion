@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Callable, Dict, Iterable, Optional, Tuple
 
 import torch
 
 EPS = 1e-8
+
+
+def _default_log_fn(message: str, diag: Dict[str, float]) -> None:
+    print(message)
 
 
 def _expand_to(tensor: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
@@ -72,6 +76,7 @@ class AdaptiveSNRWeight:
         change_threshold: float = 0.1,
         log_interval: int = 200,
         snr_clip: Optional[float] = None,
+        log_fn: Optional[Callable[[str, Dict[str, float]], None]] = _default_log_fn,
     ) -> None:
         self.beta = float(beta)
         self.ema_decay = float(ema_decay)
@@ -93,6 +98,7 @@ class AdaptiveSNRWeight:
         self._step = 0
         self._last_log_step = 0
         self._last_diag: Dict[str, float] = {}
+        self._log_fn = log_fn
 
     # ------------------------------------------------------------------
     # housekeeping helpers
@@ -106,6 +112,9 @@ class AdaptiveSNRWeight:
         self._step = 0
         self._last_log_step = 0
         self._last_diag.clear()
+
+    def set_log_fn(self, log_fn: Optional[Callable[[str, Dict[str, float]], None]]) -> None:
+        self._log_fn = log_fn
 
     # ------------------------------------------------------------------
     def _compute_weight_core(
@@ -258,17 +267,20 @@ class AdaptiveSNRWeight:
                     diag[key] = value
 
         self._step += 1
+        diag["step"] = self._step
         should_log = self._should_log(diag)
         diag["log_event"] = should_log
         if should_log:
             self._last_log_step = self._step
             self._last_diag = {key: diag[key] for key in ("kappa", "ema", "mean_weight")}
-            print(
+            message = (
                 "[AdaptiveSNR] step="
                 f"{self._step:04d} κ={diag['kappa']:.3e} ema={diag['ema']:.3e} "
                 f"α_fac={diag['alpha_fac']:.2f} overflow={diag['overflow']:.3f} "
                 f"overflow_ema={diag['overflow_ema']:.3f}"
             )
+            if self._log_fn is not None:
+                self._log_fn(message, diag)
 
         return weight, diag
 

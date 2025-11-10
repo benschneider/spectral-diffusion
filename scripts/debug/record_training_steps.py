@@ -36,7 +36,6 @@ from src.utils.debug_helpers import (
     cycle_loader,
     fft_band_means,
     grad_norm,
-    log_snr_spike,
     parameter_delta,
     phase_rms,
     save_tensor_preview,
@@ -82,20 +81,60 @@ def run_step_recorder(
     apply_variant_override(config, variant)
     seed_everything(config)
 
-    print("[Normalization] Disabled for diagnostic mode")
-
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[RecordTrainingSteps] Running version {RECORDER_VERSION}")
+
+    diagnostic_events: List[Dict[str, Any]] = []
+
+    def _log_event(
+        tag: str,
+        message: str,
+        *,
+        step: Optional[int] = None,
+        level: str = "info",
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        entry: Dict[str, Any] = {"tag": tag, "message": message, "level": level}
+        if step is not None:
+            entry["step"] = step
+        if extra:
+            entry.update(extra)
+        diagnostic_events.append(entry)
+        if verbose_logs:
+            print(message)
+
+    _log_event("Normalization", "[Normalization] Disabled for diagnostic mode")
+
+    _log_event("Recorder", f"[RecordTrainingSteps] Running version {RECORDER_VERSION}")
+
+    def _adaptive_weight_logger(message: str, diag: Dict[str, Any]) -> None:
+        step_value = diag.get("step") if isinstance(diag, dict) else None
+        try:
+            step_idx = int(step_value) if step_value is not None else None
+        except (TypeError, ValueError):
+            step_idx = None
+        extra = {
+            key: value
+            for key, value in diag.items()
+            if isinstance(value, (int, float, bool))
+        }
+        _log_event("AdaptiveSNRWeight", message, step=step_idx, extra=extra)
+
+    def _attach_adaptive_logger(target: Any) -> None:
+        adaptive = getattr(target, "adaptive", None)
+        if adaptive is not None and hasattr(adaptive, "set_log_fn"):
+            adaptive.set_log_fn(_adaptive_weight_logger)
 
     data_loader = loader or build_dataloader(config)
     data_iter = cycle_loader(data_loader)
 
     model = build_model(config.get("model", {}))
     loss_fn = get_loss_fn(config.get("loss", {}))
+    _attach_adaptive_logger(loss_fn)
     marker = getattr(loss_fn, "residual_marker", None)
     if callable(marker):
-        print(marker())
+        marker_msg = str(marker())
+        _log_event("ResidualMarker", marker_msg)
 
     diffusion_cfg = config.get("diffusion", {}) or {}
     spectral_cfg = config.setdefault("spectral", {})
@@ -106,7 +145,10 @@ def run_step_recorder(
         if force_weighting:
             loss_fn.set_weighting_enabled(True)
             snr_weighting = True
-            print("[RecordTrainingSteps] forcing adaptive weighting on for diagnostics")
+            _log_event(
+                "AdaptiveWeighting",
+                "[RecordTrainingSteps] forcing adaptive weighting on for diagnostics",
+            )
         else:
             if snr_weighting_cfg is None:
                 enabled = getattr(loss_fn, "use_weighting", True)
@@ -119,6 +161,8 @@ def run_step_recorder(
             snr_weighting = getattr(loss_fn, "use_weighting", True)
         else:
             snr_weighting = bool(snr_weighting_cfg)
+
+    _attach_adaptive_logger(loss_fn)
 
     optimiser = build_optimizer(model, config)
 
@@ -195,14 +239,29 @@ def run_step_recorder(
         lam_min = float(schedule_kwargs.get("lambda_min", -13.0))
         lam_max = float(schedule_kwargs.get("lambda_max", 13.0))
         delta = float(schedule_kwargs.get("delta", 0.008))
-        print(f"[Schedule] mode=logsnr_cosine λ∈[{lam_min:.3g},{lam_max:.3g}] δ={delta:.3g}")
-    print(
+        _log_event(
+            "Schedule",
+            f"[Schedule] mode=logsnr_cosine λ∈[{lam_min:.3g},{lam_max:.3g}] δ={delta:.3g}",
+            extra={
+                "mode": "logsnr_cosine",
+                "lambda_min": lam_min,
+                "lambda_max": lam_max,
+                "delta": delta,
+            },
+        )
+    _log_event(
+        "Schedule",
         "[Schedule] trim_offset=%d num_timesteps=%d min_sigma=%.4f"
         % (
             coeffs.trim_offset,
             coeffs.num_timesteps,
             coeffs.min_safe_sigma,
-        )
+        ),
+        extra={
+            "trim_offset": coeffs.trim_offset,
+            "num_timesteps": coeffs.num_timesteps,
+            "min_sigma": coeffs.min_safe_sigma,
+        },
     )
 
     loss_landscape = torch.ones(coeffs.num_timesteps, device=device_obj)
@@ -221,9 +280,17 @@ def run_step_recorder(
             initial_ratio=effective_snr_ratio,
         )
         effective_snr_ratio = controller.ratio
-        print(
-            f"[AdaptiveSNR] enabled with start ratio={controller.ratio:.3f} "
-            f"bounds=[{controller.min_snr:.3f}, {controller.max_snr:.3f}]"
+        _log_event(
+            "AdaptiveSNR",
+            (
+                f"[AdaptiveSNR] enabled with start ratio={controller.ratio:.3f} "
+                f"bounds=[{controller.min_snr:.3f}, {controller.max_snr:.3f}]"
+            ),
+            extra={
+                "start_ratio": controller.ratio,
+                "min_snr": controller.min_snr,
+                "max_snr": controller.max_snr,
+            },
         )
 
     step_records: List[Dict[str, Any]] = []
@@ -260,16 +327,35 @@ def run_step_recorder(
     def _ewma(prev: Optional[float], value: float, beta: float) -> float:
         return value if prev is None else (beta * value + (1.0 - beta) * prev)
 
-    # Buffer for diagnostic log lines (if not verbose)
-    log_buffer = []
+    def _log_diag(
+        step: int,
+        tag: str,
+        message: str,
+        *,
+        level: str = "info",
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        _log_event(tag, message, step=step, level=level, extra=extra)
 
-    def _log_diag(step, tag, message):
-        if tag == "SNR" and log_snr_json:
-            log_buffer.append({"step": step, "tag": tag, "message": message})
-        elif verbose_logs:
-            print(message)
-        else:
-            log_buffer.append({"step": step, "tag": tag, "message": message})
+    def _log_tensor_preview(tensor: torch.Tensor, path: Path, name: str, step: int) -> None:
+        tensor_cpu = tensor.detach().cpu()
+        stats = {
+            "mean": float(tensor_cpu.mean().item()),
+            "std": float(tensor_cpu.std().item()),
+            "min": float(tensor_cpu.min().item()),
+            "max": float(tensor_cpu.max().item()),
+        }
+        message = (
+            f"[{name}] mean={stats['mean']:.3f}, std={stats['std']:.3f}, "
+            f"min={stats['min']:.3f}, max={stats['max']:.3f}"
+        )
+        _log_event(
+            "TensorPreview",
+            message,
+            step=step,
+            extra={"tensor": name, **stats},
+        )
+        save_tensor_preview(tensor, path, name, log_fn=None)
 
     for step in range(steps):
         xb, _ = next(data_iter)
@@ -321,9 +407,22 @@ def run_step_recorder(
             if mean_ok and std_ok:
                 _log_diag(step, "Noise", f"[Noise] mode={corruption_mode}, snr_ratio={ratio_str}, mean/std check OK")
             else:
-                print(
+                noise_message = (
                     f"[Noise] mode={corruption_mode}, snr_ratio={ratio_str}, "
                     f"mean={noisy_mean:.3f} std={noisy_std:.3f} mean_shift={dc_shift:+.4f}"
+                )
+                _log_event(
+                    "Noise",
+                    noise_message,
+                    step=step,
+                    level="warning",
+                    extra={
+                        "mode": corruption_mode,
+                        "snr_ratio": effective_snr_ratio,
+                        "mean": noisy_mean,
+                        "std": noisy_std,
+                        "mean_shift": dc_shift,
+                    },
                 )
 
         pred = model(x_t, t)
@@ -384,7 +483,7 @@ def run_step_recorder(
         if input_std_val > 0:
             std_ratio = prediction_std_val / max(input_std_val, 1e-8)
             if std_ratio > PRED_STD_WARN_FACTOR:
-                print(
+                warn_message = (
                     "[WARN] Prediction std drift at step {step}: "
                     "std={std:.3f}, input_std={input_std:.3f}, ratio={ratio:.2f}".format(
                         step=step,
@@ -393,11 +492,28 @@ def run_step_recorder(
                         ratio=std_ratio,
                     )
                 )
+                _log_event(
+                    "PredictionStd",
+                    warn_message,
+                    step=step,
+                    level="warning",
+                    extra={
+                        "prediction_std": prediction_std_val,
+                        "input_std": input_std_val,
+                        "std_ratio": std_ratio,
+                    },
+                )
         else:
             std_ratio = float("inf")
         fft_high_val = output_fft.get("fft_high", float("nan"))
         if not math.isnan(fft_high_val) and fft_high_val > FFT_HIGH_WARN_THRESHOLD:
-            print(f"[WARN] Spectral blowup suspected at step {step}: fft_high={fft_high_val:.3f}")
+            _log_event(
+                "SpectralWarning",
+                f"[WARN] Spectral blowup suspected at step {step}: fft_high={fft_high_val:.3f}",
+                step=step,
+                level="warning",
+                extra={"fft_high": fft_high_val},
+            )
 
         corr = structure_correlation(xb.detach(), x_t.detach())
         phase_rms_val = phase_rms(xb.detach(), x_t.detach(), norm=fft_norm)
@@ -415,9 +531,21 @@ def run_step_recorder(
         if snr_raw_max > SNR_CLIP:
             overflow = int((snr_raw > SNR_CLIP).sum().item())
             if overflow_log_count < overflow_log_limit:
-                print(
+                clipped_snr = min(snr_raw_max, SNR_CLIP)
+                message = (
                     f"[OverflowHandler] step={step} mode=deterministic "
-                    f"snr={min(snr_raw_max, SNR_CLIP):.1f} loss_mode=x0 count={overflow}"
+                    f"snr={clipped_snr:.1f} loss_mode=x0 count={overflow}"
+                )
+                _log_event(
+                    "OverflowHandler",
+                    message,
+                    step=step,
+                    level="warning",
+                    extra={
+                        "snr": clipped_snr,
+                        "snr_raw_max": snr_raw_max,
+                        "overflow_count": overflow,
+                    },
                 )
             overflow_log_count += 1
 
@@ -453,7 +581,19 @@ def run_step_recorder(
             top_k=SNR_SPIKE_TOP_K,
         )
         if snr_spike_summary:
-            log_snr_spike(snr_spike_summary)
+            header = (
+                "[SNRSpike] count={count} threshold={threshold:.1f} max_snr={max_snr:.2f}".format(
+                    count=snr_spike_summary["count"],
+                    threshold=snr_spike_summary["threshold"],
+                    max_snr=snr_spike_summary["max_snr"],
+                )
+            )
+            _log_event(
+                "SNRSpike",
+                header,
+                step=step,
+                extra=snr_spike_summary,
+            )
 
         target_mean = float(target.detach().mean().item())
         target_std = float(target.detach().std().item())
@@ -558,7 +698,24 @@ def run_step_recorder(
             elif effective_snr_ratio is not None:
                 current_snr_ratio = _clamp_snr(effective_snr_ratio)
             if note:
-                print(f"[AdaptiveSNR] {note}")
+                _log_event(
+                    "AdaptiveSNR",
+                    f"[AdaptiveSNR] {note}",
+                    step=step,
+                    extra={"note": note, "snr_ratio": effective_snr_ratio},
+                )
+
+        if adaptive_snr and current_snr_ratio is not None and high_snr_fraction is None and snr_vals.numel() > 0:
+            high_snr_fraction = float((snr_vals > float(current_snr_ratio)).float().mean().item())
+
+        if adaptive_snr:
+            record["snr_headroom"] = headroom
+            record["snr_high_frac"] = high_snr_fraction
+            record["snr_mean_trend"] = snr_mean_trend
+            record["snr_max_trend"] = snr_max_trend
+
+        prev_snr_mean = snr_mean_val
+        prev_snr_max = snr_max_val
 
         if adaptive_snr and current_snr_ratio is not None and high_snr_fraction is None and snr_vals.numel() > 0:
             high_snr_fraction = float((snr_vals > float(current_snr_ratio)).float().mean().item())
@@ -616,21 +773,31 @@ def run_step_recorder(
             save_root = out_dir / f"step_{step:04d}"
             save_root.mkdir(parents=True, exist_ok=True)
 
-            print(f"[Loss] step={step} loss={loss_value:.6f} mae={mae_value:.6f}")
-            print(
-                "[FFTFeedback] "
-                + ", ".join(
-                    f"{name}={fft_feedback[name]:.6f}"
-                    for name in [
-                        "amplitude_mae",
-                        "phase_mae",
-                        "real_mae",
-                        "imag_mae",
-                        "complex_mae",
-                    ]
-                    if name in fft_feedback
-                )
+            _log_event(
+                "Loss",
+                f"[Loss] step={step} loss={loss_value:.6f} mae={mae_value:.6f}",
+                step=step,
+                extra={"loss": loss_value, "mae": mae_value},
             )
+            fft_message = {
+                name: float(fft_feedback[name])
+                for name in [
+                    "amplitude_mae",
+                    "phase_mae",
+                    "real_mae",
+                    "imag_mae",
+                    "complex_mae",
+                ]
+                if name in fft_feedback
+            }
+            if fft_message:
+                _log_event(
+                    "FFTFeedback",
+                    "[FFTFeedback] "
+                    + ", ".join(f"{name}={fft_message[name]:.6f}" for name in fft_message),
+                    step=step,
+                    extra=fft_message,
+                )
             _log_diag(step, "Timesteps",
                 "[Timesteps] min={:d} max={:d} mean={:.1f} "
                 "snr_min={:.4f} snr_max={:.4f}".format(
@@ -670,7 +837,7 @@ def run_step_recorder(
                 else:
                     mean_val = weight_stats.get("mean_weight_raw", weight_stats.get("mean_weight", 1.0))
                     max_val = weight_stats.get("max_weight_raw", weight_stats.get("max_weight", 1.0))
-                    print(
+                    adaptive_message = (
                         "[AdaptiveSNRWeight] mean={:.6f} max={:.6f} kappa={:.4e} "
                         "alpha_fac={:.2f} overflow={:.3f} overflow_ema={:.3f} "
                         "delta={:.3e}{}".format(
@@ -684,14 +851,20 @@ def run_step_recorder(
                             " frozen" if weight_stats.get("frozen") else "",
                         )
                     )
+                    _log_event(
+                        "AdaptiveSNRWeight",
+                        adaptive_message,
+                        step=step,
+                        extra=weight_stats,
+                    )
 
-            save_tensor_preview(xb, save_root / "input.png", "input")
-            save_tensor_preview(x_t, save_root / "noisy.png", "noisy")
-            save_tensor_preview(pred, save_root / "predicted_noise.png", "predicted_noise")
+            _log_tensor_preview(xb, save_root / "input.png", "input", step)
+            _log_tensor_preview(x_t, save_root / "noisy.png", "noisy", step)
+            _log_tensor_preview(pred, save_root / "predicted_noise.png", "predicted_noise", step)
             if denoised is not None:
-                save_tensor_preview(denoised, save_root / "prediction.png", "prediction")
+                _log_tensor_preview(denoised, save_root / "prediction.png", "prediction", step)
             else:
-                save_tensor_preview(pred, save_root / "prediction.png", "prediction")
+                _log_tensor_preview(pred, save_root / "prediction.png", "prediction", step)
 
             check_fft_sanity(
                 xb.detach().cpu(),
@@ -722,7 +895,16 @@ def run_step_recorder(
                 if name in fft_feedback
             )
             if band_line:
-                print(f"[FFTAmplitudeBands] {band_line}")
+                _log_event(
+                    "FFTAmplitudeBands",
+                    f"[FFTAmplitudeBands] {band_line}",
+                    step=step,
+                    extra={
+                        "amplitude_low_mae": fft_feedback.get("amplitude_low_mae"),
+                        "amplitude_mid_mae": fft_feedback.get("amplitude_mid_mae"),
+                        "amplitude_high_mae": fft_feedback.get("amplitude_high_mae"),
+                    },
+                )
             phase_line = ", ".join(
                 f"{label}={fft_feedback.get(name, float('nan')):.6f}"
                 for label, name in (
@@ -782,6 +964,13 @@ def run_step_recorder(
             indent=2,
         )
 
+    if diagnostic_events:
+        diagnostics_path = out_dir / "diagnostics.jsonl"
+        with diagnostics_path.open("w", encoding="utf-8") as handle:
+            for entry in diagnostic_events:
+                handle.write(json.dumps(entry))
+                handle.write("\n")
+
     if log_snr_json and snr_summaries:
         snr_path = out_dir / "snr_stats.jsonl"
         with snr_path.open("w", encoding="utf-8") as handle:
@@ -819,6 +1008,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write per-step SNR summaries to snr_stats.jsonl.",
     )
+    parser.add_argument(
+        "--verbose-logs",
+        action="store_true",
+        help="Also stream diagnostic logs to stdout.",
+    )
     return parser
 
 
@@ -836,6 +1030,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         dc_scale_factor=args.dc_scale_factor,
         adaptive_snr=bool(args.adaptive_snr),
         log_snr_json=bool(args.log_snr_json),
+        verbose_logs=bool(args.verbose_logs),
     )
     print(f"Step recorder artefacts written to {output_path}")
 

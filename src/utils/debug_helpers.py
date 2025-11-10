@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
 
 import torch
 from torchvision.utils import save_image
@@ -186,12 +186,20 @@ def log_snr_spike(summary: Dict[str, Any]) -> None:
         )
 
 
-def save_tensor_preview(tensor: torch.Tensor, path: Path, name: str) -> None:
+def save_tensor_preview(
+    tensor: torch.Tensor,
+    path: Path,
+    name: str,
+    *,
+    log_fn: Optional[Callable[[str], None]] = print,
+) -> None:
     tensor = tensor.detach().cpu()
-    print(
+    message = (
         f"[{name}] mean={tensor.mean():.3f}, std={tensor.std():.3f}, "
         f"min={tensor.min():.3f}, max={tensor.max():.3f}"
     )
+    if log_fn is not None:
+        log_fn(message)
     span = tensor.max() - tensor.min()
     scaled = (tensor - tensor.min()) / (span + 1e-8)
     save_image(scaled, path)
