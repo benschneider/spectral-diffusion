@@ -24,7 +24,7 @@ diffusion:
   num_timesteps: 1000
   prediction_type: eps
   snr_transform: snr
-  snr_weighting: false
+  snr_weighting: true
   uniform_corruption: true
   uniform_corruption_scale: 0.15
   adaptive_rescale: true
