@@ -44,6 +44,10 @@ class DiffusionLoss(nn.Module):
             "beta": float(self.config.get("adaptive_beta", 0.3)),
             "ema_decay": float(self.config.get("adaptive_ema_decay", 0.99)),
             "eps": float(self.config.get("adaptive_eps", 1e-8)),
+            "kappa_floor": float(self.config.get("adaptive_kappa_floor", 1e-4)),
+            "ref_sqrt_area": float(self.config.get("adaptive_ref_sqrt_area", 512.0)),
+            "log_interval": int(self.config.get("adaptive_log_interval", 0)),
+            "change_threshold": float(self.config.get("adaptive_change_threshold", 1e-4)),
         }
         self._adaptive_requested = adaptive_default
         self.adaptive = (
@@ -106,6 +110,7 @@ class DiffusionLoss(nn.Module):
         return (
             "[Residuals] mode=adaptive_snr v1.2 "
             f"beta={self._adaptive_params['beta']:.3f} ema={self._adaptive_params['ema_decay']:.3f} "
+            f"kappa_floor={self._adaptive_params['kappa_floor']:.2e} "
             f"quant_safe=True scale_norm=True residual_mode={self.mode} "
             f"weighting={'on' if self.use_weighting else 'off'} "
             f"adaptive={bool(adaptive_flag)}"

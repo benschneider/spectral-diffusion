@@ -500,14 +500,17 @@ def run_step_recorder(
                 for key, value in adaptive_diag.items()
                 if isinstance(value, (int, float))
             }
-            print(
-                "[AdaptiveSNR] "
-                f"kappa={adaptive_diag.get('kappa', 0.0):.4e}, "
-                f"ema={adaptive_diag.get('ema', 0.0):.4e}, "
-                f"norm={adaptive_diag.get('norm', 1.0):.2f}, "
-                f"w_mean={adaptive_diag.get('mean_weight', 1.0):.3f}, "
-                f"w_max={adaptive_diag.get('max_weight', 1.0):.3f}"
-            )
+            if adaptive_diag.get("log_event"):
+                print(
+                    "[AdaptiveSNR] "
+                    f"step={step:04d} "
+                    f"kappa={adaptive_diag.get('kappa', 0.0):.4e}, "
+                    f"ema={adaptive_diag.get('ema', 0.0):.4e}, "
+                    f"val={adaptive_diag.get('val', 0.0):.4e}, "
+                    f"scale={adaptive_diag.get('scale', 1.0):.2f}, "
+                    f"w_mean={adaptive_diag.get('mean_weight', 1.0):.3f}, "
+                    f"w_max={adaptive_diag.get('max_weight', 1.0):.3f}"
+                )
         elif snr_weighting:
             weight = compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform)
             weight_stats = {
