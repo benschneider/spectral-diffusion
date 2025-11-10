@@ -44,17 +44,7 @@ from src.utils.debug_helpers import (
     summarise_snr_spikes,
 )
 from src.utils.sanity_checks import check_fft_sanity
-from src.utils.debug_helpers import (
-    _fft_band_means,
-    _grad_norm,
-    _parameter_delta,
-    _structure_correlation,
-    _phase_rms,
-    _predict_x0,
-    _centered_rms,
-    _summarise_snr_spikes,
-    _log_snr_spike,
-)
+
 
 SNR_SPIKE_THRESHOLD = 1_000.0
 SNR_SPIKE_TOP_K = 3
@@ -83,7 +73,19 @@ def run_step_recorder(
     snr_dec: float = 0.2,
     snr_kappa_thresh: float = 2.5e-1,
     snr_alpha_fac_high: float = 1.12,
-    snr_overflow_high: float = 0.05,
+    python scripts/debug/record_training_steps.py \
+  --config configs/test_synthetic_spectral.yaml \
+  --steps 2000 \
+  --output-dir scratch/synth_adapt_v2 \
+  --log-interval 200 \
+  --snr-ratio 0.5 \
+  --adaptive-snr \
+  --snr-min 0.6 --snr-max 2.4 \
+  --snr-inc 0.1 --snr-dec 0.2 \
+  --snr-kappa-thresh 0.25 \
+  --snr-alpha-fac-high 1.12 \
+  --snr-overflow-high 0.05
+  
     verbose_logs: bool = False,
 ) -> Path:
     RECORDER_VERSION = "v2.0"
@@ -204,10 +206,11 @@ def run_step_recorder(
         lam_min = float(schedule_kwargs.get("lambda_min", -13.0))
         lam_max = float(schedule_kwargs.get("lambda_max", 13.0))
         delta = float(schedule_kwargs.get("delta", 0.008))
-        print(f"[Schedule] mode=logsnr_cosine λ∈[{lam_min:.3g},{lam_max:.3g}] δ={delta:.3g}")
+        print(
+            f"[Schedule] mode=logsnr_cosine λ∈[{lam_min:.3g},{lam_max:.3g}] δ={delta:.3g}"
+        )
     print(
-        "[Schedule] trim_offset=%d num_timesteps=%d min_sigma=%.4f"
-        % (
+        "[Schedule] trim_offset=%d num_timesteps=%d min_sigma=%.4f" % (
             coeffs.trim_offset,
             coeffs.num_timesteps,
             coeffs.min_safe_sigma,
@@ -491,65 +494,10 @@ def run_step_recorder(
             record["snr_spike_max"] = snr_spike_summary["max_snr"]
             record["snr_spike_top_timesteps"] = snr_spike_summary["top_timesteps"]
 
-        if noise_stats:
-            for key, value in noise_stats.items():
-                record[key] = value
-        record.update({f"fft_{key}": float(value) for key, value in fft_feedback.items()})
-        record.update({f"output_{k}": v for k, v in output_fft.items()})
-        record.update({f"input_{k}": v for k, v in input_fft.items()})
-        record.update({f"noisy_{k}": v for k, v in noisy_fft.items()})
-
-        if denoised is not None:
-            record["denoised_corr"] = structure_correlation(xb.detach(), denoised.detach())
-
-        weight_stats = None
-        if adaptive_diag:
-            weight_stats = {
-                key: float(value)
-                for key, value in adaptive_diag.items()
-                if isinstance(value, (int, float))
-            }
+        for key, value in fft_feedback.items():
+            record[f"fft_{key}"] = float(value)
+        if weight_stats:
             record.update(weight_stats)
-        elif snr_weighting:
-            weight = compute_snr_weight(
-                sqrt_alpha_t,
-                sqrt_one_minus_t,
-                snr_transform,
-                min_snr=min_snr_weight,
-                max_snr=max_snr_weight,
-            )
-            weight_stats = {
-                "snr_weight_min": float(weight.min().item()),
-                "snr_weight_max": float(weight.max().item()),
-                "snr_weight_mean": float(weight.mean().item()),
-            }
-            record.update(weight_stats)
-
-        if controller is not None:
-            new_ratio, note = controller.update(
-                loss=loss_value,
-                grad_norm=grad_norm_value,
-                fft_feedback=fft_feedback,
-                adaptive_diag=adaptive_diag,
-                snr_vals=snr_vals,
-            )
-            effective_snr_ratio = new_ratio
-            record.update(controller.latest_metrics)
-            if note:
-                print(f"[AdaptiveSNR] {note}")
-
-        if log_snr_json:
-            snr_entry = {
-                "step": step,
-                "snr_min": snr_min,
-                "snr_max": snr_max,
-                "snr_mean": snr_mean,
-                "snr_raw_max": snr_raw_max,
-            }
-            if controller is not None:
-                snr_entry.update(controller.latest_metrics)
-            snr_summaries.append(snr_entry)
-
         step_records.append(record)
 
         if loss_aware_enabled:
