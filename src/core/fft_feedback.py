@@ -29,7 +29,13 @@ def _radial_frequency_masks(
     return masks
 
 
-def compute_fft_feedback(prediction: Tensor, target: Tensor, *, fft_norm: str = "ortho") -> Dict[str, float]:
+def compute_fft_feedback(
+    prediction: Tensor,
+    target: Tensor,
+    *,
+    fft_norm: str = "ortho",
+    sar_weight: float = 0.0,
+) -> Dict[str, float]:
     """Return amplitude/phase residual statistics between prediction and target."""
 
     pred_fft = torch.fft.fftn(prediction.detach(), dim=(-2, -1), norm=fft_norm)
@@ -59,6 +65,16 @@ def compute_fft_feedback(prediction: Tensor, target: Tensor, *, fft_norm: str = 
     height, width = prediction.shape[-2:]
     boundaries = (0.0, 0.12, 0.28, float("inf"))
     masks = _radial_frequency_masks(height, width, prediction.device, boundaries)
+
+    if sar_weight > 0.0 and "high" in masks:
+        high_mask = masks["high"].to(prediction.device)
+        while high_mask.ndim < amplitude_error.ndim:
+            high_mask = high_mask.unsqueeze(0)
+        weights = 1.0 + float(sar_weight) * high_mask.to(amplitude_error.dtype)
+        metrics["sar_amplitude_mae"] = float((amplitude_error * weights).mean().item())
+        metrics["sar_phase_mae"] = float((phase_error * weights).mean().item())
+        metrics["sar_complex_mae"] = float((complex_error * weights).mean().item())
+
     for label, mask in masks.items():
         amplitude_band = amplitude_error[..., mask]
         phase_band = phase_error[..., mask]

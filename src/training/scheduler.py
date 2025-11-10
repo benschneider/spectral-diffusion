@@ -143,3 +143,30 @@ def sample_timesteps(
             f"min_timestep={min_timestep} is outside the valid range [0, {T - 1}]"
         )
     return torch.randint(min_timestep, T, (B,), device=device, dtype=torch.long)
+
+
+def loss_aware_timesteps(
+    B: int,
+    loss_landscape: torch.Tensor,
+    *,
+    device: torch.device,
+    temperature: float = 1.0,
+    min_timestep: int = 0,
+) -> torch.Tensor:
+    """Sample timesteps with probabilities proportional to loss magnitudes."""
+
+    if loss_landscape.ndim != 1:
+        raise ValueError("loss_landscape must be a 1D tensor")
+    if temperature <= 0:
+        raise ValueError("temperature must be positive")
+    if min_timestep < 0 or min_timestep >= loss_landscape.numel():
+        raise ValueError("min_timestep is outside the valid range")
+
+    slice_ = loss_landscape[min_timestep:].detach().float()
+    slice_ = slice_.clamp_min(1e-6)
+    logits = torch.log(slice_)
+    logits = logits / float(temperature)
+    probs = torch.softmax(logits, dim=0)
+    indices = torch.multinomial(probs, num_samples=B, replacement=True)
+    timesteps = indices + min_timestep
+    return timesteps.to(device=device, dtype=torch.long)

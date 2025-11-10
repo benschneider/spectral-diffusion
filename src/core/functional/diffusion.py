@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import torch
 
+from typing import Optional
+
 from src.core.numeric import compute_snr, safe_clamp, safe_sqrt
 
 
@@ -26,12 +28,18 @@ def compute_snr_weight(
     alpha_t: torch.Tensor,
     sigma_t: torch.Tensor,
     transform: str = "snr",
+    *,
+    min_snr: Optional[float] = None,
+    max_snr: Optional[float] = None,
 ) -> torch.Tensor:
-    snr = compute_snr(alpha_t, sigma_t)
+    snr = compute_snr(alpha_t, sigma_t, max_value=max_snr)
+    if min_snr is not None:
+        snr = safe_clamp(snr, min_value=float(min_snr))
     if transform == "snr":
-        return torch.clamp(snr, max=1e4)
+        return safe_clamp(snr, max_value=1e4 if max_snr is None else max_snr)
     if transform == "snr_sqrt":
         return safe_sqrt(safe_clamp(snr, min_value=0.0))
     if transform == "snr_clamped":
-        return safe_clamp(snr, max_value=10.0)
+        limit = 10.0 if max_snr is None else max_snr
+        return safe_clamp(snr, max_value=limit)
     raise ValueError(f"Unknown SNR transform '{transform}'")

@@ -1,149 +1,197 @@
+"""Shared debugging helpers for diagnostic scripts."""
+
+from __future__ import annotations
+
+import math
+from pathlib import Path
+from typing import Any, Dict, Iterable, Iterator, List, Optional
+
 import torch
-import torch.nn.functional as F
+from torchvision.utils import save_image
 
-def _fft_band_means(fft_data):
-    """Compute low/mid/high band means for amplitude and phase, returned as a dict."""
-    n = fft_data.shape[-1]
-    low = torch.mean(fft_data[..., :n // 4])
-    mid = torch.mean(fft_data[..., n // 4:n // 2])
-    high = torch.mean(fft_data[..., n // 2:])
-    return {
-        "fft_low": low.item(),
-        "fft_mid": mid.item(),
-        "fft_high": high.item(),
-    }
 
-def _grad_norm(model):
-    """Compute total gradient norm for diagnostic purposes."""
-    total_norm = 0.0
-    for p in model.parameters():
-        if p.grad is not None:
-            param_norm = p.grad.data.norm(2)
-            total_norm += param_norm.item() ** 2
-    return total_norm ** 0.5
+def cycle_loader(loader: Iterable) -> Iterator:
+    """Yield batches from ``loader`` indefinitely."""
 
-def _parameter_delta(model, prev_params):
-    """Return mean absolute delta between current and previous parameters."""
-    deltas = []
-    for (name, p), prev_p in zip(model.named_parameters(), prev_params):
-        if p.requires_grad:
-            deltas.append((p.data - prev_p).abs().mean().item())
-    return sum(deltas) / len(deltas) if deltas else 0.0
+    while True:
+        for batch in loader:
+            yield batch
 
-def _structure_correlation(a, b):
-    """Compute normalized correlation coefficient between tensors."""
-    a_flat = a.flatten()
-    b_flat = b.flatten()
-    num = torch.dot(a_flat, b_flat)
-    denom = torch.norm(a_flat) * torch.norm(b_flat)
-    return (num / (denom + 1e-8)).item()
 
-def _phase_rms(a, b=None, norm=None):
-    """Compute RMS of phase differences between one or two tensors.
-    If two tensors are provided, computes RMS of their phase difference.
-    Optionally normalizes by `norm` (scalar or tensor)."""
-    if b is not None:
-        # Compute phase difference between tensors a and b
-        phase_diff = torch.angle(torch.exp(1j * a) * torch.conj(torch.exp(1j * b)))
+def fft_band_means(tensor: torch.Tensor) -> Dict[str, float]:
+    if tensor.is_complex():
+        spatial = tensor
     else:
-        # Single tensor: use adjacent differences
-        phase_diff = torch.diff(a, dim=-1)
+        spatial = torch.complex(tensor, torch.zeros_like(tensor))
+    fft = torch.fft.fftshift(torch.fft.fft2(spatial, norm="ortho"), dim=(-2, -1))
+    magnitude = fft.abs()
+    mean_total = float(magnitude.mean().cpu())
 
-    rms = torch.sqrt(torch.mean(phase_diff ** 2))
-    if norm is not None:
-        if isinstance(norm, str):
-            if norm.lower() == 'ortho':
-                norm = 1.0
-            else:
-                try:
-                    norm = float(norm)
-                except ValueError:
-                    raise TypeError("norm value must be numeric or 'ortho', got string that cannot be converted to float")
-        norm = torch.tensor(norm, dtype=torch.float32, device=rms.device)
-        rms = rms / (norm + 1e-8)
-    return rms.item()
+    height, width = magnitude.shape[-2:]
+    fy = torch.fft.fftfreq(height, d=1.0 / float(height)).to(magnitude.device)
+    fx = torch.fft.fftfreq(width, d=1.0 / float(width)).to(magnitude.device)
+    yy = fy[:, None]
+    xx = fx[None, :]
+    radius = torch.sqrt(xx**2 + yy**2)
+    mask_high = radius >= 0.25
+    if torch.any(mask_high):
+        mean_high = float(magnitude[..., mask_high].mean().cpu())
+    else:
+        mean_high = float("nan")
+    return {"fft_mean": mean_total, "fft_high": mean_high}
 
-def _predict_x0(x_t, noise, sqrt_alpha_t, sqrt_one_minus_alpha_t, *args):
-    """Predict x0 given noisy input x_t and noise ε.
-    Accepts optional extra args for backward compatibility (e.g., snr_raw or clip flag).
-    Automatically converts stringified tensor representations back to tensors if necessary."""
-    import re
 
-    def _ensure_tensor(v):
-        if isinstance(v, str):
-            # Try to parse numeric value from a string like "tensor(0.98, device='cuda:0')"
-            match = re.search(r"[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?", v)
-            if match:
-                return torch.tensor(float(match.group(0)), dtype=torch.float32)
-            else:
-                raise TypeError(f"_predict_x0: invalid string input {v!r}")
-        elif isinstance(v, (tuple, list)):
-            v = v[0]
-        if not torch.is_tensor(v):
-            v = torch.tensor(v, dtype=torch.float32)
-        return v
+def grad_norm(model: torch.nn.Module) -> float:
+    total = 0.0
+    for param in model.parameters():
+        if param.grad is None:
+            continue
+        total += float(param.grad.detach().float().pow(2).sum().cpu())
+    return math.sqrt(total) if total > 0 else 0.0
 
-    x_t = _ensure_tensor(x_t)
-    noise = _ensure_tensor(noise)
-    sqrt_alpha_t = _ensure_tensor(sqrt_alpha_t)
-    sqrt_one_minus_alpha_t = _ensure_tensor(sqrt_one_minus_alpha_t)
 
-    sqrt_alpha_t = sqrt_alpha_t.to(x_t.device)
-    sqrt_one_minus_alpha_t = sqrt_one_minus_alpha_t.to(x_t.device)
-    while sqrt_alpha_t.ndim < x_t.ndim:
-        sqrt_alpha_t = sqrt_alpha_t[..., None]
-    while sqrt_one_minus_alpha_t.ndim < x_t.ndim:
-        sqrt_one_minus_alpha_t = sqrt_one_minus_alpha_t[..., None]
+def parameter_delta(model: torch.nn.Module, previous: Dict[str, torch.Tensor]) -> float:
+    total = 0.0
+    state = model.state_dict()
+    for name, tensor in state.items():
+        tensor_cpu = tensor.detach().cpu()
+        prev = previous.get(name)
+        if prev is None:
+            delta = tensor_cpu.float().pow(2).sum().item()
+        else:
+            delta = (tensor_cpu.float() - prev.float()).pow(2).sum().item()
+        total += delta
+        previous[name] = tensor_cpu
+    return math.sqrt(total)
 
-    return (x_t - sqrt_one_minus_alpha_t * noise) / sqrt_alpha_t
 
-def _centered_rms(tensor):
-    """Compute RMS of a tensor after mean-centering."""
+def structure_correlation(x: torch.Tensor, y: torch.Tensor) -> float:
+    b = x.shape[0]
+    x_flat = x.view(b, -1)
+    y_flat = y.view(b, -1)
+    x_center = x_flat - x_flat.mean(dim=1, keepdim=True)
+    y_center = y_flat - y_flat.mean(dim=1, keepdim=True)
+    numerator = (x_center * y_center).sum(dim=1)
+    denominator = torch.sqrt((x_center.pow(2).sum(dim=1) * y_center.pow(2).sum(dim=1)) + 1e-8)
+    corr = numerator / denominator
+    return float(torch.mean(corr).item())
+
+
+def phase_rms(x: torch.Tensor, y: torch.Tensor, norm: str = "ortho") -> float:
+    phi_x = torch.angle(torch.fft.fftn(x, dim=(-2, -1), norm=norm))
+    phi_y = torch.angle(torch.fft.fftn(y, dim=(-2, -1), norm=norm))
+    dphi = torch.atan2(torch.sin(phi_y - phi_x), torch.cos(phi_y - phi_x))
+    return float(dphi.std().item())
+
+
+def _centered_rms(tensor: torch.Tensor) -> float:
     centered = tensor - tensor.mean()
-    return torch.sqrt(torch.mean(centered ** 2)).item()
+    return float(centered.pow(2).mean().sqrt().item())
 
-def _summarise_snr_spikes(
-    snr_vals,
-    sqrt_alpha_t=None,
-    sqrt_one_minus_t=None,
-    timesteps=None,
-    clean=None,
-    noisy=None,
-    noise=None,
-    target=None,
-    prediction=None,
-):
-    """Summarise SNR tensor spikes and optionally log top spikes and correlation context."""
-    snr_vals = snr_vals.detach()
-    summary = {
-        "mean_snr": float(snr_vals.mean().item()),
-        "std_snr": float(snr_vals.std().item()),
-        "max_snr": float(snr_vals.max().item()),
-        "count": int(snr_vals.numel()),
+
+def summarise_snr_spikes(
+    *,
+    snr_vals: torch.Tensor,
+    sqrt_alpha_t: torch.Tensor,
+    sqrt_one_minus_t: torch.Tensor,
+    timesteps: torch.Tensor,
+    clean: torch.Tensor,
+    noisy: torch.Tensor,
+    noise: torch.Tensor,
+    target: torch.Tensor,
+    prediction: torch.Tensor,
+    threshold: float,
+    top_k: int,
+) -> Optional[Dict[str, Any]]:
+    if snr_vals.numel() == 0:
+        return None
+
+    snr_flat = snr_vals.view(-1)
+    mask = snr_flat > threshold
+    if not torch.any(mask):
+        return None
+
+    candidate_indices = torch.nonzero(mask, as_tuple=False).view(-1)
+    candidate_snr = snr_flat[candidate_indices]
+    order = torch.argsort(candidate_snr, descending=True)
+    selected = candidate_indices[order][: top_k if top_k > 0 else None]
+
+    sqrt_alpha_flat = sqrt_alpha_t.view(-1)
+    sqrt_one_minus_flat = sqrt_one_minus_t.view(-1)
+    timesteps_flat = timesteps.view(-1)
+
+    entries: List[Dict[str, Any]] = []
+    for idx in selected.tolist():
+        sqrt_alpha = sqrt_alpha_flat[idx]
+        sqrt_one_minus = sqrt_one_minus_flat[idx]
+        alpha = sqrt_alpha.pow(2)
+        one_minus_alpha = sqrt_one_minus.pow(2)
+
+        signal_rms = _centered_rms(clean.view(-1, *clean.shape[1:])[idx])
+        noisy_rms = _centered_rms(noisy.view(-1, *noisy.shape[1:])[idx])
+        noise_sample = noise.view(-1, *noise.shape[1:])[idx]
+        noise_rms = float(noise_sample.detach().pow(2).mean().sqrt().item())
+        noise_mean = float(noise_sample.detach().mean().item())
+        target_std = float(target.view(-1, *target.shape[1:])[idx].detach().std().item())
+        prediction_std = float(
+            prediction.view(-1, *prediction.shape[1:])[idx].detach().std().item()
+        )
+
+        entries.append(
+            {
+                "sample_index": int(idx),
+                "timestep": int(timesteps_flat[idx].item()),
+                "snr": float(snr_flat[idx].item()),
+                "sqrt_alpha": float(sqrt_alpha.item()),
+                "sqrt_one_minus_alpha": float(sqrt_one_minus.item()),
+                "alpha": float(alpha.item()),
+                "one_minus_alpha": float(one_minus_alpha.item()),
+                "signal_rms": signal_rms,
+                "noisy_rms": noisy_rms,
+                "noise_rms": noise_rms,
+                "noise_mean": noise_mean,
+                "target_std": target_std,
+                "prediction_std": prediction_std,
+            }
+        )
+
+    return {
+        "threshold": float(threshold),
+        "count": int(candidate_indices.numel()),
+        "max_snr": float(candidate_snr.max().item()),
+        "top_timesteps": [entry["timestep"] for entry in entries],
+        "entries": entries,
     }
 
-    # Optional: compute top spikes
-    topk = torch.topk(snr_vals.flatten(), k=min(3, snr_vals.numel()))
-    summary["top_timesteps"] = (
-        timesteps[topk.indices].tolist() if timesteps is not None else []
+
+def log_snr_spike(summary: Dict[str, Any]) -> None:
+    header = (
+        "[SNRSpike] count={count} threshold={threshold:.1f} max_snr={max_snr:.2f}".format(
+            count=summary["count"],
+            threshold=summary["threshold"],
+            max_snr=summary["max_snr"],
+        )
     )
-    summary["max_snr"] = float(topk.values.max().item())
+    print(header)
+    for entry in summary["entries"]:
+        print(
+            "[SNRSpike] sample={sample_index} t={timestep} "
+            "snr={snr:.2f} sqrt_alpha={sqrt_alpha:.6f} "
+            "sqrt_one_minus_alpha={sqrt_one_minus_alpha:.6f} "
+            "one_minus_alpha={one_minus_alpha:.8f} signal_rms={signal_rms:.6f} "
+            "noisy_rms={noisy_rms:.6f} noise_rms={noise_rms:.6f} noise_mean={noise_mean:+.6f} "
+            "target_std={target_std:.6f} prediction_std={prediction_std:.6f}".format(
+                **entry
+            )
+        )
 
-    return summary
 
-def _log_snr_spike(step, snr_stats):
-    """Pretty-print SNR summary for diagnostics."""
-    # Handle both legacy and new key names
-    mean_val = snr_stats.get("mean", snr_stats.get("mean_snr", float("nan")))
-    std_val = snr_stats.get("std", snr_stats.get("std_snr", float("nan")))
-    max_val = snr_stats.get("max", snr_stats.get("max_snr", float("nan")))
-    count_val = snr_stats.get("count", "?")
-    top_ts = snr_stats.get("top_timesteps", [])
-
-    msg = (
-        f"[SNR] step={step:04d} mean={mean_val:.4f} "
-        f"std={std_val:.4f} max={max_val:.4f} count={count_val}"
+def save_tensor_preview(tensor: torch.Tensor, path: Path, name: str) -> None:
+    tensor = tensor.detach().cpu()
+    print(
+        f"[{name}] mean={tensor.mean():.3f}, std={tensor.std():.3f}, "
+        f"min={tensor.min():.3f}, max={tensor.max():.3f}"
     )
-    if top_ts:
-        msg += f" top_timesteps={top_ts}"
-    print(msg)
+    span = tensor.max() - tensor.min()
+    scaled = (tensor - tensor.min()) / (span + 1e-8)
+    save_image(scaled, path)
