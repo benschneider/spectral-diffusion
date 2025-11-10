@@ -73,19 +73,6 @@ def run_step_recorder(
     snr_dec: float = 0.2,
     snr_kappa_thresh: float = 2.5e-1,
     snr_alpha_fac_high: float = 1.12,
-    python scripts/debug/record_training_steps.py \
-  --config configs/test_synthetic_spectral.yaml \
-  --steps 2000 \
-  --output-dir scratch/synth_adapt_v2 \
-  --log-interval 200 \
-  --snr-ratio 0.5 \
-  --adaptive-snr \
-  --snr-min 0.6 --snr-max 2.4 \
-  --snr-inc 0.1 --snr-dec 0.2 \
-  --snr-kappa-thresh 0.25 \
-  --snr-alpha-fac-high 1.12 \
-  --snr-overflow-high 0.05
-  
     verbose_logs: bool = False,
 ) -> Path:
     RECORDER_VERSION = "v2.0"
