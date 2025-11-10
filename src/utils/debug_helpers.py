@@ -33,12 +33,25 @@ def fft_band_means(tensor: torch.Tensor) -> Dict[str, float]:
     yy = fy[:, None]
     xx = fx[None, :]
     radius = torch.sqrt(xx**2 + yy**2)
-    mask_high = radius >= 0.25
-    if torch.any(mask_high):
-        mean_high = float(magnitude[..., mask_high].mean().cpu())
-    else:
-        mean_high = float("nan")
-    return {"fft_mean": mean_total, "fft_high": mean_high}
+
+    low_mask = radius < 0.12
+    mid_mask = (radius >= 0.12) & (radius < 0.28)
+    high_mask = radius >= 0.28
+
+    def _masked_mean(mask: torch.Tensor) -> float:
+        if not torch.any(mask):
+            return float("nan")
+        values = magnitude[..., mask]
+        if values.numel() == 0:
+            return float("nan")
+        return float(values.mean().cpu())
+
+    return {
+        "fft_mean": mean_total,
+        "fft_low": _masked_mean(low_mask),
+        "fft_mid": _masked_mean(mid_mask),
+        "fft_high": _masked_mean(high_mask),
+    }
 
 
 def grad_norm(model: torch.nn.Module) -> float:

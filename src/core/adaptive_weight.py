@@ -122,7 +122,9 @@ class AdaptiveSNRWeight:
         snr: torch.Tensor,
         raw_loss: torch.Tensor,
         alpha_t: torch.Tensor,
-    ) -> Tuple[torch.Tensor, float, float, float]:
+        *,
+        kappa_scale: float = 1.0,
+    ) -> Tuple[torch.Tensor, float, float, float, float]:
         snr_detached = snr.detach().to(dtype=torch.float32)
         loss_detached = raw_loss.detach().to(dtype=torch.float32)
         alpha_detached = alpha_t.detach().to(dtype=torch.float32)
@@ -166,6 +168,8 @@ class AdaptiveSNRWeight:
             min=self.kappa_floor,
         )
         kappa_per_example = kappa_per_example + 0.05 * soft_weight + delta_eff
+        if kappa_scale != 1.0:
+            kappa_per_example = kappa_per_example * float(kappa_scale)
 
         expanded_soft = _expand_to(soft_weight, loss_detached).to(raw_loss.dtype)
         kappa_expanded = _expand_to(kappa_per_example, expanded_soft).to(raw_loss.dtype)
@@ -220,8 +224,14 @@ class AdaptiveSNRWeight:
         elif overflow_tensor is not None:
             ratio_mask = _expand_to(overflow_tensor, snr_in)
 
+        next_step = self._step + 1
+
+        kappa_scale = 1.0
+        if next_step % 200 == 0:
+            kappa_scale = 1.2
+
         weight, kappa_value, ema_value, alpha_fac, delta_eff = self._compute_weight_core(
-            snr_in, raw_loss, alpha_t
+            snr_in, raw_loss, alpha_t, kappa_scale=kappa_scale
         )
 
         combined_ratio = 0.0
@@ -244,6 +254,11 @@ class AdaptiveSNRWeight:
             + (1.0 - self.overflow_decay) * combined_ratio
         )
 
+        micro_reset = False
+        if next_step % 200 == 0:
+            self._overflow_ema *= 0.5
+            micro_reset = True
+
         mean_weight = float(weight.detach().mean().item())
         max_weight = float(weight.detach().max().item())
 
@@ -261,6 +276,8 @@ class AdaptiveSNRWeight:
             "delta": delta_eff,
             "clip_overflow": clip_ratio,
         }
+        if micro_reset:
+            diag["micro_reset"] = 1.0
         if diag_extra:
             for key, value in diag_extra.items():
                 if key not in diag:

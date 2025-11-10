@@ -11,10 +11,11 @@ from torch import Tensor, nn
 from src.core.diffusion_step import describe_regime, select_regime
 from src.core.functional import compute_snr_weight, compute_target
 from src.core.numeric import safe_clamp
-from src.core.fft_feedback import compute_fft_feedback, fft_high_mean
+from src.core.fft_feedback import compute_fft_feedback
 from src.core.overflow_handler import OverflowHandler
 from src.core.snr_scheduler import compute_snr_stats, measure_batch_snr
 from src.training.noise import NoiseBatch
+from src.utils.debug_helpers import fft_band_means
 
 
 ALPHA_MIN = 0.01
@@ -144,6 +145,9 @@ class TrainingStepExecutor:
             else:
                 loss = loss_result
 
+        if torch.isnan(loss.detach()).any():
+            raise AssertionError("NaN loss detected")
+
         if loss_diag and "mae" in loss_diag:
             mae = torch.tensor(loss_diag["mae"], device=loss.device)
         else:
@@ -221,12 +225,30 @@ class TrainingStepExecutor:
         else:
             std_ratio = float("inf")
 
-        fft_high = fft_high_mean(prediction.detach())
+        band_means = fft_band_means(prediction.detach())
+        fft_low = band_means.get("fft_low", float("nan"))
+        fft_mid = band_means.get("fft_mid", float("nan"))
+        fft_high = band_means.get("fft_high", float("nan"))
+        if not math.isnan(fft_low) and not math.isnan(fft_high):
+            low_tensor = torch.tensor(fft_low, device=loss.device, dtype=loss.dtype)
+            high_tensor = torch.tensor(fft_high, device=loss.device, dtype=loss.dtype)
+            spectral_pressure = ((high_tensor / (low_tensor + 1e-6)) - 1.0).abs()
+            loss = loss + 0.05 * spectral_pressure
+            fft_feedback["spectral_pressure"] = float(spectral_pressure.detach().cpu())
+        else:
+            spectral_pressure = torch.tensor(0.0, device=loss.device, dtype=loss.dtype)
+        fft_feedback.setdefault(
+            "spectral_pressure", float(spectral_pressure.detach().cpu())
+        )
         if not math.isnan(fft_high) and fft_high > SPECTRAL_WARN_THRESHOLD:
             print(
                 "[WARN] Spectral blowup suspected: "
                 f"fft_high_mean={fft_high:.3f}"
             )
+
+        fft_ratio = float("nan")
+        if not math.isnan(fft_low) and fft_low > 0.0 and not math.isnan(fft_high):
+            fft_ratio = float(fft_high / (fft_low + 1e-6))
 
         batch_stats = {
             "prediction_mean": prediction_mean,
@@ -241,7 +263,11 @@ class TrainingStepExecutor:
             "residual_mse": float(residual.detach().pow(2).mean().item()),
             "input_std": input_std,
             "prediction_std_ratio": std_ratio,
+            "prediction_fft_low": fft_low,
+            "prediction_fft_mid": fft_mid,
             "prediction_fft_high": fft_high,
+            "prediction_fft_ratio": fft_ratio,
+            "spectral_pressure": float(spectral_pressure.detach().cpu()),
         }
 
         self.optimizer.zero_grad(set_to_none=True)

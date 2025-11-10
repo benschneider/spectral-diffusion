@@ -9,6 +9,11 @@ import torch
 
 from src.analysis.learning_efficiency import compute_efficiency
 from src.analysis.trend_filters import EWMA
+from .adaptive_regulator import (
+    AdaptiveRegulatorMetrics,
+    blend_overflow_ema,
+    compute_alpha_fac,
+)
 
 
 @dataclass
@@ -51,6 +56,8 @@ class AdaptiveSNRController:
         self._loss_filter = EWMA(beta=loss_beta)
         self._efficiency_filter = EWMA(beta=efficiency_beta)
         self._last_metrics: Dict[str, float] = {}
+        self._overflow_ema: float = 0.0
+        self._metrics = AdaptiveRegulatorMetrics()
 
     @property
     def ratio(self) -> float:
@@ -106,6 +113,8 @@ class AdaptiveSNRController:
         fft_feedback: Dict[str, float],
         adaptive_diag: Optional[Dict[str, float]],
         snr_vals: torch.Tensor,
+        *,
+        std_ratio: Optional[float] = None,
     ) -> Tuple[float, Optional[str]]:
         """Return the next SNR ratio and an optional log message."""
 
@@ -123,8 +132,32 @@ class AdaptiveSNRController:
         snr_mean, snr_max, overflow_ratio = self._compute_overflow(snr_vals)
         headroom = float(self.max_snr - snr_max)
 
+        diag_kappa = adaptive_diag.get("kappa") if adaptive_diag else None
+        diag_ema = adaptive_diag.get("ema") if adaptive_diag else None
+        diag_overflow = adaptive_diag.get("overflow") if adaptive_diag else None
+        diag_overflow_ema = adaptive_diag.get("overflow_ema") if adaptive_diag else None
+
+        alpha_fac = compute_alpha_fac(diag_kappa, diag_ema)
+
+        self._overflow_ema = blend_overflow_ema(
+            self._overflow_ema,
+            overflow_ratio,
+            diag_overflow,
+            diag_overflow_ema,
+        )
+
+        if self._state.step % 200 == 0 and self._state.step > 0:
+            self._overflow_ema *= 0.5
+
         prev_ratio = self._state.ratio
-        ratio = prev_ratio
+        snr_target = prev_ratio * (1.0 + 0.3 * (self._overflow_ema - 0.02))
+        if std_ratio is not None and std_ratio < 0.8:
+            snr_target *= 1.1
+        snr_target = self._clamp_ratio(snr_target)
+        if not snr_target > 0.0:
+            raise AssertionError("Invalid SNR target")
+
+        ratio = snr_target
         reasons: list[str] = []
 
         if self._should_decay(adaptive_diag, overflow_ratio):
@@ -137,6 +170,15 @@ class AdaptiveSNRController:
         changed = ratio != prev_ratio
         self._state.ratio = ratio
 
+        self._metrics.kappa = float(diag_kappa) if diag_kappa is not None else self._metrics.kappa
+        self._metrics.ema = float(diag_ema) if diag_ema is not None else self._metrics.ema
+        self._metrics.overflow = (
+            float(diag_overflow) if diag_overflow is not None else overflow_ratio
+        )
+        self._metrics.overflow_ema = self._overflow_ema
+        self._metrics.alpha_fac = alpha_fac
+        self._metrics.snr_target = snr_target
+
         self._last_metrics = {
             "snr_ratio": ratio,
             "snr_headroom": headroom,
@@ -147,6 +189,7 @@ class AdaptiveSNRController:
             "efficiency": efficiency_smoothed if efficiency_smoothed is not None else 0.0,
             "efficiency_slope": self._efficiency_filter.slope,
         }
+        self._last_metrics.update(self._metrics.as_dict())
 
         if changed:
             reason_str = ",".join(reasons) if reasons else "update"

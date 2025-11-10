@@ -701,6 +701,7 @@ def run_step_recorder(
                 fft_feedback=fft_feedback,
                 adaptive_diag=adaptive_diag,
                 snr_vals=snr_vals,
+                std_ratio=std_ratio,
             )
             effective_snr_ratio = new_ratio
             record.update(controller.latest_metrics)
