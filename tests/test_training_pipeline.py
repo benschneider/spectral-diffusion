@@ -130,12 +130,13 @@ def test_training_pipeline_regression_baseline(tmp_path):
     pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
     metrics = pipeline.run()
 
-    # Baseline metrics reflect the adaptive SNR refactor (v1.4) and overflow
-    # safeguards introduced in 2025. The values below were captured from a
-    # deterministic seed (1337) and serve as the regression target for the
-    # modernised pipeline.
-    expected_loss = 0.97835
-    expected_loss_drop = -0.06032
+    # Baseline metrics reflect the adaptive regulator overhaul (v2.0) that
+    # introduced dynamic SNR targets, spectral pressure regularisation, and
+    # periodic micro-resets. The values below were captured from a deterministic
+    # seed (1337) and serve as the updated regression targets for the modernised
+    # pipeline.
+    expected_loss = 1.03617
+    expected_loss_drop = -0.16823
     assert metrics["status"] == "ok"
     assert pytest.approx(metrics["loss_mean"], rel=0.05) == expected_loss
     assert pytest.approx(metrics["loss_drop"], rel=0.1) == expected_loss_drop
