@@ -421,6 +421,24 @@ def run_step_recorder(
                 )
             overflow_log_count += 1
 
+        headroom: Optional[float] = None
+        high_snr_fraction: Optional[float] = None
+        snr_mean_trend: Optional[float] = None
+        snr_max_trend: Optional[float] = None
+
+        if adaptive_snr and current_snr_ratio is not None:
+            target_ratio = float(current_snr_ratio)
+            headroom = max(target_ratio - snr_max_val, 0.0)
+            if snr_vals.numel() > 0:
+                high_snr_fraction = float((snr_vals > target_ratio).float().mean().item())
+
+            mean_delta = 0.0 if prev_snr_mean is None else snr_mean_val - prev_snr_mean
+            max_delta = 0.0 if prev_snr_max is None else snr_max_val - prev_snr_max
+            snr_mean_slope_ema = _ewma(snr_mean_slope_ema, mean_delta, snr_ema_beta)
+            snr_max_slope_ema = _ewma(snr_max_slope_ema, max_delta, snr_ema_beta)
+            snr_mean_trend = snr_mean_slope_ema
+            snr_max_trend = snr_max_slope_ema
+
         snr_spike_summary = summarise_snr_spikes(
             snr_vals=snr_vals.detach(),
             sqrt_alpha_t=sqrt_alpha_t.detach(),
@@ -459,9 +477,9 @@ def run_step_recorder(
             "timestep_min": timestep_min,
             "timestep_max": timestep_max,
             "timestep_mean": timestep_mean,
-            "snr_min": snr_min,
-            "snr_max": snr_max,
-            "snr_mean": snr_mean,
+            "snr_min": snr_min_val,
+            "snr_max": snr_max_val,
+            "snr_mean": snr_mean_val,
             "snr_raw_max": snr_raw_max,
             "snr_headroom": headroom if adaptive_snr and current_snr_ratio is not None else None,
             "snr_high_frac": high_snr_fraction if adaptive_snr and current_snr_ratio is not None else None,
@@ -520,6 +538,8 @@ def run_step_recorder(
             }
             record.update(weight_stats)
 
+        adaptive_note: Optional[str] = None
+
         if controller is not None:
             new_ratio, note = controller.update(
                 loss=loss_value,
@@ -530,17 +550,45 @@ def run_step_recorder(
             )
             effective_snr_ratio = new_ratio
             record.update(controller.latest_metrics)
+            metrics = controller.latest_metrics
+            headroom = metrics.get("snr_headroom", headroom)
+            adaptive_note = note
+            if metrics and "snr_ratio" in metrics:
+                current_snr_ratio = _clamp_snr(metrics["snr_ratio"])
+            elif effective_snr_ratio is not None:
+                current_snr_ratio = _clamp_snr(effective_snr_ratio)
             if note:
                 print(f"[AdaptiveSNR] {note}")
+
+        if adaptive_snr and current_snr_ratio is not None and high_snr_fraction is None and snr_vals.numel() > 0:
+            high_snr_fraction = float((snr_vals > float(current_snr_ratio)).float().mean().item())
+
+        if adaptive_snr:
+            record["snr_headroom"] = headroom
+            record["snr_high_frac"] = high_snr_fraction
+            record["snr_mean_trend"] = snr_mean_trend
+            record["snr_max_trend"] = snr_max_trend
+
+        prev_snr_mean = snr_mean_val
+        prev_snr_max = snr_max_val
 
         if log_snr_json:
             snr_entry = {
                 "step": step,
-                "snr_min": snr_min,
-                "snr_max": snr_max,
-                "snr_mean": snr_mean,
+                "snr_min": snr_min_val,
+                "snr_max": snr_max_val,
+                "snr_mean": snr_mean_val,
                 "snr_raw_max": snr_raw_max,
             }
+            if adaptive_snr:
+                snr_entry.update(
+                    {
+                        "snr_headroom": headroom,
+                        "snr_high_frac": high_snr_fraction,
+                        "snr_mean_trend": snr_mean_trend,
+                        "snr_max_trend": snr_max_trend,
+                    }
+                )
             if controller is not None:
                 snr_entry.update(controller.latest_metrics)
             snr_summaries.append(snr_entry)
@@ -589,8 +637,8 @@ def run_step_recorder(
                     timestep_min,
                     timestep_max,
                     timestep_mean,
-                    snr_min,
-                    snr_max,
+                    snr_min_val,
+                    snr_max_val,
                 )
             )
             _log_diag(step, "Targets",
