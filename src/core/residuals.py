@@ -31,6 +31,12 @@ class AdaptiveSNRv14:
         freeze_ratio: float = 5.0,
         log_interval: int = 200,
         change_threshold: float = 0.1,
+        delta: float = 1e-3,
+        overflow_target: float = 0.01,
+        overflow_decay: float = 0.9,
+        delta_growth: float = 1.5,
+        delta_shrink: float = 0.5,
+        delta_max: float = 1.0,
     ) -> None:
         self.beta = float(beta)
         self.ema_decay = float(ema_decay)
@@ -41,11 +47,19 @@ class AdaptiveSNRv14:
         self.freeze_ratio = float(freeze_ratio)
         self.log_interval = int(log_interval)
         self.change_threshold = float(change_threshold)
+        self._delta_base = float(delta)
+        self._delta = float(delta)
+        self.overflow_target = float(overflow_target)
+        self.overflow_decay = float(overflow_decay)
+        self.delta_growth = float(delta_growth)
+        self.delta_shrink = float(delta_shrink)
+        self.delta_max = float(delta_max)
 
         self._ema_val: Optional[torch.Tensor] = None
         self._step = 0
         self._last_log_step = 0
         self._last_logged: Dict[str, float] = {}
+        self._overflow_ema = 0.0
 
     def to(self, device: torch.device) -> None:  # pragma: no cover - helper
         if self._ema_val is not None:
@@ -58,6 +72,8 @@ class AdaptiveSNRv14:
         self._step = 0
         self._last_log_step = 0
         self._last_logged.clear()
+        self._delta = self._delta_base
+        self._overflow_ema = 0.0
 
     def _centre(self, tensor: torch.Tensor) -> torch.Tensor:
         if tensor.ndim <= 1:
@@ -89,9 +105,9 @@ class AdaptiveSNRv14:
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         """Return adaptive weights and diagnostics for the provided tensors."""
 
-        snr_detached = torch.clamp(
-            snr.detach().to(dtype=torch.float32), min=self.eps, max=self.snr_clip
-        )
+        raw_snr = snr.detach().to(dtype=torch.float32)
+        overflow_mask_raw = raw_snr > self.snr_clip
+        snr_detached = torch.clamp(raw_snr, min=self.eps, max=self.snr_clip)
         loss_detached = raw_loss.detach().to(dtype=torch.float32)
         alpha_detached = alpha_t.detach().to(dtype=torch.float32)
 
@@ -118,15 +134,34 @@ class AdaptiveSNRv14:
             )
         self._ema_val = self._ema_val.to(dtype=torch.float32)
 
-        alpha_fac = 1.0 + self.gamma_alpha * (1.0 - alpha_detached.clamp(0.0, 1.0)).mean()
-        kappa = torch.clamp(self.beta * self._ema_val * alpha_fac, min=self.kappa_floor)
+        alpha_clamped = alpha_detached.clamp(0.0, 1.0)
+        alpha_gap_linear = (1.0 - alpha_clamped).mean()
+        alpha_gap_sq = (1.0 - alpha_clamped).pow(2).mean()
+
+        base_term = self.beta * self._ema_val
+        if base_term.abs() < self.eps:
+            base_term = torch.tensor(self.kappa_floor, dtype=torch.float32, device=snr_detached.device)
+        alpha_fac = 1.0 + self.gamma_alpha * alpha_gap_linear
+
+        delta_term = self._delta * alpha_gap_sq
+        kappa = torch.clamp(base_term * alpha_fac + delta_term, min=self.kappa_floor)
 
         kappa_broadcast = _expand_like(kappa, snr_detached)
         weight = snr_detached / (snr_detached + kappa_broadcast + self.eps)
 
-        overflow_mask = snr_detached >= (self.snr_clip * 0.9)
+        overflow_mask = _expand_like(overflow_mask_raw, weight)
+        overflow_ratio = float(overflow_mask.float().mean().item())
         if overflow_mask.any():
             weight = torch.where(overflow_mask, torch.zeros_like(weight), weight)
+
+        self._overflow_ema = (
+            self.overflow_decay * self._overflow_ema
+            + (1.0 - self.overflow_decay) * overflow_ratio
+        )
+        if self._overflow_ema > self.overflow_target:
+            self._delta = min(self._delta * self.delta_growth, self.delta_max)
+        elif self._overflow_ema < self.overflow_target * 0.25:
+            self._delta = max(self._delta * self.delta_shrink, self._delta_base)
 
         weight = weight.to(dtype=raw_loss.dtype)
         self._step += 1
@@ -135,9 +170,11 @@ class AdaptiveSNRv14:
             "kappa": float(kappa.detach().item()),
             "ema": float(self._ema_val.detach().item()),
             "alpha_fac": float(alpha_fac.detach().item()),
-            "overflow": float(overflow_mask.float().mean().item()),
+            "overflow": overflow_ratio,
+            "overflow_ema": self._overflow_ema,
             "mean_weight": float(weight.detach().mean().item()),
             "max_weight": float(weight.detach().max().item()),
+            "delta": self._delta,
         }
         if diag_extra:
             diag.update(diag_extra)
@@ -146,11 +183,14 @@ class AdaptiveSNRv14:
         diag["log_event"] = log_event
         if log_event:
             self._last_log_step = self._step
-            self._last_logged = {key: diag[key] for key in ("kappa", "ema", "mean_weight")}
+            self._last_logged = {
+                key: diag[key] for key in ("kappa", "ema", "mean_weight")
+            }
             print(
                 "[AdaptiveSNRv14] step="
                 f"{self._step:04d} κ={diag['kappa']:.3e} ema={diag['ema']:.3e} "
-                f"α_fac={diag['alpha_fac']:.2f} overflow={diag['overflow']:.3f}"
+                f"α_fac={diag['alpha_fac']:.2f} overflow={diag['overflow']:.3f} "
+                f"overflow_ema={diag['overflow_ema']:.3f} δ={diag['delta']:.3e}"
             )
 
         return weight, diag
@@ -201,9 +241,11 @@ def weighted_residual_loss(
             "ema": 0.0,
             "alpha_fac": 1.0,
             "overflow": 0.0,
+            "overflow_ema": 0.0,
             "adaptive": 0.0,
             "log_event": False,
             "frozen": False,
+            "delta": 0.0,
         }
         return loss_val, diag
 
@@ -222,9 +264,11 @@ def weighted_residual_loss(
                 "ema": ema_val,
                 "alpha_fac": 1.0,
                 "overflow": 0.0,
+                "overflow_ema": 0.0,
                 "adaptive": 1.0,
                 "log_event": False,
                 "frozen": True,
+                "delta": getattr(adaptive, "_delta", 0.0),
             }
             return loss_val, diag
 
@@ -244,9 +288,11 @@ def weighted_residual_loss(
             "ema": 0.0,
             "alpha_fac": 1.0,
             "overflow": 0.0,
+            "overflow_ema": 0.0,
             "adaptive": 0.0,
             "log_event": False,
             "frozen": False,
+            "delta": 0.0,
         }
 
     weighted = weight * raw_loss

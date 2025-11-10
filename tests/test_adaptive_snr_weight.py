@@ -13,6 +13,7 @@ def test_adaptive_snr_weight_maintains_fp32_state_and_floor():
         log_interval=0,
         change_threshold=0.0,
         snr_clip=100.0,
+        delta=1e-3,
     )
 
     snr = torch.full((2,), 10.0, dtype=torch.float16)
@@ -27,6 +28,30 @@ def test_adaptive_snr_weight_maintains_fp32_state_and_floor():
     assert 0.0 < diag["mean_weight"] < 1.0
     assert 0.0 <= diag["overflow"] <= 1.0
     assert "alpha_fac" in diag
+    assert "overflow_ema" in diag
+    assert diag["delta"] >= 1e-3
+
+
+def test_adaptive_snr_weight_handles_overflow_and_delta_growth():
+    adaptive = AdaptiveSNRWeight(
+        snr_clip=100.0,
+        log_interval=0,
+        change_threshold=0.0,
+        delta=1e-3,
+        overflow_target=0.05,
+        delta_growth=2.0,
+    )
+
+    snr = torch.tensor([150.0, 10.0])
+    raw_loss = torch.ones((2, 1, 2, 2))
+    alpha = torch.tensor([0.99, 0.5])
+
+    _, diag = adaptive.update(snr, raw_loss, alpha)
+
+    assert diag["overflow"] > 0.0
+    assert diag["mean_weight"] < 1.0
+    assert diag["delta"] >= adaptive._delta_base  # pylint: disable=protected-access
+    assert diag["overflow_ema"] > 0.0
 
 
 def test_adaptive_snr_weight_logs_periodically():

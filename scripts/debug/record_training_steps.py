@@ -508,6 +508,8 @@ def run_step_recorder(
                     f"ema={adaptive_diag.get('ema', 0.0):.4e}, "
                     f"alpha_fac={adaptive_diag.get('alpha_fac', 1.0):.2f}, "
                     f"overflow={adaptive_diag.get('overflow', 0.0):.3f}, "
+                    f"overflow_ema={adaptive_diag.get('overflow_ema', 0.0):.3f}, "
+                    f"delta={adaptive_diag.get('delta', 0.0):.3e}, "
                     f"w_mean={adaptive_diag.get('mean_weight', 1.0):.3f}, "
                     f"w_max={adaptive_diag.get('max_weight', 1.0):.3f}"
                     + (" frozen" if adaptive_diag.get("frozen") else "")
@@ -725,12 +727,15 @@ def run_step_recorder(
                 else:
                     print(
                         "[AdaptiveSNRWeight] mean={:.6f} max={:.6f} kappa={:.4e} "
-                        "alpha_fac={:.2f} overflow={:.3f}{}".format(
+                        "alpha_fac={:.2f} overflow={:.3f} overflow_ema={:.3f} "
+                        "delta={:.3e}{}".format(
                             weight_stats.get("mean_weight", 1.0),
                             weight_stats.get("max_weight", 1.0),
                             weight_stats.get("kappa", 0.0),
                             weight_stats.get("alpha_fac", 1.0),
                             weight_stats.get("overflow", 0.0),
+                            weight_stats.get("overflow_ema", 0.0),
+                            weight_stats.get("delta", 0.0),
                             " frozen" if weight_stats.get("frozen") else "",
                         )
                     )
