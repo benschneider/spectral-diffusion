@@ -34,6 +34,17 @@ from src.training.builders import build_dataloader, build_optimizer
 from src.training.scheduler import build_diffusion, sample_timesteps
 from src.core.fft_feedback import compute_fft_feedback
 from src.utils.sanity_checks import check_fft_sanity
+from src.utils.debug_helpers import (
+    _fft_band_means,
+    _grad_norm,
+    _parameter_delta,
+    _structure_correlation,
+    _phase_rms,
+    _predict_x0,
+    _centered_rms,
+    _summarise_snr_spikes,
+    _log_snr_spike,
+)
 
 
 SNR_SPIKE_THRESHOLD = 1_000.0
@@ -51,205 +62,6 @@ def _cycle(loader: Iterable) -> Iterator:
             yield batch
 
 
-def _fft_band_means(tensor: torch.Tensor) -> Dict[str, float]:
-    """Return overall FFT magnitude and a simple high-frequency average."""
-    if tensor.is_complex():
-        spatial = tensor
-    else:
-        spatial = torch.complex(tensor, torch.zeros_like(tensor))
-    fft = torch.fft.fftshift(torch.fft.fft2(spatial, norm="ortho"), dim=(-2, -1))
-    magnitude = fft.abs()
-    mean_total = float(magnitude.mean().cpu())
-
-    height, width = magnitude.shape[-2:]
-    fy = torch.fft.fftfreq(height, d=1.0 / float(height)).to(magnitude.device)
-    fx = torch.fft.fftfreq(width, d=1.0 / float(width)).to(magnitude.device)
-    yy = fy[:, None]
-    xx = fx[None, :]
-    radius = torch.sqrt(xx**2 + yy**2)
-    mask_high = radius >= 0.25  # arbitrary cutoff: upper 75% of frequencies
-    if torch.any(mask_high):
-        mean_high = float(magnitude[..., mask_high].mean().cpu())
-    else:
-        mean_high = float("nan")
-    return {"fft_mean": mean_total, "fft_high": mean_high}
-
-
-def _grad_norm(model: torch.nn.Module) -> float:
-    total = 0.0
-    for param in model.parameters():
-        if param.grad is None:
-            continue
-        total += float(param.grad.detach().float().pow(2).sum().cpu())
-    return math.sqrt(total) if total > 0 else 0.0
-
-
-def _parameter_delta(model: torch.nn.Module, previous: Dict[str, torch.Tensor]) -> float:
-    total = 0.0
-    state = model.state_dict()
-    for name, tensor in state.items():
-        tensor_cpu = tensor.detach().cpu()
-        prev = previous.get(name)
-        if prev is None:
-            delta = tensor_cpu.float().pow(2).sum().item()
-        else:
-            delta = (tensor_cpu.float() - prev.float()).pow(2).sum().item()
-        total += delta
-        previous[name] = tensor_cpu
-    return math.sqrt(total)
-
-
-def _structure_correlation(x: torch.Tensor, y: torch.Tensor) -> float:
-    """Mean Pearson correlation between two batched tensors."""
-    b = x.shape[0]
-    x_flat = x.view(b, -1)
-    y_flat = y.view(b, -1)
-    x_center = x_flat - x_flat.mean(dim=1, keepdim=True)
-    y_center = y_flat - y_flat.mean(dim=1, keepdim=True)
-    numerator = (x_center * y_center).sum(dim=1)
-    denominator = torch.sqrt((x_center.pow(2).sum(dim=1) * y_center.pow(2).sum(dim=1)) + 1e-8)
-    corr = numerator / denominator
-    return float(torch.mean(corr).item())
-
-
-def _phase_rms(x: torch.Tensor, y: torch.Tensor, norm: str = "ortho") -> float:
-    phi_x = torch.angle(torch.fft.fftn(x, dim=(-2, -1), norm=norm))
-    phi_y = torch.angle(torch.fft.fftn(y, dim=(-2, -1), norm=norm))
-    dphi = torch.atan2(
-        torch.sin(phi_y - phi_x),
-        torch.cos(phi_y - phi_x),
-    )
-    return float(dphi.std().item())
-
-
-def _predict_x0(
-    prediction: torch.Tensor,
-    prediction_type: str,
-    x_t: torch.Tensor,
-    sqrt_alpha_t: torch.Tensor,
-    sqrt_one_minus_alpha_t: torch.Tensor,
-) -> torch.Tensor:
-    """Return the model's implied reconstruction of ``x0`` for visualisation."""
-
-    if prediction_type == "eps":
-        return (x_t - sqrt_one_minus_alpha_t * prediction) / (sqrt_alpha_t + 1e-8)
-    if prediction_type == "x0":
-        return prediction
-    if prediction_type == "v":
-        return sqrt_alpha_t * x_t - sqrt_one_minus_alpha_t * prediction
-    raise ValueError(f"Unsupported prediction_type '{prediction_type}'")
-
-
-def _centered_rms(tensor: torch.Tensor) -> float:
-    centered = tensor - tensor.mean()
-    return float(centered.pow(2).mean().sqrt().item())
-
-
-def _summarise_snr_spikes(
-    *,
-    snr_vals: torch.Tensor,
-    sqrt_alpha_t: torch.Tensor,
-    sqrt_one_minus_t: torch.Tensor,
-    timesteps: torch.Tensor,
-    clean: torch.Tensor,
-    noisy: torch.Tensor,
-    noise: torch.Tensor,
-    target: torch.Tensor,
-    prediction: torch.Tensor,
-    threshold: float = SNR_SPIKE_THRESHOLD,
-    top_k: int = SNR_SPIKE_TOP_K,
-) -> Optional[Dict[str, Any]]:
-    """Return summary statistics when SNR ratios exceed ``threshold``."""
-
-    if snr_vals.numel() == 0:
-        return None
-
-    snr_flat = snr_vals.view(-1)
-    mask = snr_flat > threshold
-    if not torch.any(mask):
-        return None
-
-    candidate_indices = torch.nonzero(mask, as_tuple=False).view(-1)
-    candidate_snr = snr_flat[candidate_indices]
-    order = torch.argsort(candidate_snr, descending=True)
-    selected = candidate_indices[order][: top_k if top_k > 0 else None]
-
-    sqrt_alpha_flat = sqrt_alpha_t.view(-1)
-    sqrt_one_minus_flat = sqrt_one_minus_t.view(-1)
-    timesteps_flat = timesteps.view(-1)
-
-    def _gather(batch: torch.Tensor, index: int) -> torch.Tensor:
-        if batch.numel() == 0:
-            return batch
-        return batch[index]
-
-    entries: List[Dict[str, Any]] = []
-    for idx in selected.tolist():
-        sqrt_alpha = sqrt_alpha_flat[idx]
-        sqrt_one_minus = sqrt_one_minus_flat[idx]
-        alpha = sqrt_alpha.pow(2)
-        one_minus_alpha = sqrt_one_minus.pow(2)
-
-        clean_sample = _gather(clean, idx)
-        noisy_sample = _gather(noisy, idx)
-        noise_sample = _gather(noise, idx)
-        target_sample = _gather(target, idx)
-        prediction_sample = _gather(prediction, idx)
-
-        signal_rms = _centered_rms(clean_sample)
-        noisy_rms = _centered_rms(noisy_sample)
-        noise_rms = float(noise_sample.detach().pow(2).mean().sqrt().item())
-        noise_mean = float(noise_sample.detach().mean().item())
-        target_std = float(target_sample.detach().std().item())
-        prediction_std = float(prediction_sample.detach().std().item())
-
-        entries.append(
-            {
-                "sample_index": int(idx),
-                "timestep": int(timesteps_flat[idx].item()),
-                "snr": float(snr_flat[idx].item()),
-                "sqrt_alpha": float(sqrt_alpha.item()),
-                "sqrt_one_minus_alpha": float(sqrt_one_minus.item()),
-                "alpha": float(alpha.item()),
-                "one_minus_alpha": float(one_minus_alpha.item()),
-                "signal_rms": signal_rms,
-                "noisy_rms": noisy_rms,
-                "noise_rms": noise_rms,
-                "noise_mean": noise_mean,
-                "target_std": target_std,
-                "prediction_std": prediction_std,
-            }
-        )
-
-    return {
-        "threshold": float(threshold),
-        "count": int(candidate_indices.numel()),
-        "max_snr": float(candidate_snr.max().item()),
-        "top_timesteps": [entry["timestep"] for entry in entries],
-        "entries": entries,
-    }
-
-
-def _log_snr_spike(summary: Dict[str, Any]) -> None:
-    header = (
-        "[SNRSpike] count={count} threshold={threshold:.1f} max_snr={max_snr:.2f}".format(
-            count=summary["count"],
-            threshold=summary["threshold"],
-            max_snr=summary["max_snr"],
-        )
-    )
-    print(header)
-    for entry in summary["entries"]:
-        print(
-            "[SNRSpike] sample={sample_index} t={timestep} "
-            "snr={snr:.2f} sqrt_alpha={sqrt_alpha:.6f} "
-            "sqrt_one_minus_alpha={sqrt_one_minus_alpha:.6f} "
-            "one_minus_alpha={one_minus_alpha:.8f} signal_rms={signal_rms:.6f} "
-            "noisy_rms={noisy_rms:.6f} noise_rms={noise_rms:.6f} noise_mean={noise_mean:+.6f} "
-            "target_std={target_std:.6f} prediction_std={prediction_std:.6f}".format(
-                **entry
-            )
-        )
 
 
 def run_step_recorder(
@@ -263,6 +75,16 @@ def run_step_recorder(
     snr_ratio: Optional[float] = None,
     dc_scale_factor: Optional[float] = None,
     loader: Optional[DataLoader] = None,
+    adaptive_snr: bool = False,
+    snr_min: float = 0.5,
+    snr_max: float = 2.5,
+    snr_inc: float = 0.1,
+    snr_dec: float = 0.2,
+    snr_kappa_thresh: float = 2.5e-1,
+    snr_alpha_fac_high: float = 1.12,
+    snr_overflow_high: float = 0.05,
+    verbose_logs: bool = False,
+    log_snr_json: bool = False,
 ) -> Path:
     RECORDER_VERSION = "v1.1"
     config = load_config(config_path=config_path)
@@ -392,6 +214,45 @@ def run_step_recorder(
     step_records: List[Dict[str, Any]] = []
     previous_state: Dict[str, torch.Tensor] = {}
 
+    # Adaptive SNR controller state
+    current_snr_ratio = effective_snr_ratio
+
+    def _clamp_snr(val: Optional[float]) -> Optional[float]:
+        if val is None:
+            return None
+        return max(snr_min, min(snr_max, float(val)))
+
+    if current_snr_ratio is not None:
+        current_snr_ratio = _clamp_snr(current_snr_ratio)
+
+    # --- Adaptive SNR trend state ---
+    prev_snr_mean: Optional[float] = None
+    prev_snr_max: Optional[float] = None
+
+    # --- Regulator persistent state & helpers ---
+    snr_ema_beta = 0.6  # EWMA smoothing for SNR trends
+    snr_max_slope_ema: Optional[float] = None
+    snr_mean_slope_ema: Optional[float] = None
+    inc_armed = False     # hysteresis arm for increases
+    dec_armed = False     # hysteresis arm for decreases
+    cooldown_steps = 2    # require N quiet steps between changes
+    last_change_step = -10
+
+    # returns updated_ema
+    def _ewma(prev: Optional[float], value: float, beta: float) -> float:
+        return value if prev is None else (beta * value + (1.0 - beta) * prev)
+
+    # Buffer for diagnostic log lines (if not verbose)
+    log_buffer = []
+
+    def _log_diag(step, tag, message):
+        if tag == "SNR" and log_snr_json:
+            log_buffer.append({"step": step, "tag": tag, "message": message})
+        elif verbose_logs:
+            print(message)
+        else:
+            log_buffer.append({"step": step, "tag": tag, "message": message})
+
     for step in range(steps):
         xb, _ = next(data_iter)
         xb = xb.to(device_obj)
@@ -421,7 +282,7 @@ def run_step_recorder(
             adaptive_rescale=adaptive_rescale,
             stats=noise_stats,
             fft_norm=fft_norm,
-            snr_ratio=effective_snr_ratio,
+            snr_ratio=current_snr_ratio,
             dc_scale_factor=effective_dc_scale,
             return_noise=True,
         )
@@ -435,30 +296,21 @@ def run_step_recorder(
             std_ok = noisy_std > 0
             ratio_str = f"{effective_snr_ratio:g}"
             if mean_ok and std_ok:
-                print(f"[Noise] mode={corruption_mode}, snr_ratio={ratio_str}, mean/std check OK")
+                _log_diag(step, "Noise", f"[Noise] mode={corruption_mode}, snr_ratio={ratio_str}, mean/std check OK")
             else:
-                print(
-                    f"[Noise] mode={corruption_mode}, snr_ratio={ratio_str}, "
-                    f"mean={noisy_mean:.3f} std={noisy_std:.3f} mean_shift={dc_shift:+.4f}"
-                )
+                _log_diag(step, "Noise", f"[Noise] mode={corruption_mode}, snr_ratio={ratio_str}, mean={noisy_mean:.3f} std={noisy_std:.3f} mean_shift={dc_shift:+.4f}")
             channel_mean = xb.mean(dim=(2, 3), keepdim=True)
             signal_rms = (xb - channel_mean).pow(2).mean().sqrt().item()
             noise_rms = noise_term.pow(2).mean().sqrt().item()
             measured_snr = signal_rms / max(noise_rms, 1e-8)
-            print(
-                f"[FFTNoiseCheck] snr_target={effective_snr_ratio:.3f}, "
-                f"measured={measured_snr:.3f}, signal_rms={signal_rms:.3f}, "
-                f"noise_rms={noise_rms:.3f}"
-            )
-            print(f"[FFTNoiseCheck] mean_shift={dc_shift:+.4f}")
+            _log_diag(step, "FFTNoiseCheck", f"[FFTNoiseCheck] snr_target={effective_snr_ratio:.3f}, measured={measured_snr:.3f}, signal_rms={signal_rms:.3f}, noise_rms={noise_rms:.3f}")
+            _log_diag(step, "FFTNoiseCheck", f"[FFTNoiseCheck] mean_shift={dc_shift:+.4f}")
             channel_noise_mean = noise_term.mean(dim=(0, 2, 3)).cpu().tolist()
             channel_noise_std = noise_term.std(dim=(0, 2, 3), unbiased=False).cpu().tolist()
-            print(
-                "[FFTNoiseCheck] channel_noise_mean="
+            _log_diag(step, "FFTNoiseCheck", "[FFTNoiseCheck] channel_noise_mean="
                 f"{[round(v, 4) for v in channel_noise_mean]} "
                 "channel_noise_std="
-                f"{[round(v, 4) for v in channel_noise_std]}"
-            )
+                f"{[round(v, 4) for v in channel_noise_std]}")
 
         pred = model(x_t, t)
         target = compute_target(
@@ -470,15 +322,21 @@ def run_step_recorder(
             sqrt_one_minus_t,
         )
 
-        try:
+        # Reconstruct x0 from the model prediction depending on parameterization
+        if prediction_type == "eps":
             denoised = _predict_x0(
-                pred,
-                prediction_type,
                 x_t,
+                pred,  # model predicts noise (epsilon)
                 sqrt_alpha_t,
                 sqrt_one_minus_t,
             )
-        except ValueError:
+        elif prediction_type == "x0":
+            denoised = pred  # model already predicts x0
+        elif prediction_type == "v":
+            # velocity parameterization: x0 = sqrt_alpha * x_t - sqrt(1-alpha) * v  (consistent with common defs)
+            # Here we invert v = sqrt_alpha * eps - sqrt(1-alpha) * x0 => x0 = (sqrt_alpha * x_t - sqrt(1-alpha) * v)
+            denoised = x_t * sqrt_alpha_t - pred * sqrt_one_minus_t
+        else:
             denoised = None
 
         residual = pred - target
@@ -498,6 +356,8 @@ def run_step_recorder(
             else:
                 loss = loss_result
         mae = F.l1_loss(pred.detach(), target.detach())
+
+        # Adaptive SNR controller block moved after SNR and std statistics
         fft_feedback = compute_fft_feedback(pred, target, fft_norm=fft_norm)
         loss_value = float(loss.detach().cpu())
         mae_value = float(mae.detach().cpu())
@@ -509,7 +369,7 @@ def run_step_recorder(
                 if isinstance(value, (int, float))
             }
             if adaptive_diag.get("log_event"):
-                print(
+                msg = (
                     "[AdaptiveSNR] "
                     f"step={step:04d} "
                     f"kappa={adaptive_diag.get('kappa', 0.0):.4e}, "
@@ -522,6 +382,7 @@ def run_step_recorder(
                     f"w_max={adaptive_diag.get('max_weight', 1.0):.3f}"
                     + (" frozen" if adaptive_diag.get("frozen") else "")
                 )
+                _log_diag(step, "AdaptiveSNR", msg)
         elif snr_weighting:
             weight = compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform)
             weight_stats = {
@@ -536,13 +397,13 @@ def run_step_recorder(
         snr_den = torch.clamp(sqrt_one_minus_t**2, min=SIGMA_MIN**2)
         snr_raw = (sqrt_alpha_t**2) / snr_den
         snr_vals = torch.clamp(snr_raw, max=SNR_CLIP)
-        snr_min = float(snr_vals.min().item())
-        snr_max = float(snr_vals.max().item())
-        snr_mean = float(snr_vals.mean().item())
+        snr_min_val = float(snr_vals.min().item())
+        snr_max_val = float(snr_vals.max().item())
+        snr_mean_val = float(snr_vals.mean().item())
         snr_raw_max = float(snr_raw.max().item())
         if snr_raw_max > SNR_CLIP:
             overflow = int((snr_raw > SNR_CLIP).sum().item())
-            print(
+            _log_diag(step, "OverflowHandler",
                 f"[OverflowHandler] step={step} mode=deterministic "
                 f"snr={min(snr_raw_max, SNR_CLIP):.1f} loss_mode=x0 count={overflow}"
             )
@@ -559,7 +420,23 @@ def run_step_recorder(
             prediction=pred.detach(),
         )
         if snr_spike_summary:
-            _log_snr_spike(snr_spike_summary)
+            snr_message = (
+                f"[SNR] step={step} mean={snr_mean_val:.4f} std={snr_vals.std().item():.4f} "
+                f"max={snr_max_val:.4f} count={snr_spike_summary['count']} "
+                f"top_timesteps={snr_spike_summary['top_timesteps']}"
+            )
+            if log_snr_json:
+                log_buffer.append({
+                    "step": step,
+                    "tag": "SNR",
+                    "mean": snr_mean_val,
+                    "std": float(snr_vals.std().item()),
+                    "max": snr_max_val,
+                    "count": snr_spike_summary["count"],
+                    "top_timesteps": snr_spike_summary["top_timesteps"],
+                })
+            elif verbose_logs:
+                print(snr_message)
         sqrt_alpha_min = float(sqrt_alpha_t.min().item())
         sqrt_alpha_max = float(sqrt_alpha_t.max().item())
         sqrt_one_minus_min = float(sqrt_one_minus_t.min().item())
@@ -604,6 +481,103 @@ def run_step_recorder(
         noisy_fft = _fft_band_means(x_t.detach())
         corr = _structure_correlation(xb.detach(), x_t.detach())
 
+        # --- Adaptive SNR controller (acts for the *next* step) ---
+        adaptive_note = None
+        # These will be filled for record/logging if adaptive_snr and controller is active
+        headroom = None
+        high_snr_fraction = None
+        snr_mean_trend = None
+        snr_max_trend = None
+        if adaptive_snr and current_snr_ratio is not None:
+            overflow = float(adaptive_diag.get("overflow", 0.0)) if adaptive_diag else 0.0
+            overflow_ema = float(adaptive_diag.get("overflow_ema", 0.0)) if adaptive_diag else 0.0
+            alpha_fac = float(adaptive_diag.get("alpha_fac", 1.0)) if adaptive_diag else 1.0
+            kappa_val = float(adaptive_diag.get("kappa", 0.0)) if adaptive_diag else 0.0
+
+            # --- compute trends and predictions ---
+            # raw trends (this step - previous step)
+            snr_mean_trend = None if prev_snr_mean is None else (snr_mean_val - prev_snr_mean)
+            snr_max_trend = None if prev_snr_max is None else (snr_max_val - prev_snr_max)
+            # EWMA of trends (smoother slope estimate)
+            if snr_mean_trend is not None:
+                snr_mean_slope_ema = _ewma(snr_mean_slope_ema, snr_mean_trend, snr_ema_beta)
+            if snr_max_trend is not None:
+                snr_max_slope_ema = _ewma(snr_max_slope_ema, snr_max_trend, snr_ema_beta)
+            # headroom w.r.t. clip with safety margin
+            snr_clip_margin = 0.85 * SNR_CLIP
+            headroom = snr_clip_margin - snr_raw_max
+            predicted_next_max = snr_raw_max + (snr_max_slope_ema if snr_max_slope_ema is not None else 0.0)
+
+            # fraction of very high-SNR samples in the batch
+            high_snr_fraction = float((snr_vals > (0.75 * SNR_CLIP)).float().mean().item())
+
+            # --- decision thresholds & guards ---
+            in_cooldown = (step - last_change_step) < cooldown_steps
+            min_headroom_for_increase = 25.0
+            max_trend_for_increase = 2.0
+            max_high_frac_for_increase = 0.10
+            # predict near-clip state for proactive downshift
+            near_clip_predicted = (predicted_next_max >= (0.92 * SNR_CLIP))
+            near_clip_current  = (snr_raw_max >= (0.90 * SNR_CLIP))
+            std_ratio_ok = (prediction_std_val <= 0 or input_std_val <= 0) or ((prediction_std_val / max(input_std_val, 1e-8)) <= PRED_STD_WARN_FACTOR)
+
+            # --- hysteresis arming logic ---
+            # Arm decrease if risky now; require two consecutive risky indications to actually decrease.
+            if (overflow > snr_overflow_high) or (overflow_ema > snr_overflow_high) or near_clip_predicted or near_clip_current or (not std_ratio_ok):
+                dec_armed = True
+            else:
+                dec_armed = False
+
+            # Arm increase if safe now; require two consecutive safe indications to actually increase.
+            trend_ok = ((snr_mean_slope_ema is None or snr_mean_slope_ema < max_trend_for_increase)
+                        and (snr_max_slope_ema is None or snr_max_slope_ema < max_trend_for_increase))
+            headroom_ok = (headroom > min_headroom_for_increase) and (high_snr_fraction <= max_high_frac_for_increase)
+            weighting_ok = (kappa_val >= snr_kappa_thresh) and (alpha_fac >= snr_alpha_fac_high) and (overflow_ema < snr_overflow_high)
+            if trend_ok and headroom_ok and weighting_ok and not near_clip_predicted:
+                inc_armed = True
+            else:
+                inc_armed = False
+
+            # --- apply action with cooldown and proportional step size ---
+            # Choose action with priority to stability (decrease wins ties)
+            action_taken = None
+            if not in_cooldown and dec_armed:
+                # proportional down step if predicted to be near clip; else nominal snr_dec
+                if near_clip_predicted or near_clip_current:
+                    # larger step when dangerously close
+                    delta = max(snr_dec, 0.25)
+                else:
+                    delta = snr_dec
+                new_val = _clamp_snr(current_snr_ratio - float(delta))
+                if new_val != current_snr_ratio:
+                    adaptive_note = f"down:{current_snr_ratio:.3g}->{new_val:.3g} (pred_max={predicted_next_max:.1f}, raw_max={snr_raw_max:.1f}, overflow={overflow:.3f}/{overflow_ema:.3f})"
+                    current_snr_ratio = new_val
+                    last_change_step = step
+                    action_taken = "down"
+            elif not in_cooldown and inc_armed:
+                # proportional up step based on headroom (smaller than previous design)
+                # target headroom ~ 40 → scale to 0..2*snr_inc
+                scale = 80.0
+                prop = max(0.0, min(2.0 * snr_inc, (headroom - min_headroom_for_increase) / scale))
+                delta = max(prop, 0.05)  # ensure a minimum tiny nudge
+                new_val = _clamp_snr(current_snr_ratio + float(delta))
+                if new_val != current_snr_ratio:
+                    adaptive_note = f"up:{current_snr_ratio:.3g}->{new_val:.3g} (kappa={kappa_val:.2e}, alpha_fac={alpha_fac:.2f}, headroom={headroom:.1f}, high_frac={high_snr_fraction:.2f}, pred_max={predicted_next_max:.1f})"
+                    current_snr_ratio = new_val
+                    last_change_step = step
+                    action_taken = "up"
+
+            # Nothing changed: keep note of current assessment for logging clarity
+            if adaptive_note is None:
+                if dec_armed:
+                    adaptive_note = f"hold (decrease-armed; pred_max={predicted_next_max:.1f})"
+                elif inc_armed:
+                    adaptive_note = f"hold (increase-armed; headroom={headroom:.1f})"
+
+            # Update SNR trend state for next step
+            prev_snr_mean = snr_mean_val
+            prev_snr_max = snr_max_val
+
         record: Dict[str, Any] = {
             "step": step,
             "loss": loss_value,
@@ -625,10 +599,14 @@ def run_step_recorder(
             "sqrt_alpha_max": sqrt_alpha_max,
             "sqrt_one_minus_min": sqrt_one_minus_min,
             "sqrt_one_minus_max": sqrt_one_minus_max,
-            "snr_min": snr_min,
-            "snr_max": snr_max,
-            "snr_mean": snr_mean,
+            "snr_min": snr_min_val,
+            "snr_max": snr_max_val,
+            "snr_mean": snr_mean_val,
             "snr_raw_max": snr_raw_max,
+            "snr_headroom": headroom if adaptive_snr and current_snr_ratio is not None else None,
+            "snr_high_frac": high_snr_fraction if adaptive_snr and current_snr_ratio is not None else None,
+            "snr_mean_trend": snr_mean_trend if adaptive_snr and current_snr_ratio is not None else None,
+            "snr_max_trend": snr_max_trend if adaptive_snr and current_snr_ratio is not None else None,
             "target_mean": target_mean,
             "target_std": target_std,
             "target_abs_max": target_abs_max,
@@ -671,21 +649,22 @@ def run_step_recorder(
             record[f"fft_{key}"] = float(value)
         if weight_stats:
             record.update(weight_stats)
+        record["snr_ratio_effective"] = current_snr_ratio
+        if adaptive_note is not None:
+            record["adaptive_noise_action"] = adaptive_note
         step_records.append(record)
 
         if uniform_corruption and corr < 0.4:
-            print(f"⚠️  Step {step}: structure correlation low ({corr:.2f})")
+            _log_diag(step, "StructureCorrelation", f"⚠️  Step {step}: structure correlation low ({corr:.2f})")
 
         if step % log_interval == 0 or step == steps - 1:
             save_root = out_dir / f"step_{step:04d}"
             save_root.mkdir(parents=True, exist_ok=True)
 
-            print(
-                f"[Loss] step={step} loss={loss_value:.6f} mae={mae_value:.6f}"
-            )
-            print(
-                "[FFTFeedback] "
-                + ", ".join(
+            _log_diag(step, "Loss", f"[Loss] step={step} loss={loss_value:.6f} mae={mae_value:.6f}")
+            _log_diag(step, "FFTFeedback",
+                "[FFTFeedback] " +
+                ", ".join(
                     f"{name}={fft_feedback[name]:.6f}"
                     for name in [
                         "amplitude_mae",
@@ -696,7 +675,7 @@ def run_step_recorder(
                     ]
                 )
             )
-            print(
+            _log_diag(step, "Timesteps",
                 "[Timesteps] min={:d} max={:d} mean={:.1f} "
                 "sqrt_alpha_min={:.4f} sqrt_alpha_max={:.4f} "
                 "snr_min={:.4f} snr_max={:.4f}".format(
@@ -705,35 +684,38 @@ def run_step_recorder(
                     timestep_mean,
                     sqrt_alpha_min,
                     sqrt_alpha_max,
-                    snr_min,
-                    snr_max,
+                    snr_min_val,
+                    snr_max_val,
                 )
             )
-            print(
+            _log_diag(step, "Targets",
                 "[Targets] mean={:.6f} std={:.6f} abs_max={:.6f}".format(
                     target_mean,
                     target_std,
                     target_abs_max,
                 )
             )
-            print(
+            _log_diag(step, "Residual",
                 "[Residual] mean={:.6f} std={:.6f} abs_max={:.6f}".format(
                     residual_mean,
                     residual_std,
                     residual_abs_max,
                 )
             )
+            if adaptive_note is not None:
+                extra = ""
+                if adaptive_snr and current_snr_ratio is not None:
+                    extra = f" headroom={headroom:.1f} high_frac={high_snr_fraction:.2f}"
+                _log_diag(step, "AdaptiveNoise", f"[AdaptiveNoise] step={step} snr_ratio_next={current_snr_ratio:.3g} action={adaptive_note}{extra}")
             if weight_stats:
                 if {"snr_weight_min", "snr_weight_max", "snr_weight_mean"}.issubset(weight_stats):
-                    print(
-                        "[SNRWeight] min={:.6f} max={:.6f} mean={:.6f}".format(
-                            weight_stats["snr_weight_min"],
-                            weight_stats["snr_weight_max"],
-                            weight_stats["snr_weight_mean"],
-                        )
-                    )
+                    _log_diag(step, "SNRWeight", "[SNRWeight] min={:.6f} max={:.6f} mean={:.6f}".format(
+                        weight_stats["snr_weight_min"],
+                        weight_stats["snr_weight_max"],
+                        weight_stats["snr_weight_mean"],
+                    ))
                 else:
-                    print(
+                    _log_diag(step, "AdaptiveSNRWeight",
                         "[AdaptiveSNRWeight] mean={:.6f} max={:.6f} kappa={:.4e} "
                         "alpha_fac={:.2f} overflow={:.3f} overflow_ema={:.3f} "
                         "delta={:.3e}{}".format(
@@ -748,24 +730,20 @@ def run_step_recorder(
                         )
                     )
 
-            def _save_raw(tensor: torch.Tensor, path: Path, name: str) -> None:
+            def _save_and_log(tensor: torch.Tensor, path: Path) -> None:
                 tensor = tensor.detach().cpu()
-                print(
-                    f"[{name}] mean={tensor.mean():.3f}, std={tensor.std():.3f}, "
-                    f"min={tensor.min():.3f}, max={tensor.max():.3f}"
-                )
                 span = tensor.max() - tensor.min()
                 scaled = (tensor - tensor.min()) / (span + 1e-8)
                 save_image(scaled, path)
 
-            _save_raw(xb, save_root / "input.png", "input")
-            _save_raw(x_t, save_root / "noisy.png", "noisy")
-            _save_raw(pred, save_root / "predicted_noise.png", "predicted_noise")
+            _save_and_log(xb, save_root / "input.png")
+            _save_and_log(x_t, save_root / "noisy.png")
+            _save_and_log(pred, save_root / "predicted_noise.png")
             if denoised is not None:
-                _save_raw(denoised, save_root / "prediction.png", "prediction")
+                _save_and_log(denoised, save_root / "prediction.png")
             else:
-                # Fall back to the raw model output if we cannot infer x0.
-                _save_raw(pred, save_root / "prediction.png", "prediction")
+                _save_and_log(pred, save_root / "prediction.png")
+            _log_diag(step, "Save", f"[Save] step={step} images saved (input, noisy, predicted_noise, prediction)")
             check_fft_sanity(
                 xb.detach().cpu(),
                 dataset_name="cifar10_input",
@@ -784,28 +762,16 @@ def run_step_recorder(
                 out_dir=save_root,
                 prefix="",
             )
-            band_line = ", ".join(
-                f"{label}={fft_feedback.get(name, float('nan')):.6f}"
-                for label, name in (
-                    ("amp_low", "amplitude_low_mae"),
-                    ("amp_mid", "amplitude_mid_mae"),
-                    ("amp_high", "amplitude_high_mae"),
-                )
-                if name in fft_feedback
+            amp_low = fft_feedback.get("amplitude_low_mae", float("nan"))
+            amp_mid = fft_feedback.get("amplitude_mid_mae", float("nan"))
+            amp_high = fft_feedback.get("amplitude_high_mae", float("nan"))
+            phase_low = fft_feedback.get("phase_low_mae", float("nan"))
+            phase_mid = fft_feedback.get("phase_mid_mae", float("nan"))
+            phase_high = fft_feedback.get("phase_high_mae", float("nan"))
+            _log_diag(step, "FFTBands",
+                f"[FFTBands] amp_low={amp_low:.6f}, amp_mid={amp_mid:.6f}, amp_high={amp_high:.6f}, "
+                f"phase_low={phase_low:.6f}, phase_mid={phase_mid:.6f}, phase_high={phase_high:.6f}"
             )
-            if band_line:
-                print(f"[FFTAmplitudeBands] {band_line}")
-            phase_line = ", ".join(
-                f"{label}={fft_feedback.get(name, float('nan')):.6f}"
-                for label, name in (
-                    ("phase_low", "phase_low_mae"),
-                    ("phase_mid", "phase_mid_mae"),
-                    ("phase_high", "phase_high_mae"),
-                )
-                if name in fft_feedback
-            )
-            if phase_line:
-                print(f"[FFTPhaseBands] {phase_line}")
 
     metrics_path = out_dir / "step_metrics.jsonl"
     with metrics_path.open("w", encoding="utf-8") as handle:
@@ -848,10 +814,40 @@ def run_step_recorder(
                 "normalization_disabled": True,
                 "snr_ratio": effective_snr_ratio,
                 "dc_scale_factor": effective_dc_scale,
+                "adaptive_snr_enabled": bool(adaptive_snr),
+                "final_snr_ratio": current_snr_ratio,
             },
             handle,
             indent=2,
         )
+
+    # Write diagnostic log buffer to file if not verbose
+    if not verbose_logs and log_buffer:
+        debug_log_path = out_dir / "debug_log.jsonl"
+        with debug_log_path.open("w", encoding="utf-8") as fh:
+            for entry in log_buffer:
+                fh.write(json.dumps(entry))
+                fh.write("\n")
+
+    # Write SNR log if requested
+    if log_snr_json:
+        snr_entries = [
+            entry for entry in log_buffer
+            if entry.get("tag") == "SNR" and all(k in entry for k in ("mean", "std", "max", "count", "top_timesteps"))
+        ]
+        if snr_entries:
+            snr_log_path = out_dir / "snr_log.jsonl"
+            with snr_log_path.open("w", encoding="utf-8") as fh:
+                for entry in snr_entries:
+                    fh.write(json.dumps({
+                        "step": entry["step"],
+                        "mean": entry["mean"],
+                        "std": entry["std"],
+                        "max": entry["max"],
+                        "count": entry["count"],
+                        "top_timesteps": entry["top_timesteps"],
+                    }))
+                    fh.write("\n")
 
     return out_dir
 
@@ -866,6 +862,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-interval", type=int, default=10, help="Interval for saving images/FFT snapshots.")
     parser.add_argument("--snr-ratio", type=float, default=None, help="Override diffusion.snr_ratio for diagnostics.")
     parser.add_argument("--dc-scale-factor", type=float, default=None, help="Override diffusion.dc_scale_factor.")
+    parser.add_argument("--adaptive-snr", action="store_true", help="Dynamically adjust diffusion.snr_ratio during diagnostics using adaptive SNR signals.")
+    parser.add_argument("--snr-min", type=float, default=0.5, help="Lower bound for adaptive snr_ratio.")
+    parser.add_argument("--snr-max", type=float, default=2.5, help="Upper bound for adaptive snr_ratio.")
+    parser.add_argument("--snr-inc", type=float, default=0.1, help="Increment applied to snr_ratio when conditions indicate more signal (cleaner input) is safe.")
+    parser.add_argument("--snr-dec", type=float, default=0.2, help="Decrement applied to snr_ratio when conditions indicate instability; lowers SNR (adds noise).")
+    parser.add_argument("--snr-kappa-thresh", type=float, default=2.5e-1, help="If kappa exceeds this, we consider increasing SNR.")
+    parser.add_argument("--snr-alpha-fac-high", type=float, default=1.12, help="If alpha_fac exceeds this along with kappa, we consider increasing SNR.")
+    parser.add_argument("--snr-overflow-high", type=float, default=0.05, help="If overflow (or overflow_ema) exceeds this, we decrease SNR.")
+    parser.add_argument("--verbose-logs", action="store_true", help="Print detailed per-step diagnostic logs to stdout. If not set, logs are written to debug_log.jsonl in output-dir.")
+    parser.add_argument("--log-snr-json", action="store_true", help="Log per-step SNR statistics to snr_log.jsonl instead of printing.")
     return parser
 
 
@@ -881,6 +887,16 @@ def main(argv: Optional[List[str]] = None) -> None:
         log_interval=int(args.log_interval),
         snr_ratio=args.snr_ratio,
         dc_scale_factor=args.dc_scale_factor,
+        adaptive_snr=args.adaptive_snr,
+        snr_min=args.snr_min,
+        snr_max=args.snr_max,
+        snr_inc=args.snr_inc,
+        snr_dec=args.snr_dec,
+        snr_kappa_thresh=args.snr_kappa_thresh,
+        snr_alpha_fac_high=args.snr_alpha_fac_high,
+        snr_overflow_high=args.snr_overflow_high,
+        verbose_logs=getattr(args, "verbose_logs", False),
+        log_snr_json=getattr(args, "log_snr_json", False),
     )
     print(f"Step recorder artefacts written to {output_path}")
 
@@ -900,6 +916,16 @@ def record_training_steps(
     snr_ratio: Optional[float] = None,
     dc_scale_factor: Optional[float] = None,
     loader: Optional[DataLoader] = None,
+    adaptive_snr: bool = False,
+    snr_min: float = 0.5,
+    snr_max: float = 2.5,
+    snr_inc: float = 0.1,
+    snr_dec: float = 0.2,
+    snr_kappa_thresh: float = 2.5e-1,
+    snr_alpha_fac_high: float = 1.12,
+    snr_overflow_high: float = 0.05,
+    verbose_logs: bool = False,
+    log_snr_json: bool = False,
 ) -> Path:
     """Backwards-compatible wrapper exported for utility scripts."""
 
@@ -913,4 +939,14 @@ def record_training_steps(
         snr_ratio=snr_ratio,
         dc_scale_factor=dc_scale_factor,
         loader=loader,
+        adaptive_snr=adaptive_snr,
+        snr_min=snr_min,
+        snr_max=snr_max,
+        snr_inc=snr_inc,
+        snr_dec=snr_dec,
+        snr_kappa_thresh=snr_kappa_thresh,
+        snr_alpha_fac_high=snr_alpha_fac_high,
+        snr_overflow_high=snr_overflow_high,
+        verbose_logs=verbose_logs,
+        log_snr_json=log_snr_json,
     )
