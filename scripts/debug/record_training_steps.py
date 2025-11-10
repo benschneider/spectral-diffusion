@@ -1024,6 +1024,8 @@ def run_step_recorder(
     metrics_path = out_dir / "step_metrics.jsonl"
     diag_buffer.write_jsonl(metrics_path, step_records)
 
+    diagnostic_events = diag_buffer.global_events
+
     summary_path = out_dir / "summary.json"
 
     def _mean(key: str) -> Optional[float]:
@@ -1032,47 +1034,41 @@ def run_step_recorder(
             return None
         return float(sum(vals) / len(vals))
 
-    with summary_path.open("w", encoding="utf-8") as handle:
-        json.dump(
-            {
-                "config_path": str(config_path),
-                "variant": variant,
-                "steps": steps,
-                "device": str(device_obj),
-                "log_interval": log_interval,
-                "final_loss": step_records[-1]["loss"] if step_records else None,
-                "final_mae": step_records[-1]["mae"] if step_records else None,
-                "mean_structure_corr": _mean("structure_corr"),
-                "mean_corr_pre": _mean("structure_corr_pre"),
-                "mean_corr_post": _mean("structure_corr_post"),
-                "mean_mse_pre": _mean("mse_pre"),
-                "mean_mse_post": _mean("mse_post"),
-                "mean_fft_corr": _mean("fft_corr"),
-                "mean_phase_rms": _mean("phase_rms"),
-                "mean_signal_energy": _mean("signal_energy"),
-                "mean_noise_energy": _mean("noise_energy"),
-                "mean_fft_amplitude_mae": _mean("fft_amplitude_mae"),
-                "mean_fft_phase_mae": _mean("fft_phase_mae"),
-                "mean_fft_real_mae": _mean("fft_real_mae"),
-                "mean_fft_imag_mae": _mean("fft_imag_mae"),
-                "mean_fft_complex_mae": _mean("fft_complex_mae"),
-                "recorder_version": RECORDER_VERSION,
-                "normalization_disabled": True,
-                "snr_ratio": effective_snr_ratio,
-                "dc_scale_factor": effective_dc_scale,
-                "adaptive_snr_enabled": bool(adaptive_snr),
-                "final_snr_ratio": current_snr_ratio,
-            },
-            handle,
-            indent=2,
-        )
+    summary_payload = {
+        "config_path": str(config_path),
+        "variant": variant,
+        "steps": steps,
+        "device": str(device_obj),
+        "log_interval": log_interval,
+        "final_loss": step_records[-1]["loss"] if step_records else None,
+        "final_mae": step_records[-1]["mae"] if step_records else None,
+        "mean_structure_corr": _mean("structure_corr"),
+        "mean_corr_pre": _mean("structure_corr_pre"),
+        "mean_corr_post": _mean("structure_corr_post"),
+        "mean_mse_pre": _mean("mse_pre"),
+        "mean_mse_post": _mean("mse_post"),
+        "mean_fft_corr": _mean("fft_corr"),
+        "mean_phase_rms": _mean("phase_rms"),
+        "mean_signal_energy": _mean("signal_energy"),
+        "mean_noise_energy": _mean("noise_energy"),
+        "mean_fft_amplitude_mae": _mean("fft_amplitude_mae"),
+        "mean_fft_phase_mae": _mean("fft_phase_mae"),
+        "mean_fft_real_mae": _mean("fft_real_mae"),
+        "mean_fft_imag_mae": _mean("fft_imag_mae"),
+        "mean_fft_complex_mae": _mean("fft_complex_mae"),
+        "recorder_version": RECORDER_VERSION,
+        "normalization_disabled": True,
+        "snr_ratio": effective_snr_ratio,
+        "dc_scale_factor": effective_dc_scale,
+        "adaptive_snr_enabled": bool(adaptive_snr),
+        "final_snr_ratio": current_snr_ratio,
+    }
 
     if diagnostic_events:
-        diagnostics_path = out_dir / "diagnostics.jsonl"
-        with diagnostics_path.open("w", encoding="utf-8") as handle:
-            for entry in diagnostic_events:
-                handle.write(json.dumps(entry))
-                handle.write("\n")
+        summary_payload["diagnostic_events"] = diagnostic_events
+
+    with summary_path.open("w", encoding="utf-8") as handle:
+        json.dump(summary_payload, handle, indent=2)
 
     if log_snr_json and snr_summaries:
         snr_path = out_dir / "snr_stats.jsonl"

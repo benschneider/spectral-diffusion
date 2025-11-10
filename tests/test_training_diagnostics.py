@@ -213,6 +213,13 @@ def test_step_recorder_diagnostics_stability(tmp_path):
     ]
     assert records, "No metrics captured"
 
+    summary_path = out_dir / "summary.json"
+    assert summary_path.exists(), "summary.json missing"
+    summary_payload = json.loads(summary_path.read_text())
+    diagnostics_block = summary_payload.get("diagnostic_events")
+    assert isinstance(diagnostics_block, list), "summary.json missing diagnostic events"
+    assert any(evt.get("tag") == "Normalization" for evt in diagnostics_block)
+
     all_events = []
     for record in records:
         all_events.extend(record.get("events", []))
