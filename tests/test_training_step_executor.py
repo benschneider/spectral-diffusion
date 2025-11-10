@@ -26,6 +26,12 @@ class DummyLoss:
             "kappa": 0.0,
             "ema": 0.0,
             "norm": float(residual.shape[-2] * residual.shape[-1]),
+            "beta_eff": 0.0,
+            "running_std": 0.0,
+            "val": 0.0,
+            "scale": 1.0,
+            "log_event": False,
+            "snr_clipped": False,
         }
         return loss, diag
 

@@ -504,12 +504,18 @@ def run_step_recorder(
                 print(
                     "[AdaptiveSNR] "
                     f"step={step:04d} "
+                    f"beta_eff={adaptive_diag.get('beta_eff', 0.0):.4e}, "
                     f"kappa={adaptive_diag.get('kappa', 0.0):.4e}, "
                     f"ema={adaptive_diag.get('ema', 0.0):.4e}, "
                     f"val={adaptive_diag.get('val', 0.0):.4e}, "
-                    f"scale={adaptive_diag.get('scale', 1.0):.2f}, "
+                    f"sigma_val={adaptive_diag.get('running_std', 0.0):.4e}, "
                     f"w_mean={adaptive_diag.get('mean_weight', 1.0):.3f}, "
                     f"w_max={adaptive_diag.get('max_weight', 1.0):.3f}"
+                    + (
+                        " snr_clipped"
+                        if adaptive_diag.get("snr_clipped")
+                        else ""
+                    )
                 )
         elif snr_weighting:
             weight = compute_snr_weight(sqrt_alpha_t, sqrt_one_minus_t, snr_transform)

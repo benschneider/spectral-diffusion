@@ -12,6 +12,7 @@ def test_adaptive_snr_weight_maintains_fp32_state_and_floor():
         kappa_floor=1e-3,
         log_interval=0,
         change_threshold=0.0,
+        snr_clip=100.0,
     )
 
     snr = torch.full((2,), 10.0, dtype=torch.float16)
@@ -23,6 +24,8 @@ def test_adaptive_snr_weight_maintains_fp32_state_and_floor():
     assert adaptive._ema_val.dtype == torch.float32  # pylint: disable=protected-access
     assert diag["kappa"] >= 1e-3
     assert 0.0 < diag["mean_weight"] < 1.0
+    assert diag["beta_eff"] > 0.0
+    assert diag["running_std"] > 0.0
 
 
 def test_adaptive_snr_weight_logs_periodically():

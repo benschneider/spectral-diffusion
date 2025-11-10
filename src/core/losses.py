@@ -40,14 +40,18 @@ class DiffusionLoss(nn.Module):
 
         self.use_weighting = bool(self.config.get("use_weighting", True))
         adaptive_default = bool(self.config.get("adaptive_snr", self.use_weighting))
+        beta_value = float(self.config.get("adaptive_beta", 0.3))
         self._adaptive_params = {
-            "beta": float(self.config.get("adaptive_beta", 0.3)),
+            "beta_init": float(self.config.get("adaptive_beta_init", beta_value)),
+            "beta": beta_value,
             "ema_decay": float(self.config.get("adaptive_ema_decay", 0.99)),
+            "running_decay": float(self.config.get("adaptive_running_decay", 0.98)),
             "eps": float(self.config.get("adaptive_eps", 1e-8)),
-            "kappa_floor": float(self.config.get("adaptive_kappa_floor", 1e-4)),
-            "ref_sqrt_area": float(self.config.get("adaptive_ref_sqrt_area", 512.0)),
-            "log_interval": int(self.config.get("adaptive_log_interval", 0)),
-            "change_threshold": float(self.config.get("adaptive_change_threshold", 1e-4)),
+            "target_val": float(self.config.get("adaptive_target_val", 1e-2)),
+            "snr_clip": float(self.config.get("adaptive_snr_clip", 250.0)),
+            "kappa_floor": float(self.config.get("adaptive_kappa_floor", 1e-6)),
+            "log_interval": int(self.config.get("adaptive_log_interval", 200)),
+            "change_threshold": float(self.config.get("adaptive_change_threshold", 0.1)),
         }
         self._adaptive_requested = adaptive_default
         self.adaptive = (
@@ -108,8 +112,11 @@ class DiffusionLoss(nn.Module):
 
         adaptive_flag = 1 if self.adaptive is not None else 0
         return (
-            "[Residuals] mode=adaptive_snr v1.2 "
-            f"beta={self._adaptive_params['beta']:.3f} ema={self._adaptive_params['ema_decay']:.3f} "
+            "[Residuals] mode=adaptive_snr v1.3 "
+            f"beta0={self._adaptive_params['beta_init']:.3f} "
+            f"ema={self._adaptive_params['ema_decay']:.3f} "
+            f"target={self._adaptive_params['target_val']:.1e} "
+            f"snr_clip={self._adaptive_params['snr_clip']:.1f} "
             f"kappa_floor={self._adaptive_params['kappa_floor']:.2e} "
             f"quant_safe=True scale_norm=True residual_mode={self.mode} "
             f"weighting={'on' if self.use_weighting else 'off'} "
