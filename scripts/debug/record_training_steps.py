@@ -77,7 +77,6 @@ def run_step_recorder(
     adaptive_snr: bool = False,
     log_snr_json: bool = False,
     loader: Optional[DataLoader] = None,
-    adaptive_snr: bool = False,
     snr_min: float = 0.5,
     snr_max: float = 2.5,
     snr_inc: float = 0.1,
@@ -86,7 +85,6 @@ def run_step_recorder(
     snr_alpha_fac_high: float = 1.12,
     snr_overflow_high: float = 0.05,
     verbose_logs: bool = False,
-    log_snr_json: bool = False,
 ) -> Path:
     RECORDER_VERSION = "v2.0"
     config = load_config(config_path=config_path)
