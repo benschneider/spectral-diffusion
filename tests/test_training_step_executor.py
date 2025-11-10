@@ -16,7 +16,7 @@ class DummyLoss:
     def set_weighting_enabled(self, enabled: bool) -> None:  # pragma: no cover - simple state toggle
         self.use_weighting = enabled
 
-    def __call__(self, prediction, target, sqrt_alpha, sqrt_one_minus):
+    def __call__(self, prediction, target, sqrt_alpha, sqrt_one_minus, **kwargs):
         self.calls += 1
         residual = target - prediction
         loss = residual.pow(2).mean()
@@ -29,6 +29,7 @@ class DummyLoss:
             "overflow": 0.0,
             "log_event": False,
             "frozen": False,
+            "mae": float(residual.abs().mean().item()),
         }
         return loss, diag
 
@@ -197,7 +198,7 @@ def test_step_executor_reports_full_snr(monkeypatch, capsys):
     outcome = executor.run_step(clean, noise_batch, timesteps)
 
     captured = capsys.readouterr()
-    assert "[WARN] SNR overflow detected" in captured.out
+    assert "[OverflowHandler]" in captured.out
     assert outcome.coeff_stats["snr_max"] == pytest.approx(250.0, rel=1e-5)
     assert outcome.coeff_stats["snr_raw_max"] > outcome.coeff_stats["snr_max"]
     assert outcome.coeff_stats["snr_raw_max"] >= 1e6

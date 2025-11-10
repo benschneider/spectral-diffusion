@@ -535,8 +535,8 @@ def run_step_recorder(
         if snr_raw_max > SNR_CLIP:
             overflow = int((snr_raw > SNR_CLIP).sum().item())
             print(
-                f"[WARN] SNR overflow detected at step {step}: max={snr_raw_max:.1f} (>"
-                f"{SNR_CLIP}), count={overflow}"
+                f"[OverflowHandler] step={step} mode=deterministic "
+                f"snr={snr_raw_max:.1f} loss_mode=x0 count={overflow}"
             )
 
         snr_spike_summary = _summarise_snr_spikes(

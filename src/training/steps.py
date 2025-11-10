@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from src.core.denoise_step import describe_regime, select_regime
 from src.core.functional import compute_snr_weight, compute_target
 from src.core.numeric import safe_clamp, safe_ratio
 from src.training.noise import NoiseBatch
@@ -165,6 +166,9 @@ class TrainingStepExecutor:
             self.snr_weighting = bool(snr_weighting) if snr_weighting is not None else default_weighting
         self.snr_transform = snr_transform
         self.fft_norm = fft_norm
+        self.snr_clip = getattr(self.loss_fn, "snr_clip", SNR_CLIP)
+        self._overflow_decay = 0.9
+        self._overflow_ema = 0.0
 
     def run_step(
         self,
@@ -191,6 +195,23 @@ class TrainingStepExecutor:
             sqrt_alpha_t,
             sqrt_one_minus_alpha_t,
         )
+        snr_raw = safe_ratio(
+            sqrt_alpha_t**2,
+            sqrt_one_minus_alpha_t**2,
+            min_den=SIGMA_MIN**2,
+        )
+        regimes = select_regime(snr_raw, self.snr_clip)
+        overflow_mask = regimes["overflow"]
+        mask_broadcast = overflow_mask
+        while mask_broadcast.ndim < prediction.ndim:
+            mask_broadcast = mask_broadcast.unsqueeze(-1)
+        if torch.any(overflow_mask):
+            dims = tuple(range(1, prediction.ndim))
+            mean = prediction.mean(dim=dims, keepdim=True)
+            std = prediction.std(dim=dims, unbiased=False, keepdim=True)
+            renormed = (prediction - mean) / (std + 1e-6)
+            prediction = torch.where(mask_broadcast, renormed, prediction)
+
         residual = prediction - target
 
         loss_diag: Optional[Dict[str, Any]] = None
@@ -201,6 +222,9 @@ class TrainingStepExecutor:
                 target,
                 sqrt_alpha_t,
                 sqrt_one_minus_alpha_t,
+                x_t=noise_batch.noisy,
+                x0=clean_batch,
+                prediction_type=self.prediction_type,
             )
         except TypeError:
             if self.snr_weighting:
@@ -216,7 +240,10 @@ class TrainingStepExecutor:
             else:
                 loss = loss_result
 
-        mae = F.l1_loss(prediction, target)
+        if loss_diag and "mae" in loss_diag:
+            mae = torch.tensor(loss_diag["mae"], device=loss.device)
+        else:
+            mae = F.l1_loss(prediction, target)
 
         weight_stats: Optional[Dict[str, float]] = None
         if loss_diag:
@@ -249,20 +276,28 @@ class TrainingStepExecutor:
             target,
             fft_norm=self.fft_norm,
         )
-
-        snr_raw = safe_ratio(
-            sqrt_alpha_t**2,
-            sqrt_one_minus_alpha_t**2,
-            min_den=SIGMA_MIN**2,
+        snr = safe_clamp(snr_raw, max_value=self.snr_clip)
+        overflow_count = int(torch.count_nonzero(overflow_mask).item())
+        overflow_ratio = float(overflow_mask.float().mean().item())
+        self._overflow_ema = (
+            self._overflow_decay * self._overflow_ema
+            + (1.0 - self._overflow_decay) * overflow_ratio
         )
-        snr = safe_clamp(snr_raw, max_value=SNR_CLIP)
-        if torch.any(snr_raw > SNR_CLIP):
-            overflow = float(snr_raw.max().item())
-            count = int(torch.count_nonzero(snr_raw > SNR_CLIP).item())
+        if torch.any(overflow_mask):
+            regime_mode, loss_mode = describe_regime(regimes)
             print(
-                f"[WARN] SNR overflow detected: max={overflow:.1f} (>{SNR_CLIP}), "
-                f"count={count}"
+                "[OverflowHandler] mode="
+                f"{regime_mode} snr={float(snr_raw.max().item()):.1f} "
+                f"loss_mode={loss_mode} count={overflow_count} "
+                f"ema={self._overflow_ema:.3f}"
             )
+
+        centered_signal = clean_batch - clean_batch.mean(dim=(1, 2, 3), keepdim=True)
+        signal_rms = torch.sqrt(centered_signal.pow(2).mean(dim=(1, 2, 3)))
+        noise_component = noise_batch.noisy - sqrt_alpha_t * clean_batch
+        noise_rms = torch.sqrt(noise_component.pow(2).mean(dim=(1, 2, 3)))
+        snr_measured = safe_ratio(signal_rms.pow(2), noise_rms.pow(2), min_den=1e-8)
+
         coeff_stats = {
             "timestep_min": float(timesteps.min().item()),
             "timestep_max": float(timesteps.max().item()),
@@ -277,6 +312,11 @@ class TrainingStepExecutor:
             "snr_max": float(snr.max().item()),
             "snr_mean": float(snr.mean().item()),
             "snr_raw_max": float(snr_raw.max().item()),
+            "overflow_count": float(overflow_count),
+            "overflow_ema": float(self._overflow_ema),
+            "signal_rms": float(signal_rms.mean().item()),
+            "noise_rms": float(noise_rms.mean().item()),
+            "snr_measured": float(snr_measured.mean().item()),
         }
 
         prediction_mean = float(prediction.detach().mean().item())

@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 import torch
 from torch import nn
 
+from src.core.denoise_step import describe_regime, predict_x0, select_regime
 from src.core.numeric import compute_snr, safe_clamp
 from src.core.residuals import AdaptiveSNRWeight, compute_residual, weighted_residual_loss
 from src.spectral.adapter import SpectralAdapter
@@ -53,6 +54,8 @@ class DiffusionLoss(nn.Module):
             "change_threshold": float(self.config.get("adaptive_change_threshold", 0.1)),
         }
         self._adaptive_requested = adaptive_default
+        self.snr_clip = float(self.config.get("snr_clip", self._adaptive_params["snr_clip"]))
+        self.log_snr_smooth = bool(self.config.get("log_snr_smooth", True))
         self.adaptive = (
             AdaptiveSNRWeight(**self._adaptive_params)
             if self.use_weighting and self._adaptive_requested
@@ -84,10 +87,25 @@ class DiffusionLoss(nn.Module):
         target: torch.Tensor,
         sqrt_alpha_t: torch.Tensor,
         sqrt_one_minus_alpha_t: torch.Tensor,
+        *,
+        x_t: Optional[torch.Tensor] = None,
+        x0: Optional[torch.Tensor] = None,
+        prediction_type: str = "eps",
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         sqrt_alpha = safe_clamp(sqrt_alpha_t, min_value=1e-6)
         sigma_t = safe_clamp(sqrt_one_minus_alpha_t, min_value=1e-6)
-        snr = compute_snr(sqrt_alpha, sigma_t)
+        snr_raw = compute_snr(sqrt_alpha, sigma_t)
+
+        snr_clip = self.snr_clip
+        regimes = select_regime(snr_raw, snr_clip)
+        regime_mode, loss_mode = describe_regime(regimes)
+        overflow_mask = regimes["overflow"]
+
+        if self.log_snr_smooth:
+            snr_soft = torch.tanh(0.5 * torch.log(snr_raw + 1e-8))
+            snr_soft = snr_soft.clamp(min=0.0, max=1.0)
+        else:
+            snr_soft = snr_raw
 
         residual = compute_residual(prediction, target, mode=self.mode)
         residual = self._apply_spectral_weighting(residual)
@@ -95,21 +113,61 @@ class DiffusionLoss(nn.Module):
         alpha_t = sqrt_alpha ** 2
         input_std = float(target.detach().std().item()) if target.numel() else 0.0
 
+        mask_broadcast = overflow_mask
+        while mask_broadcast.ndim < prediction.ndim:
+            mask_broadcast = mask_broadcast.unsqueeze(-1)
+
+        combined_prediction = prediction
+        combined_target = target
+        raw_loss_override: Optional[torch.Tensor] = None
+        mae_tensor: Optional[torch.Tensor] = None
+
+        if torch.any(overflow_mask) and x_t is not None and x0 is not None:
+            x0_pred = predict_x0(prediction, prediction_type, x_t, sqrt_alpha, sigma_t)
+            combined_prediction = torch.where(mask_broadcast, x0_pred, prediction)
+            combined_target = torch.where(mask_broadcast, x0, target)
+
+            residual = combined_target - combined_prediction
+            l2_loss = residual.pow(2)
+            l1_loss = residual.abs()
+            raw_loss_override = torch.where(mask_broadcast, l1_loss, l2_loss)
+            mae_tensor = residual.abs()
+        else:
+            mae_tensor = (combined_target - combined_prediction).abs()
+            residual = combined_target - combined_prediction
+
         loss, diag = weighted_residual_loss(
-            prediction,
-            target,
-            snr,
+            combined_prediction,
+            combined_target,
+            snr_soft,
             alpha_t=alpha_t,
             adaptive=self.adaptive if self.use_weighting else None,
             mode="pixel",
             enable_weighting=self.use_weighting,
             residual=residual,
+            raw_loss=raw_loss_override,
             reduction=self.reduction,
             input_std=input_std,
+            snr_weight=snr_soft,
         )
 
-        diag["spectral_weighting"] = 1.0 if self.spectral_adapter is not None else 0.0
-        diag["mode_code"] = 0.0 if self.mode == "pixel" else 1.0
+        diag.update(
+            {
+                "spectral_weighting": 1.0 if self.spectral_adapter is not None else 0.0,
+                "mode_code": 0.0 if self.mode == "pixel" else 1.0,
+                "snr_raw_max": float(snr_raw.max().detach().item()),
+                "snr_soft_mean": float(snr_soft.mean().detach().item()),
+                "overflow_fraction": float(overflow_mask.float().mean().detach().item()),
+                "regime_mode_code": 2.0
+                if regime_mode == "deterministic"
+                else (1.0 if regime_mode == "hybrid" else 0.0),
+                "loss_mode_code": 1.0 if loss_mode == "x0" else 0.0,
+            }
+        )
+        diag["loss_mode_str"] = loss_mode
+        diag["regime_mode_str"] = regime_mode
+        if mae_tensor is not None:
+            diag["mae"] = float(mae_tensor.mean().detach().item())
         return loss, diag
 
     def residual_marker(self) -> str:
@@ -121,7 +179,7 @@ class DiffusionLoss(nn.Module):
             f"beta={self._adaptive_params['beta']:.3f} "
             f"ema={self._adaptive_params['ema_decay']:.3f} "
             f"gamma_alpha={self._adaptive_params['gamma_alpha']:.2f} "
-            f"snr_clip={self._adaptive_params['snr_clip']:.1f} "
+            f"snr_clip={self.snr_clip:.1f} "
             f"freeze={self._adaptive_params['freeze_ratio']:.1f}x "
             f"kappa_floor={self._adaptive_params['kappa_floor']:.2e} "
             f"residual_mode={self.mode} "

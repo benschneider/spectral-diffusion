@@ -114,18 +114,18 @@ class AdaptiveSNRv14:
         snr_detached = _expand_like(snr_detached, loss_detached)
         alpha_detached = _expand_like(alpha_detached, snr_detached)
 
-        logsnr = self._centre(torch.log(snr_detached + self.eps))
-        loss_scale = loss_detached.abs().mean().clamp_min(self.eps)
-        loss_norm = loss_detached / loss_scale
-
-        exp_logsnr = torch.exp(logsnr)
-        if loss_norm.ndim > 1:
-            dims: Iterable[int] = tuple(range(1, loss_norm.ndim))
-            per_example = (loss_norm * exp_logsnr).mean(dim=dims)
+        if loss_detached.ndim > 1:
+            dims: Iterable[int] = tuple(range(1, loss_detached.ndim))
+            per_example_snr = snr_detached.mean(dim=dims)
+            per_example_loss = loss_detached.mean(dim=dims)
         else:
-            per_example = (loss_norm * exp_logsnr).mean()
+            per_example_snr = snr_detached
+            per_example_loss = loss_detached
 
-        val_mean = per_example.mean()
+        loss_scale = per_example_loss.mean().clamp_min(self.eps)
+        loss_ratio = per_example_loss / loss_scale
+        val_mean = (per_example_snr * loss_ratio).mean()
+
         if self._ema_val is None or torch.isnan(self._ema_val):
             self._ema_val = val_mean
         else:
@@ -223,14 +223,19 @@ def weighted_residual_loss(
     mode: str = "pixel",
     enable_weighting: bool = True,
     residual: Optional[torch.Tensor] = None,
+    raw_loss: Optional[torch.Tensor] = None,
     reduction: str = "mean",
     input_std: Optional[float] = None,
+    snr_weight: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Return a weighted residual MSE and associated diagnostics."""
 
-    if residual is None:
+    if raw_loss is None:
+        if residual is None:
+            residual = compute_residual(pred, target, mode=mode)
+        raw_loss = residual.pow(2)
+    elif residual is None:
         residual = compute_residual(pred, target, mode=mode)
-    raw_loss = residual.pow(2)
 
     if not enable_weighting:
         loss_val = raw_loss.sum() if reduction == "sum" else raw_loss.mean()
@@ -276,11 +281,13 @@ def weighted_residual_loss(
         if alpha_t is None:
             raise ValueError("alpha_t must be provided when using adaptive weighting")
         adaptive.to(pred.device)
-        weight, diag = adaptive.update(snr, raw_loss, alpha_t)
+        source = snr_weight if snr_weight is not None else snr
+        weight, diag = adaptive.update(source, raw_loss, alpha_t)
         diag["adaptive"] = 1.0
         diag.setdefault("frozen", False)
     else:
-        weight = (snr / (1.0 + snr)).to(dtype=raw_loss.dtype)
+        source = snr_weight if snr_weight is not None else snr
+        weight = (source / (1.0 + source)).to(dtype=raw_loss.dtype)
         diag = {
             "mean_weight": float(weight.detach().mean().item()),
             "max_weight": float(weight.detach().max().item()),

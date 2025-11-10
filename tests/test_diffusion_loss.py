@@ -15,7 +15,14 @@ def test_diffusion_loss_no_weighting_matches_mse():
     target = torch.zeros_like(prediction)
     sqrt_alpha, sqrt_one_minus = _coef(prediction.shape)
     loss_fn = DiffusionLoss({"use_weighting": False})
-    loss, _ = loss_fn(prediction, target, sqrt_alpha, sqrt_one_minus)
+    loss, _ = loss_fn(
+        prediction,
+        target,
+        sqrt_alpha,
+        sqrt_one_minus,
+        x_t=target,  # dummy noisy input not used when clip not exceeded
+        x0=target,
+    )
     expected = (prediction - target).pow(2).mean()
     assert torch.allclose(loss, expected)
 
@@ -26,10 +33,24 @@ def test_diffusion_loss_with_weighting_changes_value():
     sqrt_alpha, sqrt_one_minus = _coef(prediction.shape)
 
     loss_none = DiffusionLoss({"use_weighting": False})
-    baseline, _ = loss_none(prediction, target, sqrt_alpha, sqrt_one_minus)
+    baseline, _ = loss_none(
+        prediction,
+        target,
+        sqrt_alpha,
+        sqrt_one_minus,
+        x_t=target,
+        x0=target,
+    )
 
     loss_adaptive = DiffusionLoss({})
-    weighted, diag = loss_adaptive(prediction, target, sqrt_alpha, sqrt_one_minus)
+    weighted, diag = loss_adaptive(
+        prediction,
+        target,
+        sqrt_alpha,
+        sqrt_one_minus,
+        x_t=target,
+        x0=target,
+    )
 
     assert not torch.allclose(baseline, weighted)
     assert "mean_weight" in diag
