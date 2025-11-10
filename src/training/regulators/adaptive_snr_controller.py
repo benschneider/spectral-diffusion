@@ -11,6 +11,7 @@ from src.analysis.learning_efficiency import compute_efficiency
 from src.analysis.trend_filters import EWMA
 from .adaptive_regulator import (
     AdaptiveRegulatorMetrics,
+    MicroResetPolicy,
     blend_overflow_ema,
     compute_alpha_fac,
 )
@@ -58,6 +59,7 @@ class AdaptiveSNRController:
         self._last_metrics: Dict[str, float] = {}
         self._overflow_ema: float = 0.0
         self._metrics = AdaptiveRegulatorMetrics()
+        self._micro_reset = MicroResetPolicy()
 
     @property
     def ratio(self) -> float:
@@ -145,9 +147,9 @@ class AdaptiveSNRController:
             diag_overflow,
             diag_overflow_ema,
         )
-
-        if self._state.step % 200 == 0 and self._state.step > 0:
-            self._overflow_ema *= 0.5
+        kappa_scale, overflow_scale, micro_reset = self._micro_reset.factors(self._state.step)
+        if micro_reset:
+            self._overflow_ema *= overflow_scale
 
         prev_ratio = self._state.ratio
         snr_target = prev_ratio * (1.0 + 0.3 * (self._overflow_ema - 0.02))
@@ -159,6 +161,8 @@ class AdaptiveSNRController:
 
         ratio = snr_target
         reasons: list[str] = []
+        if micro_reset:
+            reasons.append("micro_reset")
 
         if self._should_decay(adaptive_diag, overflow_ratio):
             ratio = self._clamp_ratio(ratio * self.dec)
@@ -170,7 +174,12 @@ class AdaptiveSNRController:
         changed = ratio != prev_ratio
         self._state.ratio = ratio
 
-        self._metrics.kappa = float(diag_kappa) if diag_kappa is not None else self._metrics.kappa
+        metrics_kappa = self._metrics.kappa
+        if diag_kappa is not None:
+            metrics_kappa = float(diag_kappa)
+        if micro_reset:
+            metrics_kappa *= kappa_scale
+        self._metrics.kappa = metrics_kappa
         self._metrics.ema = float(diag_ema) if diag_ema is not None else self._metrics.ema
         self._metrics.overflow = (
             float(diag_overflow) if diag_overflow is not None else overflow_ratio
@@ -178,6 +187,7 @@ class AdaptiveSNRController:
         self._metrics.overflow_ema = self._overflow_ema
         self._metrics.alpha_fac = alpha_fac
         self._metrics.snr_target = snr_target
+        self._metrics.micro_reset = 1.0 if micro_reset else 0.0
 
         self._last_metrics = {
             "snr_ratio": ratio,

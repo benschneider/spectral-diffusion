@@ -65,11 +65,12 @@ Each training step and recorder iteration emits the regulator metrics to
 `step_metrics.jsonl`, including:
 
 - κ, ema, overflow, and `overflow_ema`
-- `alpha_fac` and the dynamic `snr_target`
+- `alpha_fac`, the dynamic `snr_target`, and a boolean `micro_reset` flag
 - The FFT low/high magnitudes and derived spectral pressure contribution
 
-Short log-interval runs additionally print concise console summaries, while
-longer intervals rely on the JSONL feed for post-hoc plotting.
+Short log-interval runs additionally print concise console summaries that now
+include the latest `snr_target` and `alpha_fac`, while longer intervals rely on
+the JSONL feed for post-hoc plotting.
 
 Safety checks guard against silent divergence:
 

@@ -3,6 +3,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from src.core.residuals import AdaptiveSNRWeight
+from src.training.regulators import MicroResetPolicy
 
 
 def test_adaptive_snr_weight_maintains_fp32_state_and_floor():
@@ -69,3 +70,26 @@ def test_adaptive_snr_weight_logs_periodically():
     assert events[0] is True
     assert events[1] is False
     assert events[2] is True
+
+
+def test_adaptive_snr_weight_micro_reset_scaling():
+    adaptive = AdaptiveSNRWeight()
+    adaptive._micro_reset = MicroResetPolicy(period=2, kappa_scale=1.5, overflow_scale=0.25)  # pylint: disable=protected-access
+
+    snr = torch.ones(1)
+    raw_loss = torch.ones((1, 1, 2, 2))
+    alpha = torch.full((1,), 0.5)
+    overflow_mask = torch.ones_like(raw_loss)
+
+    _, first_diag = adaptive.update(snr, raw_loss, alpha, overflow_mask=overflow_mask)
+    overflow_before = adaptive._overflow_ema  # pylint: disable=protected-access
+
+    _, second_diag = adaptive.update(snr, raw_loss, alpha, overflow_mask=overflow_mask)
+
+    assert first_diag["micro_reset"] == 0.0
+    assert second_diag["micro_reset"] == 1.0
+    expected_overflow = (
+        adaptive.overflow_decay * overflow_before + (1.0 - adaptive.overflow_decay) * 1.0
+    ) * 0.25
+    assert second_diag["overflow_ema"] == pytest.approx(expected_overflow)
+    assert second_diag["kappa"] >= first_diag["kappa"] * 1.5 - 1e-6

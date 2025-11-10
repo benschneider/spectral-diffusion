@@ -31,6 +31,7 @@ where each control signal originates and how it feeds back into the loss.
 | `overflow_ema` | Smoothed overflow ratio used for dynamic targeting | Logged with micro-reset events |
 | `alpha_fac` | Responsiveness multiplier, clamped to [1.0, 1.3] | Logged per-step |
 | `snr_target` | Dynamic target passed back to the noise schedule | Logged per-step |
+| `micro_reset` | Boolean flag indicating a periodic burst fired | Logged as 1.0 on reset steps |
 | FFT bands | Low, mid, and high magnitude means | Logged for spectral pressure analysis |
 
 ## Module ownership

@@ -57,6 +57,65 @@ FFT_HIGH_WARN_THRESHOLD = 0.8
 SUMMARY_LOG_THRESHOLD = 100
 
 
+class DiagnosticsBuffer:
+    """Buffer structured diagnostic events before they are persisted."""
+
+    def __init__(self, *, verbose: bool = False) -> None:
+        self._per_step: DefaultDict[int, List[Dict[str, Any]]] = defaultdict(list)
+        self._global: List[Dict[str, Any]] = []
+        self._verbose = bool(verbose)
+
+    def log(
+        self,
+        tag: str,
+        message: str,
+        *,
+        step: Optional[int] = None,
+        level: str = "info",
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        entry: Dict[str, Any] = {"tag": tag, "message": message, "level": level}
+        step_idx: Optional[int] = None
+        if step is not None:
+            try:
+                step_idx = int(step)
+            except (TypeError, ValueError):
+                step_idx = None
+            else:
+                entry["step"] = step_idx
+        if extra:
+            entry.update(extra)
+        if step_idx is None:
+            self._global.append(entry)
+        else:
+            self._per_step[step_idx].append(entry)
+        if self._verbose:
+            print(message)
+
+    def attach_events(self, step: int, record: Dict[str, Any]) -> None:
+        events = self._per_step.pop(step, None)
+        if events:
+            record["events"] = events
+
+    @property
+    def global_events(self) -> List[Dict[str, Any]]:
+        return list(self._global)
+
+    def write_jsonl(self, path: Path, step_records: List[Dict[str, Any]]) -> None:
+        with path.open("w", encoding="utf-8") as handle:
+            if self._global:
+                handle.write(json.dumps({"step": None, "events": self._global}))
+                handle.write("\n")
+            for record in step_records:
+                handle.write(json.dumps(record))
+                handle.write("\n")
+            if self._per_step:
+                for step, events in sorted(self._per_step.items()):
+                    payload = {"step": step, "events": events, "orphan_events": True}
+                    handle.write(json.dumps(payload))
+                    handle.write("\n")
+
+
 def run_step_recorder(
     config_path: Path,
     *,
@@ -86,8 +145,7 @@ def run_step_recorder(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    events_by_step: DefaultDict[int, List[Dict[str, Any]]] = defaultdict(list)
-    global_events: List[Dict[str, Any]] = []
+    diag_buffer = DiagnosticsBuffer(verbose=verbose_logs)
 
     def _log_event(
         tag: str,
@@ -97,23 +155,7 @@ def run_step_recorder(
         level: str = "info",
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
-        entry: Dict[str, Any] = {"tag": tag, "message": message, "level": level}
-        step_idx: Optional[int] = None
-        if step is not None:
-            try:
-                step_idx = int(step)
-            except (TypeError, ValueError):
-                step_idx = None
-            if step_idx is not None:
-                entry["step"] = step_idx
-        if extra:
-            entry.update(extra)
-        if step_idx is None:
-            global_events.append(entry)
-        else:
-            events_by_step[step_idx].append(entry)
-        if verbose_logs:
-            print(message)
+        diag_buffer.log(tag, message, step=step, level=level, extra=extra)
 
     _log_event("Normalization", "[Normalization] Disabled for diagnostic mode")
 
@@ -279,6 +321,7 @@ def run_step_recorder(
     loss_landscape = torch.ones(coeffs.num_timesteps, device=device_obj)
 
     controller: Optional[AdaptiveSNRController] = None
+    last_controller_metrics: Dict[str, float] = {}
     if adaptive_snr:
         controller_cfg = diffusion_cfg.get("adaptive_snr_controller", {}) or {}
         controller = AdaptiveSNRController(
@@ -706,12 +749,25 @@ def run_step_recorder(
             effective_snr_ratio = new_ratio
             record.update(controller.latest_metrics)
             metrics = controller.latest_metrics
+            last_controller_metrics = metrics
             headroom = metrics.get("snr_headroom", headroom)
             adaptive_note = note
             if metrics and "snr_ratio" in metrics:
                 current_snr_ratio = _clamp_snr(metrics["snr_ratio"])
             elif effective_snr_ratio is not None:
                 current_snr_ratio = _clamp_snr(effective_snr_ratio)
+            if metrics.get("micro_reset"):
+                _log_event(
+                    "AdaptiveSNR",
+                    "[AdaptiveSNR] micro reset applied",
+                    step=step,
+                    extra={
+                        "overflow_ema": metrics.get("overflow_ema"),
+                        "kappa": metrics.get("kappa"),
+                        "alpha_fac": metrics.get("alpha_fac"),
+                        "snr_target": metrics.get("snr_target"),
+                    },
+                )
             if note:
                 _log_event(
                     "AdaptiveSNR",
@@ -929,8 +985,7 @@ def run_step_recorder(
                     },
                 )
 
-        if events_by_step.get(step):
-            record["events"] = events_by_step.pop(step)
+        diag_buffer.attach_events(step, record)
 
         if summary_enabled and (step % log_interval == 0 or step == steps - 1):
             ratio_note = (
@@ -943,8 +998,17 @@ def run_step_recorder(
                 if adaptive_snr and headroom is not None
                 else ""
             )
+            target_note = ""
+            alpha_note = ""
+            if last_controller_metrics:
+                target = last_controller_metrics.get("snr_target")
+                if target is not None:
+                    target_note = f" snr_target={target:.3f}"
+                alpha = last_controller_metrics.get("alpha_fac")
+                if alpha is not None:
+                    alpha_note = f" alpha_fac={alpha:.2f}"
             print(
-                "[Summary] step={step:04d} loss={loss:.4f} mae={mae:.4f} grad_norm={grad:.4f} snr_mean={snr_mean:.3f}{ratio}{headroom}".format(
+                "[Summary] step={step:04d} loss={loss:.4f} mae={mae:.4f} grad_norm={grad:.4f} snr_mean={snr_mean:.3f}{ratio}{headroom}{target}{alpha}".format(
                     step=step,
                     loss=loss_value,
                     mae=mae_value,
@@ -952,17 +1016,13 @@ def run_step_recorder(
                     snr_mean=snr_mean_val,
                     ratio=ratio_note,
                     headroom=headroom_note,
+                    target=target_note,
+                    alpha=alpha_note,
                 )
             )
 
     metrics_path = out_dir / "step_metrics.jsonl"
-    with metrics_path.open("w", encoding="utf-8") as handle:
-        if global_events:
-            handle.write(json.dumps({"step": None, "events": global_events}))
-            handle.write("\n")
-        for record in step_records:
-            handle.write(json.dumps(record))
-            handle.write("\n")
+    diag_buffer.write_jsonl(metrics_path, step_records)
 
     summary_path = out_dir / "summary.json"
 

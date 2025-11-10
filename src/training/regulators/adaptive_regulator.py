@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional
+from typing import Dict, Mapping, Optional, Tuple
 
 
 @dataclass
@@ -16,6 +16,7 @@ class AdaptiveRegulatorMetrics:
     overflow_ema: float = 0.0
     alpha_fac: float = 1.05
     snr_target: float = 0.0
+    micro_reset: float = 0.0
 
     def update_from_diag(self, diag: Optional[Mapping[str, float]]) -> None:
         if not diag:
@@ -32,6 +33,8 @@ class AdaptiveRegulatorMetrics:
             self.alpha_fac = float(diag["alpha_fac"])
         if "snr_target" in diag:
             self.snr_target = float(diag["snr_target"])
+        if "micro_reset" in diag:
+            self.micro_reset = float(diag["micro_reset"])
 
     def as_dict(self) -> Dict[str, float]:
         return {
@@ -41,6 +44,7 @@ class AdaptiveRegulatorMetrics:
             "overflow_ema": self.overflow_ema,
             "alpha_fac": self.alpha_fac,
             "snr_target": self.snr_target,
+            "micro_reset": self.micro_reset,
         }
 
 
@@ -69,3 +73,37 @@ def blend_overflow_ema(
     if diag_overflow_ema is not None:
         ema = 0.5 * ema + 0.5 * float(diag_overflow_ema)
     return ema
+
+
+@dataclass(frozen=True)
+class MicroResetPolicy:
+    """Encapsulate the periodic micro-reset behaviour."""
+
+    period: int = 200
+    kappa_scale: float = 1.2
+    overflow_scale: float = 0.5
+
+    def should_reset(self, step: int) -> bool:
+        return step > 0 and step % self.period == 0
+
+    def factors(self, step: int) -> Tuple[float, float, bool]:
+        reset = self.should_reset(step)
+        if reset:
+            return self.kappa_scale, self.overflow_scale, True
+        return 1.0, 1.0, False
+
+    def apply_overflow(self, overflow_ema: float, step: int) -> Tuple[float, bool]:
+        kappa_scale, overflow_scale, reset = self.factors(step)
+        if reset:
+            return overflow_ema * overflow_scale, True
+        return overflow_ema, False
+
+    def apply_metrics(self, metrics: AdaptiveRegulatorMetrics, step: int) -> bool:
+        kappa_scale, overflow_scale, reset = self.factors(step)
+        if not reset:
+            metrics.micro_reset = 0.0
+            return False
+        metrics.kappa *= kappa_scale
+        metrics.overflow_ema *= overflow_scale
+        metrics.micro_reset = 1.0
+        return True

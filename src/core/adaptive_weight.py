@@ -7,6 +7,8 @@ from typing import Callable, Dict, Iterable, Optional, Tuple
 
 import torch
 
+from src.training.regulators import MicroResetPolicy
+
 EPS = 1e-8
 
 
@@ -99,6 +101,7 @@ class AdaptiveSNRWeight:
         self._last_log_step = 0
         self._last_diag: Dict[str, float] = {}
         self._log_fn = log_fn
+        self._micro_reset = MicroResetPolicy()
 
     # ------------------------------------------------------------------
     # housekeeping helpers
@@ -225,11 +228,7 @@ class AdaptiveSNRWeight:
             ratio_mask = _expand_to(overflow_tensor, snr_in)
 
         next_step = self._step + 1
-
-        kappa_scale = 1.0
-        if next_step % 200 == 0:
-            kappa_scale = 1.2
-
+        kappa_scale, overflow_scale, micro_reset = self._micro_reset.factors(next_step)
         weight, kappa_value, ema_value, alpha_fac, delta_eff = self._compute_weight_core(
             snr_in, raw_loss, alpha_t, kappa_scale=kappa_scale
         )
@@ -254,10 +253,8 @@ class AdaptiveSNRWeight:
             + (1.0 - self.overflow_decay) * combined_ratio
         )
 
-        micro_reset = False
-        if next_step % 200 == 0:
-            self._overflow_ema *= 0.5
-            micro_reset = True
+        if micro_reset:
+            self._overflow_ema *= overflow_scale
 
         mean_weight = float(weight.detach().mean().item())
         max_weight = float(weight.detach().max().item())
@@ -275,6 +272,7 @@ class AdaptiveSNRWeight:
             "overflow_actual_ema": self._overflow_actual_ema,
             "delta": delta_eff,
             "clip_overflow": clip_ratio,
+            "micro_reset": 1.0 if micro_reset else 0.0,
         }
         if micro_reset:
             diag["micro_reset"] = 1.0
