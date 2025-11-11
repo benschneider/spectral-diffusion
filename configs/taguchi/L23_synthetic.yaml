@@ -1,0 +1,72 @@
+model:
+  type: unet_tiny
+  channels: 3
+  base_channels: 32
+  depth: 2
+
+# Synthetic-only diagnostics baseline for the L23 Taguchi design.
+data:
+  source: synthetic
+  channels: 3
+  height: 32
+  width: 32
+  size: 256
+  synthetic:
+    image_size: 32
+    channels: 3
+    size: 256
+    use_text: false
+
+training:
+  batch_size: 32
+  epochs: 1
+  num_batches: 150
+  log_every: 10
+
+optim:
+  lr: 3.0e-4
+  weight_decay: 0.0
+
+# Short diffusion chain tuned for early step diagnostics.
+diffusion:
+  num_timesteps: 200
+  beta_schedule: linear
+  prediction_type: eps
+  snr_weighting: false
+  snr_transform: snr
+  loss_threshold: null
+  time_embed_dim: 64
+  uniform_corruption: false
+  uniform_corruption_scale: 0.1
+  adaptive_rescale: true
+  similarity_target: 0.75
+  fft_norm: ortho
+  dc_scale_factor: 0.0
+  snr_ratio: 1.0
+
+loss:
+  reduction: mean
+  spectral_weighting: none
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+
+spectral:
+  enabled: false
+  normalize: true
+  weighting: none
+  freq_equalized_noise: false
+  freq_attention: false
+  apply_to:
+    - input
+    - output
+  per_block: false
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+
+sampling:
+  enabled: false
+
+evaluation:
+  reference_dir: null
+  use_fid: false
+  image_size: null

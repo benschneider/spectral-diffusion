@@ -17,7 +17,8 @@ F11 Spectral slope α      -> --spectral-slope {flat,mild,steep}
 F12 SNR level             -> --snr-level {low,nominal,high}
 F13 Seed mode             -> --seed-mode {42,123,314}
 
-Each Taguchi row is executed via ``record_training_steps.py`` and the resulting
+Each Taguchi row is executed via ``record_training_steps.py`` using the dedicated
+baseline config ``configs/taguchi/L23_synthetic.yaml``. The resulting
 ``summary.json`` files are aggregated into ``results.csv`` alongside the original
 factor levels and resolved CLI mappings.
 """
@@ -40,7 +41,7 @@ if str(ROOT) not in sys.path:
 
 RECORD_SCRIPT = ROOT / "scripts" / "debug" / "record_training_steps.py"
 DEFAULT_DESIGN = ROOT / "configs" / "taguchi" / "L23_synthetic.csv"
-DEFAULT_BASE_CONFIG = ROOT / "configs" / "benchmark_synthetic_base.yaml"
+DEFAULT_BASE_CONFIG = ROOT / "configs" / "taguchi" / "L23_synthetic.yaml"
 DEFAULT_OUTPUT = ROOT / "results" / "taguchi_l23_synthetic"
 
 FACTOR_NAMES = {
