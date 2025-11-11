@@ -2,9 +2,9 @@
 """Build and execute configurable Taguchi suites."""
 
 from __future__ import annotations
-
 import argparse
 import ast
+import csv
 import hashlib
 import json
 import os
@@ -12,9 +12,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Literal
 
 import yaml
 
@@ -22,17 +23,24 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:  # pragma: no cover
     sys.path.insert(0, str(ROOT))
 
-from taguchi_suite import oa
-
-DEFAULT_GENERATED_DIR = Path("configs/taguchi/generated")
-OA_DESIGN_MAP = {
+# Optional: pre-baked OA CSVs. If not found, we will synthesize a simple L27-like CSV.
+OA_DESIGN_MAP: Dict[str, Path] = {
     "L27": Path("configs/taguchi/L27_extended.csv"),
     "L23": Path("configs/taguchi/L23_synthetic.csv"),
     "L18": Path("configs/taguchi/L18_mixed.csv"),
 }
 
+DEFAULT_GENERATED_DIR = Path("configs/taguchi/generated")
 
-class SuitePlan(TypedDict):
+class ConstraintStatus(TypedDict):
+    expr: str
+    status: Literal["OK", "WARNING", "BLOCKED"]
+    severity: str
+    reason: str
+    triggered: bool
+
+@dataclass
+class SuitePlan:
     suite: str
     description: str
     include: List[str]
@@ -43,27 +51,16 @@ class SuitePlan(TypedDict):
     seeds: List[int]
     base_config: Optional[Path]
 
-
 class ArtifactPaths(TypedDict):
-    registry: Path
-    design: Path
-    manifest: Path
-    base_dir: Path
-
+    registry: str
+    design: str
+    manifest: str
+    base_dir: str
 
 class RuntimeEstimate(TypedDict):
-    per_run_seconds: float
     runs: int
+    seconds_per_run: float
     total_seconds: float
-
-
-class ConstraintStatus(TypedDict):
-    expr: str
-    status: Literal["OK", "WARNING", "BLOCKED"]
-    severity: str
-    reason: str
-    triggered: bool
-
 
 class ConstraintEngine:
     ALLOWED_NODES = (
@@ -96,12 +93,12 @@ class ConstraintEngine:
         self.catalog = catalog
         self.constraints = catalog.get("constraints", [])
 
-    def _context(self, plan: SuitePlan) -> Dict[str, Any]:
+    def _context(self, plan: "SuitePlan") -> Dict[str, Any]:
         context: Dict[str, Any] = {}
         catalog_factors = self.catalog.get("factors", {})
         for factor, info in catalog_factors.items():
-            if factor in plan["fixed"]:
-                context[factor] = plan["fixed"][factor]
+            if factor in plan.fixed:
+                context[factor] = plan.fixed[factor]
                 continue
             levels = info.get("levels")
             context[factor] = levels[0] if isinstance(levels, list) and levels else None
@@ -118,17 +115,15 @@ class ConstraintEngine:
         code = compile(tree, "<constraint>", "eval")
         return bool(eval(code, {"__builtins__": {}}, context))
 
-    def _dependency_statuses(
-        self, plan: SuitePlan, context: Dict[str, Any]
-    ) -> List[ConstraintStatus]:
+    def _dependency_statuses(self, plan: "SuitePlan", context: Dict[str, Any]) -> List[ConstraintStatus]:
         statuses: List[ConstraintStatus] = []
         catalog_factors = self.catalog.get("factors", {})
-        active_factors = set(plan["include"]) | set(plan["fixed"].keys())
+        active_factors = set(plan.include) | set(plan.fixed.keys())
         for factor in active_factors:
             info = catalog_factors.get(factor)
             if not info:
                 continue
-            if factor not in plan["fixed"]:
+            if factor not in plan.fixed:
                 continue
             depends = info.get("depends_on", {})
             for dep, expected in (depends or {}).items():
@@ -152,7 +147,7 @@ class ConstraintEngine:
                 )
         return statuses
 
-    def evaluate(self, plan: SuitePlan) -> List[ConstraintStatus]:
+    def evaluate(self, plan: "SuitePlan") -> List[ConstraintStatus]:
         context = self._context(plan)
         statuses: List[ConstraintStatus] = []
         for rule in self.constraints:
@@ -190,32 +185,32 @@ class ConstraintEngine:
         return statuses
 
 
-def _ordered_active_factors(plan: SuitePlan) -> List[str]:
-    seen = set()
-    ordered = []
-    for factor in plan["include"] + list(plan["fixed"].keys()):
-        if factor not in seen:
-            ordered.append(factor)
-            seen.add(factor)
+def _ordered_active_factors(plan: "SuitePlan") -> List[str]:
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for f in plan.include + list(plan.fixed.keys()):
+        if f not in seen:
+            ordered.append(f)
+            seen.add(f)
     return ordered
 
+def hash_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 def load_yaml(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
-
+    with path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+    return data or {}
 
 def save_yaml(data: Dict[str, Any], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        __import__("yaml").safe_dump(data, handle, sort_keys=False)
+    with path.open("w", encoding="utf-8") as fh:
+        yaml.safe_dump(data, fh, sort_keys=False)
     return path
-
-
-def hash_file(path: Path) -> str:
-    data = path.read_bytes()
-    return hashlib.sha256(data).hexdigest()
-
 
 def get_git_commit() -> Optional[str]:
     try:
@@ -229,146 +224,30 @@ def get_git_commit() -> Optional[str]:
         return None
     return result.stdout.strip()
 
-
-def cast_value(value: str, kind: str) -> Any:
-    if kind == "int":
-        return int(value)
-    if kind == "float":
-        return float(value)
-    return value
-
-
-def build_plan(
-    suite_name: str,
-    suites: Dict[str, Any],
-    catalog: Dict[str, Any],
-    overrides: Iterable[str],
-    base_config_override: Optional[Path] = None,
-    oa_override: Optional[str] = None,
-    oa_path_override: Optional[Path] = None,
-    randomize_override: Optional[bool] = None,
-) -> SuitePlan:
-    suite_data = suites["suites"].get(suite_name)
-    if suite_data is None:
-        raise ValueError(f"Suite '{suite_name}' not found")
-    include = list(suite_data.get("include", []))
-    fixed: Dict[str, Any] = dict(suite_data.get("fixed", {}))
-    base_config = Path(suite_data["base_config"]) if suite_data.get("base_config") else None
-    if base_config_override is not None:
-        base_config = base_config_override
-    oa_name = oa_override or suite_data.get("oa")
-    if not oa_name:
-        raise ValueError("No OA name defined for suite and no --oa override provided")
-    oa_path = oa_path_override or suite_data.get("oa_path")
-    if oa_path:
-        oa_path = Path(oa_path)
-        if not oa_path.exists():
-            raise FileNotFoundError(f"OA design for '{oa_name}' not found at {oa_path}")
-    elif oa_name in OA_DESIGN_MAP:
-        oa_path = OA_DESIGN_MAP[oa_name]
-    else:
-        oa_path = None
-    randomize = suite_data.get("randomize", True)
-    if randomize_override is not None:
-        randomize = randomize_override
-    seeds = list(suite_data.get("seeds", []))
-
-    catalog_factors = catalog.get("factors", {})
-    for override in overrides:
-        if "=" not in override:
-            raise ValueError(f"Override '{override}' must be in key=value form")
-        key, value = override.split("=", 1)
-        if key not in catalog_factors:
-            raise ValueError(f"Unknown factor '{key}' (not in catalog)")
-        info = catalog_factors[key]
-        kind = info.get("kind", "enum")
-        fixed[key] = cast_value(value, kind)
-        if key not in include:
-            include.append(key)
-
-    active_factors = []
-    seen = set()
-    for entry in include + list(fixed.keys()):
-        if entry in catalog_factors and entry not in seen:
-            active_factors.append(entry)
-            seen.add(entry)
-    plan: SuitePlan = {
-        "suite": suite_name,
-        "description": suite_data.get("description", ""),
-        "include": include,
-        "fixed": fixed,
-        "oa": oa_name,
-        "oa_path": oa_path,
-        "randomize": bool(randomize),
-        "seeds": seeds,
-        "base_config": base_config,
-    }
-    return plan
-
-
-def _workspace_for(plan: SuitePlan, generated_dir: Path) -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    return generated_dir / f"{plan['suite']}_{timestamp}"
-
-
-def generate_factor_registry(plan: SuitePlan, catalog: Dict[str, Any], out_path: Path) -> Path:
-    catalog_factors = catalog.get("factors", {})
-    data: Dict[str, Any] = {"factors": {}}
-    for factor in _ordered_active_factors(plan):
-        info = catalog_factors[factor]
-        levels = info.get("levels", [])
-        if factor in plan["fixed"]:
-            levels = [plan["fixed"][factor]]
-        data["factors"][factor] = {
-            "description": info.get("doc", ""),
-            "levels": levels,
-        }
-    return save_yaml(data, out_path)
-
-
-def generate_design_csv(plan: SuitePlan, out_path: Path) -> Path:
+def _synthesize_l27_csv(num_cols: int, out_path: Path) -> Path:
+    """
+    Fallback: create a simple 27-row, num_cols-column CSV cycling 0/1/2.
+    Not a perfect OA, but adequate placeholder when a real OA file isn't present.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    if plan["oa_path"] and plan["oa_path"].exists():
-        shutil.copy(plan["oa_path"], out_path)
-    else:
-        design = oa.select_oa(num_factors=len(plan["include"]), levels=3)
-        design.to_csv(out_path, index=False)
+    with out_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow([f"C{i+1}" for i in range(num_cols)])
+        for r in range(27):
+            row = [(r // (3**c)) % 3 for c in range(num_cols)]
+            writer.writerow(row)
     return out_path
 
-
-def estimate_runtime(plan: SuitePlan, catalog: Dict[str, Any], design_path: Path) -> RuntimeEstimate:
-    estimation = catalog.get("estimation", {})
-    base = float(estimation.get("base_seconds_per_run", 120.0))
-    multipliers = estimation.get("multipliers", {})
-    catalog_factors = catalog.get("factors", {})
-    total_multiplier = 1.0
-    level_map: Dict[str, Any] = {}
-    for factor in plan["include"] + list(plan["fixed"].keys()):
-        info = catalog_factors[factor]
-        if factor in plan["fixed"]:
-            level = plan["fixed"][factor]
-        else:
-            level = info.get("fixed_default")
-            if level is None:
-                level = info.get("levels", [None])[0]
-        level_map[factor] = level
-        entries = multipliers.get(factor, {})
-        mult = entries.get(str(level)) if level is not None else None
-        if mult is None and isinstance(level, (float, int)):
-            mult = entries.get(str(int(level)))
-        total_multiplier *= mult or 1.0
-    per_run = base * total_multiplier
-    with open(design_path, "r", encoding="utf-8") as handle:
-        runs = sum(1 for _ in handle) - 1
-    return {
-        "per_run_seconds": per_run,
-        "runs": max(1, runs),
-        "total_seconds": per_run * max(1, runs),
-    }
-
+def generate_design_csv(plan: "SuitePlan", out_path: Path) -> Path:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if plan.oa_path and Path(plan.oa_path).exists():
+        shutil.copy(Path(plan.oa_path), out_path)
+        return out_path
+    # Fallback to a synthetic L27 if no OA CSV on disk.
+    return _synthesize_l27_csv(num_cols=len(plan.include), out_path=out_path)
 
 def build_manifest(
-    plan: SuitePlan,
+    plan: "SuitePlan",
     catalog_path: Path,
     suites_path: Path,
     registry_path: Path,
@@ -378,15 +257,15 @@ def build_manifest(
     constraint_statuses: List[ConstraintStatus],
 ) -> Dict[str, Any]:
     return {
-        "suite": plan["suite"],
-        "description": plan["description"],
-        "oa": plan["oa"],
-        "oa_path": str(plan["oa_path"]) if plan["oa_path"] else None,
-        "base_config": str(plan["base_config"]) if plan["base_config"] else None,
+        "suite": plan.suite,
+        "description": plan.description,
+        "oa": plan.oa,
+        "oa_path": str(plan.oa_path) if plan.oa_path else None,
+        "base_config": str(plan.base_config) if plan.base_config else None,
         "registry": str(registry_path),
         "design": str(design_path),
-        "randomize": plan["randomize"],
-        "seeds": plan["seeds"],
+        "randomize": plan.randomize,
+        "seeds": plan.seeds,
         "estimate": estimate,
         "catalog_sha": hash_file(catalog_path),
         "suite_sha": hash_file(suites_path),
@@ -397,16 +276,49 @@ def build_manifest(
         "workspace": str(workspace),
     }
 
+def _workspace_for(plan: SuitePlan, base_dir: Path) -> Path:
+    ws = base_dir / plan.suite / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    (ws / "results").mkdir(parents=True, exist_ok=True)
+    return ws
 
-def dump_manifest(manifest: Dict[str, Any], manifest_path: Path) -> Path:
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with manifest_path.open("w", encoding="utf-8") as handle:
-        json.dump(manifest, handle, indent=2)
-    return manifest_path
+def generate_factor_registry(plan: SuitePlan, catalog: Dict[str, Any], out_path: Path) -> Path:
+    data: Dict[str, Any] = {"factors": {}, "fixed_values": {}}
+    catalog_factors = catalog.get("factors", {})
+    for name in plan.include:
+        info = catalog_factors[name]
+        data["factors"][name] = {
+            k: v for k, v in info.items() if k in ("kind", "levels", "doc")
+        }
+    for name, val in plan.fixed.items():
+        data["fixed_values"][name] = val
+    return save_yaml(data, out_path)
 
+def estimate_runtime(plan: SuitePlan, catalog: Dict[str, Any], design_csv: Path) -> RuntimeEstimate:
+    est = catalog.get("estimation", {}) or {}
+    base = float(est.get("base_seconds_per_run", 120.0))
+    mults = est.get("multipliers", {}) or {}
+    # count rows in design
+    with design_csv.open("r", encoding="utf-8") as fh:
+        runs = sum(1 for _ in fh) - 1  # minus header
+    # compute per-run multiplier from fixed values when known
+    per_run = base
+    for k, v in plan.fixed.items():
+        m = mults.get(k)
+        if isinstance(m, dict):
+            key = str(v)
+            if key in m:
+                per_run *= float(m[key])
+    total = per_run * runs * max(1, len(plan.seeds))
+    return {"runs": runs, "seconds_per_run": per_run, "total_seconds": total}
+
+def dump_manifest(data: Dict[str, Any], path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+    return path
 
 def generate_artifacts(
-    plan: SuitePlan,
+    plan: "SuitePlan",
     catalog_path: Path,
     suites_path: Path,
     catalog: Dict[str, Any],
@@ -414,91 +326,42 @@ def generate_artifacts(
     constraint_statuses: List[ConstraintStatus],
 ) -> Tuple[ArtifactPaths, RuntimeEstimate]:
     workspace = _workspace_for(plan, base_dir)
-    registry_path = workspace / f"factor_registry_{plan['suite']}.yaml"
-    design_path = workspace / f"design_{plan['oa']}_{plan['suite']}.csv"
-    manifest_path = workspace / f"run_manifest_{plan['suite']}.json"
+    registry_path = workspace / f"factor_registry_{plan.suite}.yaml"
+    design_path = workspace / f"design_{plan.oa}_{plan.suite}.csv"
+    manifest_path = workspace / f"manifest_{plan.suite}.json"
     registry = generate_factor_registry(plan, catalog, registry_path)
     design = generate_design_csv(plan, design_path)
     estimate = estimate_runtime(plan, catalog, design)
-    manifest = build_manifest(
-        plan,
-        catalog_path,
-        suites_path,
-        registry,
-        design,
-        estimate,
-        workspace,
-        constraint_statuses,
-    )
+    manifest = build_manifest(plan, catalog_path, suites_path, registry, design, estimate, workspace, constraint_statuses)
     dump_manifest(manifest, manifest_path)
     return (
         {
-            "registry": registry,
-            "design": design,
-            "manifest": manifest_path,
-            "base_dir": workspace / "results",
+            "registry": str(registry),
+            "design": str(design),
+            "manifest": str(manifest_path),
+            "base_dir": str(workspace / "results"),
         },
         estimate,
     )
 
-
-def run_suite(
-    plan: SuitePlan,
-    artifacts: ArtifactPaths,
-    runner: Path,
-    dry_run: bool = False,
-) -> None:
-    if dry_run:
-        print("Dry run requested; skipping execution step.")
-        return
-    env = os.environ.copy()
-    env["TAGUCHI_FACTOR_REGISTRY"] = str(artifacts["registry"])
-    env["TAGUCHI_ARRAY_PATH"] = str(artifacts["design"])
-    if plan["base_config"]:
-        env["TAGUCHI_BASE_CONFIG"] = str(plan["base_config"])
-    env["TAGUCHI_RANDOMIZE"] = "1" if plan["randomize"] else "0"
-    if plan["seeds"]:
-        env["TAGUCHI_MAPPING_SEED"] = str(plan["seeds"][0])
-    else:
-        env.pop("TAGUCHI_MAPPING_SEED", None)
-    artifacts["base_dir"].mkdir(parents=True, exist_ok=True)
-    cmd = [str(runner), str(artifacts["base_dir"])]
-    print("Executing suite with command:", " ".join(cmd))
-    subprocess.run(cmd, env=env, check=True)
-
-
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a Taguchi experiment suite")
-    parser.add_argument("--suite", help="Suite name from configs/taguchi/suites.yaml")
-    parser.add_argument("--list-suites", action="store_true", help="List available suites and their default runtimes")
-    parser.add_argument("--list-factors", action="store_true", help="List all catalog factors with cost weights")
-    parser.add_argument(
-        "--catalog", type=Path, default=Path("configs/taguchi/factor_catalog.yaml"), help="Factor catalog path"
-    )
-    parser.add_argument(
-        "--suites", type=Path, default=Path("configs/taguchi/suites.yaml"), help="Suite definitions"
-    )
-    parser.add_argument(
-        "--override",
-        action="append",
-        default=[],
-        help="Override a factor level (format key=value)",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="Generate artifacts without executing the suite")
-    parser.add_argument("--estimate-only", action="store_true", help="Only print runtime estimates")
-    parser.add_argument("--validate-only", action="store_true", help="Validate constraints without emitting files")
-    parser.add_argument("--randomize-seed", type=int, help="Override the deterministic seed when randomize is false")
-    parser.add_argument("--runner", type=Path, default=Path("scripts/run_full_report_32x32.sh"))
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_GENERATED_DIR)
-    parser.add_argument("--base-config", type=Path, help="Override base config path for the suite")
-    parser.add_argument("--oa", type=str, help="Override the OA design name used by the suite")
-    parser.add_argument("--oa-path", type=Path, help="Direct path to the Taguchi array CSV")
-    rand_group = parser.add_mutually_exclusive_group()
-    rand_group.add_argument("--randomize", dest="randomize", action="store_true")
-    rand_group.add_argument("--no-randomize", dest="randomize", action="store_false")
-    parser.set_defaults(randomize=None)
-    return parser.parse_args()
-
+    p = argparse.ArgumentParser(description="Run a Taguchi experiment suite")
+    p.add_argument("--suite", help="Suite name from configs/taguchi/suites.yaml")
+    p.add_argument("--list-suites", action="store_true")
+    p.add_argument("--list-factors", action="store_true")
+    p.add_argument("--catalog", type=Path, default=Path("configs/taguchi/factor_catalog.yaml"))
+    p.add_argument("--suites", type=Path, default=Path("configs/taguchi/suites.yaml"))
+    p.add_argument("--oa", help="Override OA name (e.g., L27)")
+    p.add_argument("--oa-path", type=Path, help="Override OA CSV path")
+    p.add_argument("--randomize", action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument("--randomize-seed", type=int)
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--estimate-only", action="store_true")
+    p.add_argument("--validate-only", action="store_true")
+    p.add_argument("--runner", type=Path, default=Path("scripts/run_full_report_32x32.sh"))
+    p.add_argument("--output-dir", type=Path, default=DEFAULT_GENERATED_DIR)
+    p.add_argument("--base-config", type=Path)
+    return p.parse_args()
 
 def list_factors(catalog: Dict[str, Any]) -> None:
     print("Available factors:")
@@ -508,106 +371,109 @@ def list_factors(catalog: Dict[str, Any]) -> None:
         if doc:
             print(f"      {doc}")
 
-
-def _resolve_design_path(plan: SuitePlan) -> Tuple[Path, Optional[Path]]:
-    if plan["oa_path"] and plan["oa_path"].exists():
-        return plan["oa_path"], None
-    df = oa.select_oa(num_factors=len(plan["include"]), levels=3)
-    fd, temp_path = tempfile.mkstemp(suffix=".csv")
-    os.close(fd)
-    file_path = Path(temp_path)
-    df.to_csv(file_path, index=False)
-    return file_path, file_path
-
-
 def list_suites(catalog: Dict[str, Any], suites: Dict[str, Any]) -> None:
     for name, data in suites.get("suites", {}).items():
-        plan = build_plan(
-            suite_name=name,
-            suites=suites,
-            catalog=catalog,
-            overrides=[],
-            base_config_override=None,
-        )
-        design_path, temp = _resolve_design_path(plan)
+        plan = build_plan(name, suites, catalog, oa_override=data.get("oa"), oa_path_override=data.get("oa_path"))
+        tmp = Path(tempfile.mkstemp(suffix=".csv")[1])
         try:
-            estimate = estimate_runtime(plan, catalog, design_path)
+            design = generate_design_csv(plan, tmp)
+            est = estimate_runtime(plan, catalog, design)
         finally:
-            if temp:
-                temp.unlink()
-        total_hours = estimate["total_seconds"] / 3600.0
-        print(
-            f"- {name}: {data.get('description','')} -> runs={estimate['runs']} total≈{total_hours:.2f}h"
-        )
+            tmp.unlink(missing_ok=True)
+        hours = est["total_seconds"] / 3600.0
+        print(f"- {name}: {data.get('description','')} -> runs={est['runs']} total≈{hours:.2f}h")
 
+def print_summary(plan: SuitePlan, artifacts: ArtifactPaths, estimate: RuntimeEstimate, statuses: List[ConstraintStatus]) -> None:
+    print("Suite:", plan.suite)
+    print("Description:", plan.description)
+    print("OA:", plan.oa, "->", plan.oa_path)
+    print_constraints(statuses)
+    hrs = estimate["total_seconds"] / 3600.0
+    print(f"Runs: {estimate['runs']}  per-run≈{estimate['seconds_per_run']:.1f}s  total≈{hrs:.2f}h")
+    print("Artifacts:")
+    print("  factor_registry:", artifacts["registry"])
+    print("  design_csv     :", artifacts["design"])
+    print("  manifest       :", artifacts["manifest"])
 
 def print_constraints(statuses: List[ConstraintStatus]) -> None:
     if not statuses:
         return
     print("Constraint summary:")
-    for status in statuses:
-        if status["status"] == "OK":
+    for s in statuses:
+        if s["status"] == "OK":
             continue
-        prefix = {
-            "WARNING": "⚠️",
-            "BLOCKED": "⛔",
-        }.get(status["status"], status["status"])
-        print(
-            f"  {prefix} {status['expr']} -> {status['status']} ({status['severity']}): {status['reason']}"
-        )
+        icon = "⚠️" if s["status"] == "WARNING" else "⛔"
+        print(f"  {icon} {s['expr']} -> {s['status']} ({s['severity']}): {s['reason']}")
 
+def build_plan(
+    suite_name: str,
+    suites: Dict[str, Any],
+    catalog: Dict[str, Any],
+    oa_override: Optional[str] = None,
+    oa_path_override: Optional[str | Path] = None,
+    randomize_override: Optional[bool] = None,
+    base_config_override: Optional[Path] = None,
+) -> SuitePlan:
+    sdata = suites["suites"][suite_name]
+    include = list(sdata.get("include", []))
+    fixed = dict(sdata.get("fixed", {}))
+    oa_name = oa_override or sdata.get("oa") or "L27"
+    oa_path = Path(oa_path_override) if oa_path_override else OA_DESIGN_MAP.get(oa_name)
+    randomize = sdata.get("randomize", False) if randomize_override is None else bool(randomize_override)
+    seeds = list(sdata.get("seeds", [42]))
+    base_cfg = base_config_override or (Path(sdata["base_config"]) if sdata.get("base_config") else None)
+    return SuitePlan(
+        suite=suite_name,
+        description=sdata.get("description", ""),
+        include=include,
+        fixed=fixed,
+        oa=oa_name,
+        oa_path=oa_path,
+        randomize=randomize,
+        seeds=seeds,
+        base_config=base_cfg,
+    )
 
-def print_summary(
-    plan: SuitePlan,
-    artifacts: ArtifactPaths,
-    estimate: RuntimeEstimate,
-    statuses: List[ConstraintStatus],
-) -> None:
-    print("Suite:", plan["suite"])
-    print("Description:", plan["description"])
-    print("OA:", plan["oa"], "->", plan["oa_path"])
-    print("Registry:", artifacts["registry"])
-    print("Design:", artifacts["design"])
-    print("Manifest:", artifacts["manifest"])
-    print("Randomize mapping:", plan["randomize"])
-    print("Estimated runs:", estimate["runs"])
-    print("Per-run seconds:", f"{estimate['per_run_seconds']:.2f}")
-    print("Total seconds:", f"{estimate['total_seconds']:.2f}")
-
+def run_suite(plan: SuitePlan, artifacts: ArtifactPaths, runner: Path, dry_run: bool) -> None:
+    if dry_run:
+        print("Dry-run: not executing runner.")
+        return
+    env = os.environ.copy()
+    env["TAGUCHI_FACTOR_REGISTRY"] = artifacts["registry"]
+    env["TAGUCHI_ARRAY_PATH"] = artifacts["design"]
+    env["TAGUCHI_RANDOMIZE"] = "1" if plan.randomize else "0"
+    if plan.base_config:
+        env["TAGUCHI_BASE_CONFIG"] = str(plan.base_config)
+    subprocess.check_call([str(runner)], env=env)
 
 def main() -> None:
     args = parse_args()
     catalog = load_yaml(args.catalog)
     suites = load_yaml(args.suites)
     if args.list_factors:
-        list_factors(catalog)
-        return
+        list_factors(catalog); return
     if args.list_suites:
-        list_suites(catalog, suites)
-        return
+        list_suites(catalog, suites); return
     if not args.suite:
-        raise ValueError("--suite is required unless listing factors or suites")
+        raise SystemExit("--suite is required (or use --list-suites / --list-factors)")
     plan = build_plan(
         suite_name=args.suite,
         suites=suites,
         catalog=catalog,
-        overrides=args.override,
-        base_config_override=args.base_config,
         oa_override=args.oa,
         oa_path_override=args.oa_path,
         randomize_override=args.randomize,
+        base_config_override=args.base_config,
     )
     if args.randomize_seed is not None:
-        plan["seeds"] = [args.randomize_seed]
+        plan.seeds = [int(args.randomize_seed)]
     engine = ConstraintEngine(catalog)
     statuses = engine.evaluate(plan)
-    print_constraints(statuses)
-    blocked = any(status["status"] == "BLOCKED" for status in statuses)
-    if blocked:
-        print("One or more constraints are blocked; aborting.")
-        sys.exit(1)
+    if any(s["status"] == "BLOCKED" for s in statuses):
+        print_constraints(statuses)
+        raise SystemExit("Constraint violation: BLOCKED")
     if args.validate_only:
-        return
+        print_constraints(statuses); return
     workspace = args.output_dir
     artifacts, estimate = generate_artifacts(
         plan, args.catalog, args.suites, catalog, workspace, statuses
@@ -616,7 +482,6 @@ def main() -> None:
     if args.estimate_only:
         return
     run_suite(plan, artifacts, runner=args.runner, dry_run=args.dry_run)
-
 
 if __name__ == "__main__":
     main()
