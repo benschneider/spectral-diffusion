@@ -152,6 +152,23 @@ factors:
     cost_weight: 0.1
     role: reproducibility
     doc: "Preset random seed for deterministic diagnostics."
+  spectral_backend:
+    kind: enum
+    levels: ["torch_fft", "cpu_fftw", "cpu_pocketfft", "fused_cpu", "fused_cuda"]
+    cost_weight: 1.5
+    role: performance
+    doc: "FFT backend"
+    requires: ["cpu_fftw => feature_fftw", "fused_cuda => cuda_available"]
+  data_gen_backend:
+    kind: enum
+    levels: ["python", "rust"]
+    cost_weight: 1.2
+    role: performance
+  precision_mode:
+    kind: enum
+    levels: ["fp32", "tf32", "bf16"]
+    cost_weight: 0.5
+    role: numeric
 constraints:
   - expr: 'normalization_mode == "off" and lambda_var == 0.004'
     reason: 'Higher λ_var without normalization destabilizes early gradients.'
@@ -162,6 +179,10 @@ constraints:
   - expr: 'grad_clipping == "none" and learning_rate == 0.003'
     reason: 'High LR without clipping tends to overflow; prefer warn then block.'
     severity: warn
+  - rule: "if spectral_backend in ['fused_cuda'] then cuda_available"
+    reason: "GPU required"
+  - rule: "if precision_mode == 'tf32' then device == 'cuda'"
+    reason: "TF32 is CUDA-only"
 estimation:
   base_seconds_per_run: 120
   multipliers:
