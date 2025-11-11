@@ -26,7 +26,7 @@ def test_adaptive_snr_weight_maintains_fp32_state_and_floor():
     assert weight.dtype == raw_loss.dtype
     assert adaptive._ema_val.dtype == torch.float32  # pylint: disable=protected-access
     assert diag["kappa"] >= 1e-3
-    assert 0.0 < diag["mean_weight"] < 1.0
+    assert diag["mean_weight"] == pytest.approx(1.0, rel=0.2)
     assert 0.0 <= diag["overflow"] <= 1.0
     assert "alpha_fac" in diag
     assert "overflow_ema" in diag
@@ -50,7 +50,7 @@ def test_adaptive_snr_weight_handles_overflow_and_delta_growth():
     _, diag = adaptive.update(snr, raw_loss, alpha)
 
     assert diag["overflow"] > 0.0
-    assert diag["mean_weight"] < 1.0
+    assert diag["mean_weight"] == pytest.approx(1.0, rel=0.2)
     assert diag["delta"] >= adaptive._delta_base  # pylint: disable=protected-access
     assert diag["overflow_ema"] > 0.0
 

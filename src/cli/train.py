@@ -69,6 +69,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Override diffusion.dc_scale_factor (attenuation for DC noise).",
     )
     parser.add_argument(
+        "--lambda-var",
+        type=float,
+        default=None,
+        help="Override diffusion.lambda_var (variance regulariser weight).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Skip intensive work; useful for testing the pipeline setup.",
@@ -125,6 +131,7 @@ def train_from_config(
     json_log: bool = False,
     snr_ratio: Optional[float] = None,
     dc_scale_factor: Optional[float] = None,
+    lambda_var: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Load configuration, execute training, and log artifacts.
 
@@ -195,6 +202,9 @@ def train_from_config(
         diffusion_cfg["dc_scale_factor"] = float(dc_scale_factor)
         spectral_cfg = config.setdefault("spectral", {})
         spectral_cfg["dc_scale_factor"] = float(dc_scale_factor)
+    if lambda_var is not None:
+        diffusion_cfg = config.setdefault("diffusion", {})
+        diffusion_cfg["lambda_var"] = float(lambda_var)
 
     run_identifier = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     dirs = ensure_directories(output_dir=output_dir, run_id=run_identifier)
@@ -293,6 +303,7 @@ def main(argv: Optional[Any] = None) -> None:
         json_log=args.json_log,
         snr_ratio=args.snr_ratio,
         dc_scale_factor=args.dc_scale_factor,
+        lambda_var=args.lambda_var,
     )
     logging.getLogger("spectral_diffusion.train").info(
         "Completed run %s with metrics at %s", result["run_id"], result["metrics_path"]

@@ -58,6 +58,11 @@ def weighted_residual_loss(
 
     if not enable_weighting:
         loss_val = raw_loss.sum() if reduction == "sum" else raw_loss.mean()
+        if raw_loss.ndim > 1:
+            per_sample = raw_loss.view(raw_loss.shape[0], -1)
+            per_sample_loss = per_sample.mean(dim=1)
+        else:
+            per_sample_loss = raw_loss
         diag = {
             "mean_weight": 1.0,
             "max_weight": 1.0,
@@ -70,6 +75,7 @@ def weighted_residual_loss(
             "log_event": False,
             "frozen": False,
             "delta": 0.0,
+            "per_sample_loss": per_sample_loss,
         }
         _merge_diag(diag, diag_extra)
         return loss_val, diag
@@ -93,6 +99,9 @@ def weighted_residual_loss(
                 "log_event": True,
                 "frozen": True,
                 "delta": adaptive.delta,
+                "per_sample_loss": torch.zeros(
+                    prediction.shape[0], device=prediction.device, dtype=prediction.dtype
+                ),
             }
             _merge_diag(diag, diag_extra)
             return loss_val, diag
@@ -151,6 +160,11 @@ def weighted_residual_loss(
     loss_val = weighted.sum() if reduction == "sum" else weighted.mean()
     diag.setdefault("mean_weight", float(weight.detach().mean().item()))
     diag.setdefault("max_weight", float(weight.detach().max().item()))
+    if weighted.ndim > 1:
+        per_sample_loss = weighted.view(weighted.shape[0], -1).mean(dim=1)
+    else:
+        per_sample_loss = weighted
+    diag["per_sample_loss"] = per_sample_loss
     return loss_val, diag
 
 

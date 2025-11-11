@@ -7,7 +7,7 @@ from typing import Callable, Dict, Iterable, Optional, Tuple
 
 import torch
 
-from src.training.regulators import MicroResetPolicy
+from src.utils.adaptive_snr import MicroResetPolicy, normalise_weights
 
 EPS = 1e-8
 
@@ -177,6 +177,7 @@ class AdaptiveSNRWeight:
         expanded_soft = _expand_to(soft_weight, loss_detached).to(raw_loss.dtype)
         kappa_expanded = _expand_to(kappa_per_example, expanded_soft).to(raw_loss.dtype)
         weight = expanded_soft / (expanded_soft + kappa_expanded + EPS)
+        weight = normalise_weights(weight, per_example_snr)
 
         kappa_mean = float(kappa_per_example.mean().item())
 
@@ -274,8 +275,6 @@ class AdaptiveSNRWeight:
             "clip_overflow": clip_ratio,
             "micro_reset": 1.0 if micro_reset else 0.0,
         }
-        if micro_reset:
-            diag["micro_reset"] = 1.0
         if diag_extra:
             for key, value in diag_extra.items():
                 if key not in diag:
@@ -303,4 +302,3 @@ class AdaptiveSNRWeight:
 # Backwards compatibility ----------------------------------------------------
 
 AdaptiveSNRv14 = AdaptiveSNRWeight
-

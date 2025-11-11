@@ -1,17 +1,19 @@
-"""Regulators for adaptive diffusion training."""
+"""Legacy entry points for adaptive regulator utilities."""
 
-from .adaptive_regulator import (
+from src.utils.adaptive_snr import (
     AdaptiveRegulatorMetrics,
+    AdaptiveSNRGovernor,
     MicroResetPolicy,
+    SNRGovernorUpdate,
     blend_overflow_ema,
     compute_alpha_fac,
 )
-from .adaptive_snr_controller import AdaptiveSNRController
 
 __all__ = [
     "AdaptiveRegulatorMetrics",
-    "AdaptiveSNRController",
+    "AdaptiveSNRGovernor",
     "MicroResetPolicy",
+    "SNRGovernorUpdate",
     "blend_overflow_ema",
     "compute_alpha_fac",
 ]

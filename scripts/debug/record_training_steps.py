@@ -32,7 +32,8 @@ from src.training.scheduler import (
     loss_aware_timesteps,
     sample_timesteps,
 )
-from src.training.regulators import AdaptiveSNRController
+from src.training.regulators import AdaptiveSNRGovernor
+from src.utils.adaptive_snr import predicted_noise_from_output
 from src.utils.debug_helpers import (
     cycle_loader,
     fft_band_means,
@@ -128,6 +129,7 @@ def run_step_recorder(
     dc_scale_factor: Optional[float] = None,
     adaptive_snr: bool = False,
     log_snr_json: bool = False,
+    lambda_var: float = 7e-4,
     loader: Optional[DataLoader] = None,
     snr_min: float = 0.5,
     snr_max: float = 2.5,
@@ -320,31 +322,28 @@ def run_step_recorder(
 
     loss_landscape = torch.ones(coeffs.num_timesteps, device=device_obj)
 
-    controller: Optional[AdaptiveSNRController] = None
+    controller: Optional[AdaptiveSNRGovernor] = None
     last_controller_metrics: Dict[str, float] = {}
     if adaptive_snr:
         controller_cfg = diffusion_cfg.get("adaptive_snr_controller", {}) or {}
-        controller = AdaptiveSNRController(
-            min_snr=float(controller_cfg.get("min_snr", 0.5)),
-            max_snr=float(controller_cfg.get("max_snr", 2.5)),
-            inc=float(controller_cfg.get("inc", 1.05)),
-            dec=float(controller_cfg.get("dec", 0.9)),
-            kappa_thresh=float(controller_cfg.get("kappa_thresh", 1e-3)),
-            alpha_fac_high=float(controller_cfg.get("alpha_fac_high", 1.8)),
-            overflow_high=float(controller_cfg.get("overflow_high", 0.1)),
+        controller = AdaptiveSNRGovernor(
+            min_ratio=float(controller_cfg.get("min_snr", 0.5)),
+            max_ratio=float(controller_cfg.get("max_snr", 2.5)),
             initial_ratio=effective_snr_ratio,
+            overflow_target=float(controller_cfg.get("overflow_target", 0.05)),
+            lambda_var=lambda_var,
         )
         effective_snr_ratio = controller.ratio
         _log_event(
             "AdaptiveSNR",
             (
                 f"[AdaptiveSNR] enabled with start ratio={controller.ratio:.3f} "
-                f"bounds=[{controller.min_snr:.3f}, {controller.max_snr:.3f}]"
+                f"bounds=[{controller.min_ratio:.3f}, {controller.max_ratio:.3f}]"
             ),
             extra={
                 "start_ratio": controller.ratio,
-                "min_snr": controller.min_snr,
-                "max_snr": controller.max_snr,
+                "min_snr": controller.min_ratio,
+                "max_snr": controller.max_ratio,
             },
         )
 
@@ -491,6 +490,14 @@ def run_step_recorder(
             sqrt_alpha_t,
             sqrt_one_minus_t,
         )
+        predicted_eps = predicted_noise_from_output(
+            pred,
+            prediction_type=prediction_type,
+            clean=xb,
+            noisy=x_t,
+            sqrt_alpha_t=sqrt_alpha_t,
+            sqrt_one_minus_alpha_t=sqrt_one_minus_t,
+        )
 
         try:
             denoised = predict_x0(pred, prediction_type, x_t, sqrt_alpha_t, sqrt_one_minus_t)
@@ -520,10 +527,46 @@ def run_step_recorder(
             else:
                 loss = loss_result
         mae = F.l1_loss(pred.detach(), target.detach())
+        lambda_var_tensor = loss.new_tensor(lambda_var)
+        variance_penalty_val = 0.0
+        variance_ratio_val = float("nan")
+        pred_std_centered = float("nan")
+        true_std_centered = float("nan")
+        if predicted_eps.numel() and effective_noise.numel():
+            pred_centered = predicted_eps - predicted_eps.mean()
+            true_centered = effective_noise - effective_noise.mean()
+            std_pred = torch.sqrt(torch.mean(pred_centered.pow(2)))
+            std_true = torch.sqrt(torch.mean(true_centered.pow(2)))
+            variance_penalty = lambda_var_tensor * (std_pred - std_true.detach()) ** 2
+            variance_penalty_val = float(variance_penalty.detach().item())
+            pred_std_centered = float(std_pred.detach().item())
+            true_std_centered = float(std_true.detach().clamp(min=1e-6).item())
+            if std_true > 0:
+                variance_ratio_val = float((std_pred.detach() / std_true.detach().clamp(min=1e-6)).item())
+            else:
+                variance_ratio_val = float("nan")
+            loss = loss + variance_penalty
         loss_value = float(loss.detach().cpu())
         mae_value = float(mae.detach().cpu())
 
         fft_feedback = compute_fft_feedback(pred, target, fft_norm=fft_norm, sar_weight=sar_weight)
+        fft_feedback["variance_ratio"] = variance_ratio_val
+        fft_feedback["variance_penalty"] = variance_penalty_val
+        output_fft = fft_band_means(pred.detach())
+        input_fft = fft_band_means(xb.detach())
+        noisy_fft = fft_band_means(x_t.detach())
+        fft_low = output_fft.get("fft_low", float("nan"))
+        fft_high = output_fft.get("fft_high", float("nan"))
+        spectral_pressure = torch.tensor(0.0, device=loss.device, dtype=loss.dtype)
+        if not math.isnan(fft_low) and not math.isnan(fft_high):
+            low_tensor = torch.tensor(fft_low, device=loss.device, dtype=loss.dtype)
+            high_tensor = torch.tensor(fft_high, device=loss.device, dtype=loss.dtype)
+            spectral_pressure = ((high_tensor / (low_tensor + 1e-6)) - 1.0).abs()
+            fft_feedback["spectral_pressure"] = float(spectral_pressure.detach().cpu())
+            loss = loss + 0.05 * spectral_pressure
+        fft_feedback.setdefault(
+            "spectral_pressure", float(spectral_pressure.detach().cpu())
+        )
 
         optimiser.zero_grad(set_to_none=True)
         loss.backward()
@@ -531,9 +574,6 @@ def run_step_recorder(
         optimiser.step()
 
         param_delta_value = parameter_delta(model, previous_state)
-        output_fft = fft_band_means(pred.detach())
-        input_fft = fft_band_means(xb.detach())
-        noisy_fft = fft_band_means(x_t.detach())
 
         prediction_std_val = float(pred.detach().std().item())
         input_std_val = float(xb.detach().std().item())
@@ -704,6 +744,10 @@ def run_step_recorder(
         if noise_stats:
             for key, value in noise_stats.items():
                 record[key] = value
+        record["variance_ratio"] = variance_ratio_val
+        record["variance_penalty"] = variance_penalty_val
+        record["pred_noise_std_centered"] = pred_std_centered
+        record["true_noise_std_centered"] = true_std_centered
         record.update({f"fft_{key}": float(value) for key, value in fft_feedback.items()})
         record.update({f"output_{k}": v for k, v in output_fft.items()})
         record.update({f"input_{k}": v for k, v in input_fft.items()})
@@ -738,20 +782,22 @@ def run_step_recorder(
         adaptive_note: Optional[str] = None
 
         if controller is not None:
-            new_ratio, note = controller.update(
+            update = controller.update(
                 loss=loss_value,
                 grad_norm=grad_norm_value,
-                fft_feedback=fft_feedback,
+                snr_raw=snr_raw,
+                snr_clamped=snr_vals,
                 adaptive_diag=adaptive_diag,
-                snr_vals=snr_vals,
+                predicted_noise=predicted_eps.detach(),
+                true_noise=effective_noise.detach(),
                 std_ratio=std_ratio,
             )
-            effective_snr_ratio = new_ratio
-            record.update(controller.latest_metrics)
-            metrics = controller.latest_metrics
+            effective_snr_ratio = update.ratio
+            record.update(update.metrics)
+            metrics = update.metrics
             last_controller_metrics = metrics
             headroom = metrics.get("snr_headroom", headroom)
-            adaptive_note = note
+            adaptive_note = update.log_message
             if metrics and "snr_ratio" in metrics:
                 current_snr_ratio = _clamp_snr(metrics["snr_ratio"])
             elif effective_snr_ratio is not None:
@@ -768,12 +814,13 @@ def run_step_recorder(
                         "snr_target": metrics.get("snr_target"),
                     },
                 )
-            if note:
+            if update.log_message:
+                print(update.log_message)
                 _log_event(
                     "AdaptiveSNR",
-                    f"[AdaptiveSNR] {note}",
+                    update.log_message,
                     step=step,
-                    extra={"note": note, "snr_ratio": effective_snr_ratio},
+                    extra={"note": update.log_message, "snr_ratio": effective_snr_ratio},
                 )
 
         if adaptive_snr and current_snr_ratio is not None and high_snr_fraction is None and snr_vals.numel() > 0:
@@ -1061,6 +1108,7 @@ def run_step_recorder(
         "snr_ratio": effective_snr_ratio,
         "dc_scale_factor": effective_dc_scale,
         "adaptive_snr_enabled": bool(adaptive_snr),
+        "lambda_var": lambda_var,
         "final_snr_ratio": current_snr_ratio,
     }
 
@@ -1100,7 +1148,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--adaptive-snr",
         action="store_true",
-        help="Enable progressive SNR control via AdaptiveSNRController.",
+        help="Enable progressive SNR control via AdaptiveSNRGovernor.",
     )
     parser.add_argument(
         "--log-snr-json",
@@ -1111,6 +1159,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--verbose-logs",
         action="store_true",
         help="Also stream diagnostic logs to stdout.",
+    )
+    parser.add_argument(
+        "--lambda-var",
+        type=float,
+        default=7e-4,
+        help="Variance regulariser weight λ_var.",
     )
     return parser
 
@@ -1130,6 +1184,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         adaptive_snr=bool(args.adaptive_snr),
         log_snr_json=bool(args.log_snr_json),
         verbose_logs=bool(args.verbose_logs),
+        lambda_var=float(args.lambda_var),
     )
     print(f"Step recorder artefacts written to {output_path}")
 
@@ -1159,6 +1214,7 @@ def record_training_steps(
     snr_overflow_high: float = 0.05,
     verbose_logs: bool = False,
     log_snr_json: bool = False,
+    lambda_var: float = 7e-4,
 ) -> Path:
     """Backwards-compatible wrapper exported for utility scripts."""
 
@@ -1182,4 +1238,5 @@ def record_training_steps(
         snr_overflow_high=snr_overflow_high,
         verbose_logs=verbose_logs,
         log_snr_json=log_snr_json,
+        lambda_var=lambda_var,
     )

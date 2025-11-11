@@ -3,7 +3,6 @@ from types import SimpleNamespace
 import json
 import subprocess
 import sys
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -190,6 +189,7 @@ def _run_step_recorder(output_dir, *, steps=20):
         "1",
         "--output-dir",
         str(output_dir),
+        "--adaptive-snr",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     combined = (result.stdout or "") + (result.stderr or "")
@@ -203,6 +203,7 @@ def test_step_recorder_diagnostics_stability(tmp_path):
 
     assert "Traceback" not in log
     assert "Step recorder artefacts written" in log
+    assert "[SNR-GOV]" in log
 
     metrics_path = out_dir / "step_metrics.jsonl"
     assert metrics_path.exists()
@@ -219,6 +220,7 @@ def test_step_recorder_diagnostics_stability(tmp_path):
     diagnostics_block = summary_payload.get("diagnostic_events")
     assert isinstance(diagnostics_block, list), "summary.json missing diagnostic events"
     assert any(evt.get("tag") == "Normalization" for evt in diagnostics_block)
+    assert summary_payload.get("lambda_var") == pytest.approx(7e-4)
 
     all_events = []
     for record in records:
@@ -236,12 +238,14 @@ def test_step_recorder_diagnostics_stability(tmp_path):
         if evt.get("tag") == "TensorPreview" and evt.get("tensor") == "prediction"
     ]
     assert prediction_events, "No prediction std values captured"
+    assert any("variance_penalty" in record for record in records)
     assert max(float(evt.get("std", 0.0)) for evt in prediction_events) < 50.0
 
     weight_events = [evt for evt in all_events if evt.get("tag") == "AdaptiveSNRWeight"]
     weight_means = [float(evt.get("mean_weight")) for evt in weight_events if evt.get("mean_weight") is not None]
     assert weight_means, "Adaptive weights not logged"
-    assert max(weight_means) - min(weight_means) > 1e-3
+    for mean in weight_means:
+        assert 0.7 <= mean <= 1.3
 
     overflow_events = [evt for evt in all_events if evt.get("tag") == "OverflowHandler"]
     assert overflow_events, "Deterministic overflow regime not observed"

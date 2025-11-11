@@ -108,6 +108,8 @@ def test_step_executor_runs_backward_and_invokes_callback(monkeypatch):
     assert outcome.weight_stats is not None
     assert outcome.weight_stats["mean_weight"] == pytest.approx(1.0)
     assert outcome.weight_stats["max_weight"] == pytest.approx(1.0)
+    assert "variance_penalty" in outcome.fft_feedback
+    assert "variance_penalty" in outcome.batch_stats
 
 
 def test_step_executor_handles_weight_toggle(monkeypatch):

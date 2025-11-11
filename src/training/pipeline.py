@@ -392,6 +392,7 @@ class TrainingPipeline:
                 getattr(self._noise_preparer, "fft_norm", None)
                 or str(diffusion_cfg.get("fft_norm", "ortho"))
             )
+            lambda_var = float(diffusion_cfg.get("lambda_var", 7e-4))
             self._step_executor = TrainingStepExecutor(
                 model=self.model,
                 optimizer=self.optimizer,
@@ -400,6 +401,7 @@ class TrainingPipeline:
                 snr_weighting=snr_weighting,
                 snr_transform=snr_transform,
                 fft_norm=str(fft_norm),
+                lambda_var=lambda_var,
             )
             marker = getattr(self.loss_fn, "residual_marker", None)
             if callable(marker):

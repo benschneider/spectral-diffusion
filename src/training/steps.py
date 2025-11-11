@@ -15,6 +15,7 @@ from src.core.fft_feedback import compute_fft_feedback
 from src.core.overflow_handler import OverflowHandler
 from src.core.snr_scheduler import compute_snr_stats, measure_batch_snr
 from src.training.noise import NoiseBatch
+from src.utils.adaptive_snr import predicted_noise_from_output
 from src.utils.debug_helpers import fft_band_means
 
 
@@ -24,6 +25,7 @@ SIGMA_MIN = 1e-4
 SNR_CLIP = 250.0
 PRED_STD_WARN_FACTOR = 5.0
 SPECTRAL_WARN_THRESHOLD = 0.8
+
 
 @dataclass
 class StepOutcome:
@@ -53,6 +55,7 @@ class TrainingStepExecutor:
         snr_weighting: Optional[bool],
         snr_transform: str,
         fft_norm: str,
+        lambda_var: float = 7e-4,
     ) -> None:
         self.model = model
         self.optimizer = optimizer
@@ -76,6 +79,7 @@ class TrainingStepExecutor:
             ema_decay=self._overflow_decay,
             enable_renorm=enable_overflow_renorm,
         )
+        self.lambda_var = float(lambda_var)
 
     def run_step(
         self,
@@ -102,6 +106,15 @@ class TrainingStepExecutor:
             sqrt_alpha_t,
             sqrt_one_minus_alpha_t,
         )
+        predicted_noise = predicted_noise_from_output(
+            prediction,
+            prediction_type=self.prediction_type,
+            clean=clean_batch,
+            noisy=noise_batch.noisy,
+            sqrt_alpha_t=sqrt_alpha_t,
+            sqrt_one_minus_alpha_t=sqrt_one_minus_alpha_t,
+        )
+        true_noise = noise_batch.eps
         snr_stats = compute_snr_stats(
             sqrt_alpha_t,
             sqrt_one_minus_alpha_t,
@@ -153,6 +166,14 @@ class TrainingStepExecutor:
         else:
             mae = F.l1_loss(prediction, target)
 
+        per_sample_loss_tensor: Optional[Tensor] = None
+        if loss_diag:
+            candidate = loss_diag.get("per_sample_loss")
+            if isinstance(candidate, torch.Tensor):
+                per_sample_loss_tensor = candidate
+        if per_sample_loss_tensor is None:
+            per_sample_loss_tensor = residual.view(B, -1).pow(2).mean(dim=1)
+
         weight_stats: Optional[Dict[str, float]] = None
         if loss_diag:
             weight_stats = {
@@ -179,6 +200,7 @@ class TrainingStepExecutor:
                 "mean": float(weight.mean().item()),
             }
 
+        weight_stats = weight_stats or {}
         fft_feedback = compute_fft_feedback(
             prediction,
             target,
@@ -187,8 +209,6 @@ class TrainingStepExecutor:
         snr = snr_stats.snr_clamped
         overflow_stats = self.overflow_handler.update(overflow_mask)
         self.overflow_handler.log(snr_stats.snr_clamped, regimes)
-
-        batch_snr = measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t)
 
         coeff_stats = {
             "timestep_min": float(timesteps.min().item()),
@@ -206,9 +226,9 @@ class TrainingStepExecutor:
             "snr_raw_max": float(snr_raw.max().item()),
             "overflow_count": float(overflow_stats.count),
             "overflow_ema": float(overflow_stats.ema),
-            "signal_rms": float(batch_snr.signal_rms.mean().item()),
-            "noise_rms": float(batch_snr.noise_rms.mean().item()),
-            "snr_measured": float(batch_snr.snr_measured.mean().item()),
+            "signal_rms": float(measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t).signal_rms.mean().item()),
+            "noise_rms": float(measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t).noise_rms.mean().item()),
+            "snr_measured": float(measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t).snr_measured.mean().item()),
         }
 
         prediction_mean = float(prediction.detach().mean().item())
@@ -229,17 +249,46 @@ class TrainingStepExecutor:
         fft_low = band_means.get("fft_low", float("nan"))
         fft_mid = band_means.get("fft_mid", float("nan"))
         fft_high = band_means.get("fft_high", float("nan"))
+        spectral_term = torch.tensor(0.0, device=loss.device, dtype=loss.dtype)
         if not math.isnan(fft_low) and not math.isnan(fft_high):
             low_tensor = torch.tensor(fft_low, device=loss.device, dtype=loss.dtype)
             high_tensor = torch.tensor(fft_high, device=loss.device, dtype=loss.dtype)
             spectral_pressure = ((high_tensor / (low_tensor + 1e-6)) - 1.0).abs()
-            loss = loss + 0.05 * spectral_pressure
+            spectral_term = 0.05 * spectral_pressure
             fft_feedback["spectral_pressure"] = float(spectral_pressure.detach().cpu())
         else:
             spectral_pressure = torch.tensor(0.0, device=loss.device, dtype=loss.dtype)
         fft_feedback.setdefault(
             "spectral_pressure", float(spectral_pressure.detach().cpu())
         )
+
+        lambda_var_tensor = loss.new_tensor(self.lambda_var)
+        variance_penalty = loss.new_tensor(0.0)
+        variance_ratio = float("nan")
+        pred_std_value = float("nan")
+        true_std_value = float("nan")
+        if predicted_noise.numel() and true_noise.numel():
+            pred_centered = predicted_noise - predicted_noise.mean()
+            true_centered = true_noise - true_noise.mean()
+            std_pred = torch.sqrt(torch.mean(pred_centered.pow(2)))
+            std_true = torch.sqrt(torch.mean(true_centered.pow(2)))
+            variance_penalty = lambda_var_tensor * (std_pred - std_true.detach()) ** 2
+            pred_std_detached = std_pred.detach()
+            true_std_detached = std_true.detach().clamp(min=1e-6)
+            pred_std_value = float(pred_std_detached.item())
+            true_std_value = float(true_std_detached.item())
+            variance_ratio = float((pred_std_detached / true_std_detached).item())
+
+        if per_sample_loss_tensor is not None and per_sample_loss_tensor.shape[0] == B:
+            loss = (per_sample_loss_tensor + variance_penalty).mean()
+        else:
+            loss = loss + variance_penalty
+
+        loss = loss + spectral_term
+
+        variance_penalty_value = float(variance_penalty.detach().item())
+        fft_feedback["variance_ratio"] = variance_ratio
+        fft_feedback["variance_penalty"] = variance_penalty_value
         if not math.isnan(fft_high) and fft_high > SPECTRAL_WARN_THRESHOLD:
             print(
                 "[WARN] Spectral blowup suspected: "
@@ -267,6 +316,10 @@ class TrainingStepExecutor:
             "prediction_fft_mid": fft_mid,
             "prediction_fft_high": fft_high,
             "prediction_fft_ratio": fft_ratio,
+            "variance_ratio": variance_ratio,
+            "variance_penalty": variance_penalty_value,
+            "pred_noise_std_centered": pred_std_value,
+            "true_noise_std_centered": true_std_value,
             "spectral_pressure": float(spectral_pressure.detach().cpu()),
         }
 
