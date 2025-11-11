@@ -92,7 +92,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--log-level",
         type=str,
-        default="INFO",
+        default="WARNING",
         help="Logging level (DEBUG, INFO, WARNING, ERROR)",
     )
     return parser
@@ -186,8 +186,11 @@ def train_from_config(
     if not hasattr(logging, level_name):
         raise ValueError(f"Invalid log level requested: {log_level}")
 
-    logging.basicConfig(level=getattr(logging, level_name, logging.INFO))
+    logging.basicConfig(level=getattr(logging, level_name, logging.WARNING))
     logger = logging.getLogger("train")
+    logger.setLevel(logging.INFO)  # keeps epoch summaries
+    logging.getLogger("AdaptiveSNR").setLevel(logging.WARNING)
+    logging.getLogger("OverflowHandler").setLevel(logging.ERROR)
 
     config = load_config(config_path=config_path)
     apply_variant_override(config=config, variant=variant)

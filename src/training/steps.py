@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
+import logging
 import math
 import torch
 import torch.nn.functional as F
@@ -80,6 +81,7 @@ class TrainingStepExecutor:
             enable_renorm=enable_overflow_renorm,
         )
         self.lambda_var = float(lambda_var)
+        self._step = 0
 
     def run_step(
         self,
@@ -88,6 +90,7 @@ class TrainingStepExecutor:
         timesteps: Tensor,
         grad_callback: Optional[Callable[[], Optional[float]]] = None,
     ) -> StepOutcome:
+        self._step += 1
         sqrt_alpha_t = safe_clamp(
             noise_batch.sqrt_alpha_t,
             min_value=ALPHA_MIN,
@@ -236,9 +239,9 @@ class TrainingStepExecutor:
         input_std = float(clean_batch.detach().std().item())
         if input_std > 0:
             std_ratio = prediction_std / max(input_std, 1e-8)
-            if std_ratio > PRED_STD_WARN_FACTOR:
-                print(
-                    "[WARN] Prediction std drift: "
+            if std_ratio > PRED_STD_WARN_FACTOR and self._step % 100 == 0:
+                logging.warning(
+                    "Prediction std drift: "
                     f"std={prediction_std:.3f}, input_std={input_std:.3f}, "
                     f"ratio={std_ratio:.2f}"
                 )
@@ -289,9 +292,9 @@ class TrainingStepExecutor:
         variance_penalty_value = float(variance_penalty.detach().item())
         fft_feedback["variance_ratio"] = variance_ratio
         fft_feedback["variance_penalty"] = variance_penalty_value
-        if not math.isnan(fft_high) and fft_high > SPECTRAL_WARN_THRESHOLD:
-            print(
-                "[WARN] Spectral blowup suspected: "
+        if not math.isnan(fft_high) and fft_high > SPECTRAL_WARN_THRESHOLD and self._step % 500 == 0:
+            logging.warning(
+                "Spectral blowup suspected: "
                 f"fft_high_mean={fft_high:.3f}"
             )
 
