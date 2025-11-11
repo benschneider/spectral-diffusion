@@ -47,6 +47,15 @@ from src.utils.debug_helpers import (
     summarise_snr_spikes,
 )
 
+
+def _load_checkpoint(model: torch.nn.Module, checkpoint_path: Path) -> None:
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = checkpoint.get("model", checkpoint)
+    model.load_state_dict(state_dict)
+
+
 # Backwards compatibility for downstream tooling/tests relying on the legacy name.
 _summarise_snr_spikes = summarise_snr_spikes
 from src.utils.sanity_checks import check_fft_sanity
@@ -187,6 +196,7 @@ def run_step_recorder(
     spectral_slope: str = "flat",
     snr_level: str = "nominal",
     seed_mode: Optional[str] = None,
+    checkpoint: Optional[Path] = None,
 ) -> Path:
     RECORDER_VERSION = "v2.0"
     config = load_config(config_path=config_path)
@@ -332,6 +342,9 @@ def run_step_recorder(
     data_iter = cycle_loader(data_loader)
 
     model = build_model(config.get("model", {}))
+    if checkpoint is not None:
+        _log_event("Checkpoint", f"[Checkpoint] Loading {checkpoint}")
+        _load_checkpoint(model, checkpoint)
     loss_fn = get_loss_fn(config.get("loss", {}))
     _attach_adaptive_logger(loss_fn)
     marker = getattr(loss_fn, "residual_marker", None)
@@ -1509,6 +1522,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print all resolved configuration flags before training.",
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help="Path to a pretrained checkpoint for diagnostics (optional).",
+    )
     return parser
 
 
@@ -1542,6 +1561,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         spectral_slope=args.spectral_slope,
         snr_level=args.snr_level,
         seed_mode=args.seed_mode,
+        checkpoint=args.checkpoint,
         show_flags=bool(args.show_flags),
     )
     print(f"Step recorder artefacts written to {output_path}")
@@ -1587,6 +1607,7 @@ def record_training_steps(
     spectral_slope: str = "flat",
     snr_level: str = "nominal",
     seed_mode: Optional[str] = None,
+    checkpoint: Optional[Path] = None,
     show_flags: bool = False,
 ) -> Path:
     """Backwards-compatible wrapper exported for utility scripts."""
@@ -1626,5 +1647,6 @@ def record_training_steps(
         spectral_slope=spectral_slope,
         snr_level=snr_level,
         seed_mode=seed_mode,
+        checkpoint=checkpoint,
         show_flags=show_flags,
     )

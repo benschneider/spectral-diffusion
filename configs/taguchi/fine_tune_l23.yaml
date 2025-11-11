@@ -1,0 +1,79 @@
+seed: 1234
+
+data:
+  source: synthetic
+  family: spectral
+  channels: 3
+  height: 64
+  width: 64
+  size: 256
+  synthetic:
+    size: 256
+    image_size: 64
+    channels: 3
+    freq_mix: 0.4
+    color_mix: 0.4
+    include_gratings: true
+    include_shapes: true
+    use_text: true
+
+model:
+  type: unet_tiny
+  channels: 3
+  base_channels: 64
+  depth: 3
+
+training:
+  batch_size: 16
+  epochs: 1
+  num_batches: 400
+  log_every: 5
+
+optim:
+  lr: 3e-4
+  weight_decay: 0.0
+  type: adamw
+
+diffusion:
+  beta_schedule: cosine
+  num_timesteps: 1000
+  prediction_type: eps
+  snr_transform: snr
+  snr_weighting: true
+  uniform_corruption: true
+  uniform_corruption_scale: 0.15
+  adaptive_rescale: true
+  similarity_target: 0.75
+  fft_norm: ortho
+  dc_scale_factor: 0.0
+  snr_ratio: 1.0
+
+spectral:
+  enabled: true
+  apply_to:
+    - input
+    - output
+  normalize: true
+  weighting: none
+  freq_equalized_noise: true
+  per_block: false
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+  uniform_corruption_scale: 0.15
+  fft_norm: ortho
+  dc_scale_factor: 0.0
+  snr_ratio: 1.0
+
+loss:
+  reduction: mean
+  spectral_weighting: none
+  bandpass_inner: 0.1
+  bandpass_outer: 0.6
+
+sampling:
+  enabled: false
+
+evaluation:
+  reference_dir: null
+  use_fid: false
+  image_size: null
