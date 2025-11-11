@@ -14,6 +14,10 @@ Run `./scripts/run_taguchi_synthetic_l23.sh` to materialise the full L23 array (
 
 When the full 32×32 report is generated (`scripts/run_full_report_32x32.sh`), set `TAGUCHI_HDF5_ENABLED=1` and (optionally) configure `TAGUCHI_HDF5_PATH` to produce a compressed `taguchi_runs.h5` via `scripts/collate_runs_to_hdf5.py`. The converter ingests every `runs/<run_id>` folder plus the summary/taguchi CSVs, stores them under `/runs` and `/taguchi` groups, and can drop the original JSON/CSV artifacts when `TAGUCHI_HDF5_PRUNE=1`. Downstream tooling can then read this single HDF5 archive instead of scattering through multiple files (install `h5py` if it’s not already available).
 
+### Modular Taguchi suites
+
+Use `scripts/run_taguchi_suite.py` to compose suites from `configs/taguchi/factor_catalog.yaml` and `configs/taguchi/suites.yaml`. The helper generates a curated registry/design/manifest trio under `configs/taguchi/generated/`, estimates the runtime, and (when not running with `--dry-run`/`--estimate-only`) invokes `run_full_report_32x32.sh` with the generated artifacts pinned via `TAGUCHI_FACTOR_REGISTRY`/`TAGUCHI_ARRAY_PATH`. Try `python scripts/run_taguchi_suite.py --suite fast_synthetic --dry-run` to preview a plan or rerun without `--dry-run` to execute the curated configuration.
+
 ### Quick-run factor set
 
 The default Taguchi driver now points at `configs/taguchi_smoke_best.yaml` and `configs/taguchi/factor_registry_quick.yaml`, which lock the long-running toggles (`train_steps`, `sampling_steps`, `image_resolution`) to their fastest levels while honoring the L23-derived best-known hyperparameters (high learning rate, adafactor, λ_var=7e-4). Swap `TAGUCHI_BASE_CONFIG`, `TAGUCHI_FACTOR_REGISTRY`, or `TAGUCHI_ARRAY_PATH` if you need a different suite of factors.

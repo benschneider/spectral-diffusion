@@ -1,0 +1,61 @@
+suites:
+  fast_synthetic:
+    description: "Quick 32×32 synthetic Taguchi run with best-known defaults."
+    include:
+      - spectral_adapter_placement
+      - spectral_loss_weighting
+      - spectral_noise_shaping_strength
+      - snr_ratio
+      - dc_scale_factor
+      - phase_attention_capacity
+      - sampler_type
+      - sampling_steps
+      - curriculum_mode
+      - lr_schedule_mode
+      - train_steps
+      - image_resolution
+    fixed:
+      sampling_steps: 30
+      train_steps: 50
+      image_resolution: 32
+      normalization_mode: per_batch_std
+      lambda_var: 0.0007
+      learning_rate: 0.003
+      grad_clipping: global_1.0
+      synthetic_profile: randomfield
+      noise_color: patterned
+      spectral_slope: flat
+      optimizer: adafactor
+      ema_beta: 0.99
+      shock_handler: off
+      snr_level: nominal
+    oa: L27
+    oa_path: configs/taguchi/L27_extended.csv
+    randomize: false
+    seeds: [42]
+    base_config: configs/taguchi_smoke_best.yaml
+  fine_tune_l23:
+    description: "Synthetic fine-tuning suite that reuses L23 levels for diagnostics."
+    include:
+      - shock_handler
+      - normalization_mode
+      - lambda_var
+      - grad_clipping
+      - ema_beta
+      - optimizer
+      - learning_rate
+      - curriculum_mode
+      - synthetic_profile
+      - noise_color
+      - spectral_slope
+      - snr_level
+      - seed_mode
+    fixed:
+      train_steps: 120
+      sampling_steps: 30
+      image_resolution: 32
+    oa: L23
+    oa_path: configs/taguchi/L23_synthetic.csv
+    randomize: false
+    seeds: [123]
+    base_config: configs/taguchi/fine_tune_l23.yaml
