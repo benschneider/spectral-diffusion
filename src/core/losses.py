@@ -70,6 +70,9 @@ class DiffusionLoss(nn.Module):
             if self.use_weighting and self._adaptive_requested
             else None
         )
+        if self.adaptive:
+            import logging
+            self.adaptive.set_log_fn(lambda msg, diag: logging.getLogger("AdaptiveSNR").warning(msg))
 
     def set_weighting_enabled(self, enabled: bool, adaptive: Optional[bool] = None) -> None:
         """Toggle SNR weighting and optionally control the adaptive strategy."""

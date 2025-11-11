@@ -274,6 +274,8 @@ class AdaptiveSNRWeight:
             "delta": delta_eff,
             "clip_overflow": clip_ratio,
             "micro_reset": 1.0 if micro_reset else 0.0,
+            "snr_mean": float(snr.mean().item()),
+            "loss": float(raw_loss.detach().mean().item()),
         }
         if diag_extra:
             for key, value in diag_extra.items():
@@ -289,9 +291,8 @@ class AdaptiveSNRWeight:
             self._last_diag = {key: diag[key] for key in ("kappa", "ema", "mean_weight")}
             message = (
                 "[AdaptiveSNR] step="
-                f"{self._step:04d} κ={diag['kappa']:.3e} ema={diag['ema']:.3e} "
-                f"α_fac={diag['alpha_fac']:.2f} overflow={diag['overflow']:.3f} "
-                f"overflow_ema={diag['overflow_ema']:.3f}"
+                f"{self._step:04d} snr={diag['snr_mean']:.1f} loss={diag['loss']:.4f} κ={diag['kappa']:.3e} "
+                f"ema={diag['ema']:.3e} α_fac={diag['alpha_fac']:.2f} overflow={diag['overflow']:.3f}"
             )
             if self._log_fn is not None:
                 self._log_fn(message, diag)

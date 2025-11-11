@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict
 
+import logging
 import torch
 from torch import Tensor
 
@@ -64,8 +65,8 @@ class OverflowHandler:
         if not torch.any(regimes["overflow"]):
             return
         mode, loss_mode = describe_regime(regimes)
-        print(
-            "[OverflowHandler] mode="
+        logging.getLogger("OverflowHandler").error(
+            "mode="
             f"{mode} snr={float(snr_display.max().item()):.1f} "
             f"loss_mode={loss_mode} count="
             f"{int(torch.count_nonzero(regimes['overflow']).item())}"

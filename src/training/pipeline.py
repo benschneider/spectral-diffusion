@@ -221,11 +221,15 @@ class TrainingPipeline:
                 if step % log_every == 0:
                     mean_val = noise_batch.stats.get("noisy_mean") if noise_batch.stats else None
                     std_val = noise_batch.stats.get("noisy_std") if noise_batch.stats else None
+                    snr_mean = outcome.coeff_stats.get("snr_mean", float("nan"))
+                    snr_measured = outcome.coeff_stats.get("snr_measured", float("nan"))
                     self.logger.debug(
-                        "epoch %d step %d loss %.5f amp_mae %.5f phase_mae %.5f",
+                        "epoch %d step %d loss %.5f snr %.1f/%.1f amp_mae %.5f phase_mae %.5f",
                         epoch,
                         step,
                         outcome.loss,
+                        snr_mean,
+                        snr_measured,
                         outcome.fft_feedback.get("amplitude_mae", float("nan")),
                         outcome.fft_feedback.get("phase_mae", float("nan")),
                     )
