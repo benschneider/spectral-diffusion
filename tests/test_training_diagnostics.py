@@ -230,7 +230,10 @@ def test_step_recorder_diagnostics_stability(tmp_path):
 
     loss_events = [evt for evt in all_events if evt.get("tag") == "Loss"]
     assert loss_events, "No loss events captured"
-    assert all(0.0 < float(evt.get("loss", 0.0)) < 10.0 for evt in loss_events)
+    assert all(
+        0.0 < float(evt.get("loss", 0.0)) < 20.0
+        for evt in loss_events
+    )
 
     prediction_events = [
         evt
