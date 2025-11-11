@@ -1,0 +1,36 @@
+[package]
+name = "spectral-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "spectral_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20", features = ["extension-module"] }
+numpy = "0.20"
+dlpack = "0.2"
+thiserror = "1.0"
+anyhow = "1.0"
+rustfft = "6.1"
+rayon = "1.8"
+
+[features]
+default = []
+fftw = ["fftw-sys"]
+mkl = ["intel-mkl-sys"]
+cuda = ["cust"]
+
+[dependencies.fftw-sys]
+version = "0.4"
+optional = true
+features = ["system"]
+
+[dependencies.intel-mkl-sys]
+version = "0.2"
+optional = true
+
+[dependencies.cust]
+version = "0.3"
+optional = true
