@@ -6,6 +6,7 @@ from PIL import Image
 
 from src.core import build_model
 from src.training.builders import build_dataloader, build_optimizer
+from src.training.optimizers import Adafactor, Lion
 
 
 def _synthetic_config():
@@ -36,6 +37,30 @@ def test_build_optimizer_uses_config_hyperparams():
     group = optimizer.param_groups[0]
     assert group["lr"] == config["optim"]["lr"]
     assert group["weight_decay"] == config["optim"]["weight_decay"]
+
+
+def test_build_optimizer_supports_lion():
+    config = _synthetic_config()
+    config["optim"]["type"] = "lion"
+    model = build_model(config["model"])
+    optimizer = build_optimizer(model, config)
+
+    assert isinstance(optimizer, Lion)
+    group = optimizer.param_groups[0]
+    assert group["lr"] == config["optim"]["lr"]
+
+
+def test_build_optimizer_supports_adafactor():
+    config = _synthetic_config()
+    config["optim"]["type"] = "adafactor"
+    config["optim"]["relative_step"] = False
+    config["optim"]["scale_parameter"] = False
+    model = build_model(config["model"])
+    optimizer = build_optimizer(model, config)
+
+    assert isinstance(optimizer, Adafactor)
+    group = optimizer.param_groups[0]
+    assert group["lr"] == config["optim"]["lr"]
 
 
 def test_build_dataloader_piecewise_family():

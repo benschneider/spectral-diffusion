@@ -1,0 +1,197 @@
+{
+  "taguchi_design": "L23_synthetic",
+  "factors": {
+    "F1": {
+      "name": "shock_handler",
+      "description": "Dynamic LR damping when overflow spikes occur.",
+      "levels": {
+        "0": {
+          "label": "off"
+        },
+        "1": {
+          "label": "on"
+        }
+      }
+    },
+    "F2": {
+      "name": "normalization_mode",
+      "description": "Normalization applied to synthetic batches.",
+      "levels": {
+        "0": {
+          "label": "off"
+        },
+        "1": {
+          "label": "per_batch_std"
+        },
+        "2": {
+          "label": "per_band_std"
+        }
+      }
+    },
+    "F3": {
+      "name": "lambda_var",
+      "description": "Variance penalty weight \u03bb_var.",
+      "levels": {
+        "0": {
+          "label": "7e-4"
+        },
+        "1": {
+          "label": "2e-3"
+        },
+        "2": {
+          "label": "4e-3"
+        }
+      }
+    },
+    "F4": {
+      "name": "grad_clipping",
+      "description": "Gradient clipping strategy.",
+      "levels": {
+        "0": {
+          "label": "none"
+        },
+        "1": {
+          "label": "global_1.0"
+        },
+        "2": {
+          "label": "per_layer_ratio_0.02"
+        }
+      }
+    },
+    "F5": {
+      "name": "ema_beta",
+      "description": "EMA smoothing coefficient \u03b2.",
+      "levels": {
+        "0": {
+          "label": "none"
+        },
+        "1": {
+          "label": "0.99"
+        },
+        "2": {
+          "label": "0.999"
+        }
+      }
+    },
+    "F6": {
+      "name": "optimizer",
+      "description": "Optimizer selection for diagnostics run.",
+      "levels": {
+        "0": {
+          "label": "adamw"
+        },
+        "1": {
+          "label": "lion"
+        },
+        "2": {
+          "label": "adafactor"
+        }
+      }
+    },
+    "F7": {
+      "name": "learning_rate",
+      "description": "Base learning rate \u03b7.",
+      "levels": {
+        "0": {
+          "label": "3e-4"
+        },
+        "1": {
+          "label": "1e-3"
+        },
+        "2": {
+          "label": "3e-3"
+        }
+      }
+    },
+    "F8": {
+      "name": "curriculum_smoothing",
+      "description": "Curriculum variance smoothing strength.",
+      "levels": {
+        "0": {
+          "label": "none"
+        },
+        "1": {
+          "label": "light"
+        },
+        "2": {
+          "label": "strong"
+        }
+      }
+    },
+    "F9": {
+      "name": "synthetic_profile",
+      "description": "Synthetic input profile family.",
+      "levels": {
+        "0": {
+          "label": "piecewise"
+        },
+        "1": {
+          "label": "texture"
+        },
+        "2": {
+          "label": "random_field"
+        }
+      }
+    },
+    "F10": {
+      "name": "noise_color",
+      "description": "Noise color mix applied during corruption.",
+      "levels": {
+        "0": {
+          "label": "white"
+        },
+        "1": {
+          "label": "multicolor"
+        },
+        "2": {
+          "label": "patterned"
+        }
+      }
+    },
+    "F11": {
+      "name": "spectral_slope",
+      "description": "Spectral slope \u03b1 for random fields.",
+      "levels": {
+        "0": {
+          "label": "flat"
+        },
+        "1": {
+          "label": "mild"
+        },
+        "2": {
+          "label": "steep"
+        }
+      }
+    },
+    "F12": {
+      "name": "snr_level",
+      "description": "Target synthetic SNR level.",
+      "levels": {
+        "0": {
+          "label": "low_10dB"
+        },
+        "1": {
+          "label": "nominal_20dB"
+        },
+        "2": {
+          "label": "high_30dB"
+        }
+      }
+    },
+    "F13": {
+      "name": "seed_mode",
+      "description": "Random seed selection for repeatability.",
+      "levels": {
+        "0": {
+          "label": "seed_42"
+        },
+        "1": {
+          "label": "seed_123"
+        },
+        "2": {
+          "label": "seed_314"
+        }
+      }
+    }
+  }
+}

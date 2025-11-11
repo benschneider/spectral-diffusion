@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 from torch.utils.data import DataLoader, Dataset, RandomSampler
 from torchvision import datasets, transforms
 
 from src.data.synthetic import generate_synthetic_samples
+from src.training.optimizers import Adafactor, Lion
 from src.training.data.synthetic_dataset import (
     SyntheticSpectralConfig,
     SyntheticSpectralDataset,
@@ -204,6 +205,66 @@ def _build_cifar10_dataloader(
 def build_optimizer(model: torch.nn.Module, config: Dict[str, Any]) -> torch.optim.Optimizer:
     """Construct the optimizer for training."""
     optim_cfg = config.get("optim", {}) or {}
-    lr = float(optim_cfg.get("lr", 1e-4))
+    optim_type = str(optim_cfg.get("type", "adamw")).lower()
+
+    def _as_bool(value, default):
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+        return default
+
+    def _as_beta_pair(values, default):
+        if values is None:
+            return default
+        if isinstance(values, (list, tuple)) and len(values) == 2:
+            return float(values[0]), float(values[1])
+        raise ValueError(f"Expected a pair of betas, received {values!r}")
+
+    lr_value = optim_cfg.get("lr")
+    lr = float(lr_value) if lr_value is not None else 1e-4
     weight_decay = float(optim_cfg.get("weight_decay", 0.0))
+
+    if optim_type == "adamw":
+        betas = _as_beta_pair(optim_cfg.get("betas"), None)
+        if betas is not None:
+            return torch.optim.AdamW(model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+    if optim_type == "lion":
+        betas = _as_beta_pair(optim_cfg.get("betas", (0.9, 0.99)), (0.9, 0.99))
+        return Lion(model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
+
+    if optim_type == "adafactor":
+        relative_step = _as_bool(optim_cfg.get("relative_step"), False)
+        scale_parameter = _as_bool(optim_cfg.get("scale_parameter"), False if lr_value is not None else True)
+        warmup_init = _as_bool(optim_cfg.get("warmup_init"), False)
+        clip_threshold = float(optim_cfg.get("clip_threshold", 1.0))
+        decay_rate = float(optim_cfg.get("decay_rate", -0.8))
+        beta1 = optim_cfg.get("beta1")
+        if beta1 is not None:
+            beta1 = float(beta1)
+        eps_values = optim_cfg.get("eps", (1e-30, 1e-3))
+        if isinstance(eps_values, (list, tuple)) and len(eps_values) == 2:
+            eps_tuple = float(eps_values[0]), float(eps_values[1])
+        else:
+            eps_tuple = (1e-30, 1e-3)
+        lr_arg: Optional[float] = None if relative_step else float(lr)
+        return Adafactor(
+            model.parameters(),
+            lr=lr_arg,
+            eps=eps_tuple,
+            clip_threshold=clip_threshold,
+            decay_rate=decay_rate,
+            beta1=beta1,
+            weight_decay=weight_decay,
+            scale_parameter=scale_parameter,
+            relative_step=relative_step,
+            warmup_init=warmup_init,
+        )
+
     return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)

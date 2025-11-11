@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import sys
@@ -13,6 +14,7 @@ from typing import Any, Callable, DefaultDict, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -123,9 +125,27 @@ class RecorderState:
     def __init__(self, log_fn: Callable[[str, str], None]) -> None:
         self._log_fn = log_fn
         self.normalization_disabled = True
+        self.normalization_mode = "off"
         self.dc_scale_factor = 0.0
         self.lambda_var = 7e-4
         self.adaptive_snr_enabled = False
+        self.shock_handler_enabled = False
+        self.grad_clip_mode = "none"
+        self.grad_clip_scale = 1.0
+        self.clip_global_norm = 1.0
+        self.clip_ratio = 0.02
+        self.ema_beta = 0.0
+        self.optimizer_label = "adamw"
+        self.curriculum_mode = "none"
+        self.synthetic_profile = "piecewise"
+        self.noise_color = "white"
+        self.spectral_slope = "flat"
+        self.snr_level_label = "nominal"
+        self.seed_mode = None
+        self.base_learning_rate = None
+        self.shock_trigger_count = 0
+        self.shock_active_steps = 0
+        self.resolved_overrides: Dict[str, Any] = {}
 
     def log_event(self, message: str, *, tag: str = "Recorder") -> None:
         self._log_fn(tag, message)
@@ -155,10 +175,84 @@ def run_step_recorder(
     snr_kappa_thresh: float = 2.5e-1,
     snr_alpha_fac_high: float = 1.12,
     verbose_logs: bool = False,
+    normalization_mode: str = "off",
+    shock_handler: str = "off",
+    clip_mode: str = "none",
+    ema_beta: float = 0.0,
+    optimizer: Optional[str] = None,
+    learning_rate: Optional[float] = None,
+    curriculum: str = "none",
+    input_profile: str = "piecewise",
+    noise_color: str = "white",
+    spectral_slope: str = "flat",
+    snr_level: str = "nominal",
+    seed_mode: Optional[str] = None,
 ) -> Path:
     RECORDER_VERSION = "v2.0"
     config = load_config(config_path=config_path)
     apply_variant_override(config, variant)
+
+    overrides: Dict[str, Any] = {}
+    optim_cfg = config.setdefault("optim", {})
+    data_cfg = config.setdefault("data", {})
+
+    seed_value: Optional[int] = None
+    if seed_mode is not None:
+        try:
+            seed_value = int(seed_mode)
+        except (TypeError, ValueError):
+            seed_value = None
+        else:
+            config["seed"] = seed_value
+            overrides["seed_mode"] = seed_value
+
+    if learning_rate is not None:
+        lr_value = float(learning_rate)
+        optim_cfg["lr"] = lr_value
+        overrides["learning_rate"] = lr_value
+    else:
+        lr_value = None
+
+    if optimizer:
+        optim_cfg["type"] = optimizer
+        overrides["optimizer"] = optimizer
+    optimizer_label = optimizer if optimizer else str(optim_cfg.get("type", "adamw"))
+
+    if curriculum and curriculum != "none":
+        data_cfg.setdefault("curriculum", {})["mode"] = curriculum
+        overrides["curriculum"] = curriculum
+    curriculum_mode_value = curriculum
+
+    profile_map = {"piecewise": "piecewise", "texture": "texture", "randomfield": "random_field"}
+    profile_value = profile_map.get(input_profile, "piecewise")
+    data_cfg["family"] = profile_value
+    overrides["input_profile"] = input_profile
+
+    if noise_color:
+        data_cfg["noise_color"] = noise_color
+        overrides["noise_color"] = noise_color
+
+    if spectral_slope:
+        data_cfg["spectral_slope"] = spectral_slope
+        overrides["spectral_slope"] = spectral_slope
+
+    snr_level_map = {"low": 10.0, "nominal": 20.0, "high": 30.0}
+    snr_ratio_from_level: Optional[float] = None
+    if snr_level in snr_level_map:
+        db_value = snr_level_map[snr_level]
+        snr_ratio_from_level = float(10 ** (db_value / 20.0))
+        overrides["snr_level"] = snr_level
+    snr_level_label = snr_level
+
+    normalization_choice = normalization_mode
+    if enable_normalization and normalization_choice == "off":
+        normalization_choice = "batch"
+    shock_enabled = shock_handler == "on"
+    clip_mode_value = clip_mode
+    ema_beta_value = float(ema_beta)
+
+    recorder_overrides = dict(overrides)
+
     seed_everything(config)
 
     out_dir = Path(output_dir)
@@ -177,11 +271,41 @@ def run_step_recorder(
         diag_buffer.log(tag, message, step=step, level=level, extra=extra)
 
     recorder = RecorderState(_log_event)
-    if enable_normalization:
+    recorder.seed_mode = seed_value if seed_value is not None else config.get("seed")
+    recorder.base_learning_rate = (
+        lr_value if lr_value is not None else optim_cfg.get("lr")
+    )
+    recorder.optimizer_label = optimizer_label
+    recorder.curriculum_mode = curriculum_mode_value
+    recorder.synthetic_profile = input_profile
+    recorder.noise_color = noise_color
+    recorder.spectral_slope = spectral_slope
+    recorder.snr_level_label = snr_level_label
+    recorder.shock_handler_enabled = shock_enabled
+    recorder.grad_clip_mode = clip_mode_value
+    recorder.ema_beta = ema_beta_value
+    recorder.resolved_overrides.update(recorder_overrides)
+
+    normalization_choice = normalization_mode
+    if enable_normalization and normalization_choice == "off":
+        normalization_choice = "batch"
+    recorder.normalization_mode = normalization_choice
+    if normalization_choice != "off":
         recorder.normalization_disabled = False
-        recorder.log_event("[Normalization] Enabled for diagnostics", tag="Normalization")
+        recorder.log_event(
+            f"[Normalization] Mode={normalization_choice} enabled for diagnostics",
+            tag="Normalization",
+        )
     else:
         recorder.log_event("[Normalization] Disabled for diagnostic mode", tag="Normalization")
+    recorder.resolved_overrides.update(
+        {
+            "normalization_mode": recorder.normalization_mode,
+            "shock_handler": "on" if recorder.shock_handler_enabled else "off",
+            "clip_mode": recorder.grad_clip_mode,
+            "ema_beta": recorder.ema_beta,
+        }
+    )
     recorder.adaptive_snr_enabled = bool(adaptive_snr)
 
     _log_event("Recorder", f"[RecordTrainingSteps] Running version {RECORDER_VERSION}")
@@ -293,7 +417,11 @@ def run_step_recorder(
     effective_snr_ratio = (
         float(snr_ratio)
         if snr_ratio is not None
-        else (float(snr_ratio_cfg) if snr_ratio_cfg is not None else None)
+        else (
+            float(snr_ratio_cfg)
+            if snr_ratio_cfg is not None
+            else snr_ratio_from_level
+        )
     )
     if effective_snr_ratio is not None:
         diffusion_cfg["snr_ratio"] = effective_snr_ratio
@@ -430,6 +558,14 @@ def run_step_recorder(
     def _ewma(prev: Optional[float], value: float, beta: float) -> float:
         return value if prev is None else (beta * value + (1.0 - beta) * prev)
 
+    base_param_lrs = [group.get("lr", 0.0) for group in optimiser.param_groups]
+    shock_steps_remaining = 0
+    clip_scale = 1.0
+    prev_target_std: Optional[float] = None
+    ema_params: Optional[List[torch.Tensor]] = None
+    if recorder.ema_beta > 0.0:
+        ema_params = [param.detach().clone() for param in model.parameters()]
+
     def _log_diag(
         step: int,
         tag: str,
@@ -466,8 +602,12 @@ def run_step_recorder(
         model.train()
 
         if not recorder.normalization_disabled:
-            xb_mean = xb.mean()
-            xb_std = xb.std()
+            if recorder.normalization_mode == "band":
+                xb_mean = xb.mean(dim=(0, 2, 3), keepdim=True)
+                xb_std = xb.std(dim=(0, 2, 3), keepdim=True)
+            else:
+                xb_mean = xb.mean()
+                xb_std = xb.std()
             xb = (xb - xb_mean) / (xb_std + 1e-6)
             xb = xb + recorder.dc_scale_factor
 
@@ -624,9 +764,34 @@ def run_step_recorder(
         optimiser.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm_value = grad_norm(model)
+        if recorder.grad_clip_mode == "global":
+            clip_grad_norm_(model.parameters(), recorder.clip_global_norm * clip_scale)
+        elif recorder.grad_clip_mode == "ratio":
+            ratio = recorder.clip_ratio * clip_scale
+            for param in model.parameters():
+                if param.grad is None:
+                    continue
+                max_norm = ratio * param.data.norm().clamp_min(1e-6)
+                param.grad.data.clamp_(-max_norm, max_norm)
         optimiser.step()
+        if ema_params is not None:
+            beta = recorder.ema_beta
+            for param, ema_param in zip(model.parameters(), ema_params):
+                ema_param.mul_(beta).add_(param.detach(), alpha=1.0 - beta)
 
         param_delta_value = parameter_delta(model, previous_state)
+
+        if recorder.shock_handler_enabled and shock_steps_remaining > 0:
+            recorder.shock_active_steps += 1
+            shock_steps_remaining -= 1
+            if shock_steps_remaining == 0:
+                for base_lr, group in zip(base_param_lrs, optimiser.param_groups):
+                    group["lr"] = base_lr
+                clip_scale = 1.0
+            else:
+                clip_scale = 0.5
+        else:
+            clip_scale = 1.0
 
         prediction_std_val = float(pred.detach().std().item())
         input_std_val = float(xb.detach().std().item())
@@ -678,6 +843,7 @@ def run_step_recorder(
         snr_max_val = float(snr_vals.max().item())
         snr_mean_val = float(snr_vals.mean().item())
         snr_raw_max = float(snr_raw.max().item())
+        overflow = 0
         if snr_raw_max > SNR_CLIP:
             overflow = int((snr_raw > SNR_CLIP).sum().item())
             if overflow_log_count < overflow_log_limit:
@@ -698,6 +864,19 @@ def run_step_recorder(
                     },
                 )
             overflow_log_count += 1
+
+        if recorder.shock_handler_enabled:
+            std_delta = 0.0 if prev_target_std is None else abs(target_std - prev_target_std)
+            if overflow > 0 or std_delta > 0.3:
+                shock_steps_remaining = 2
+                clip_scale = 0.5
+                recorder.shock_trigger_count += 1
+                recorder.log_event(
+                    f"[ShockHandler] Triggered at step {step}: overflow={overflow} Δstd={std_delta:.3f}",
+                    tag="ShockHandler",
+                )
+                for base_lr, group in zip(base_param_lrs, optimiser.param_groups):
+                    group["lr"] = base_lr * 0.5
 
         headroom: Optional[float] = None
         high_snr_fraction: Optional[float] = None
@@ -910,6 +1089,7 @@ def run_step_recorder(
             snr_summaries.append(snr_entry)
 
         step_records.append(record)
+        prev_target_std = target_std
 
         if loss_aware_enabled:
             per_example_mse = residual.detach().view(B, -1).pow(2).mean(dim=1)
@@ -1156,14 +1336,30 @@ def run_step_recorder(
         "mean_fft_real_mae": _mean("fft_real_mae"),
         "mean_fft_imag_mae": _mean("fft_imag_mae"),
         "mean_fft_complex_mae": _mean("fft_complex_mae"),
+        "variance_ratio_mean": _mean("variance_ratio"),
         "recorder_version": RECORDER_VERSION,
         "normalization_disabled": recorder.normalization_disabled,
+        "normalization_mode": recorder.normalization_mode,
         "snr_ratio": effective_snr_ratio,
         "dc_scale_factor": recorder.dc_scale_factor,
         "adaptive_snr_enabled": recorder.adaptive_snr_enabled,
         "lambda_var": recorder.lambda_var,
         "lambda_var_scale": lambda_var_scale_value,
         "final_snr_ratio": current_snr_ratio,
+        "shock_handler_enabled": recorder.shock_handler_enabled,
+        "shock_trigger_count": recorder.shock_trigger_count,
+        "shock_active_steps": recorder.shock_active_steps,
+        "grad_clip_mode": recorder.grad_clip_mode,
+        "ema_beta": recorder.ema_beta,
+        "optimizer": recorder.optimizer_label,
+        "base_learning_rate": recorder.base_learning_rate,
+        "curriculum_mode": recorder.curriculum_mode,
+        "synthetic_profile": recorder.synthetic_profile,
+        "noise_color": recorder.noise_color,
+        "spectral_slope": recorder.spectral_slope,
+        "snr_level": recorder.snr_level_label,
+        "seed_mode": recorder.seed_mode,
+        "resolved_overrides": recorder.resolved_overrides,
     }
 
     if diagnostic_events:
@@ -1199,9 +1395,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-interval", type=int, default=10, help="Interval for saving images/FFT snapshots.")
     parser.add_argument("--snr-ratio", type=float, default=None, help="Override diffusion.snr_ratio for diagnostics.")
     parser.add_argument(
+        "--shock-handler",
+        choices=["off", "on"],
+        default="off",
+        help="Enable temporary LR halving when instability spikes are detected.",
+    )
+    parser.add_argument(
+        "--normalization-mode",
+        choices=["off", "batch", "band"],
+        default="off",
+        help="Normalization strategy applied to synthetic batches (off/batch/band).",
+    )
+    parser.add_argument(
         "--enable-normalization",
         action="store_true",
-        help="Enable per-batch normalization / std scaling before corruption.",
+        help="Legacy flag kept for compatibility; equivalent to --normalization-mode batch.",
     )
     parser.add_argument(
         "--dc-scale-factor",
@@ -1237,6 +1445,66 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Multiplier applied to λ_var before use in noise control.",
     )
     parser.add_argument(
+        "--clip-mode",
+        choices=["none", "global", "ratio"],
+        default="none",
+        help="Gradient clipping strategy to apply after backprop.",
+    )
+    parser.add_argument(
+        "--ema-beta",
+        type=float,
+        default=0.0,
+        help="EMA smoothing factor for diagnostics model weights (0 disables).",
+    )
+    parser.add_argument(
+        "--optimizer",
+        choices=["adamw", "lion", "adafactor"],
+        default=None,
+        help="Optimizer to use for the diagnostic run (defaults to config setting).",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="Override base learning rate for the diagnostic run.",
+    )
+    parser.add_argument(
+        "--curriculum",
+        choices=["none", "light", "strong"],
+        default="none",
+        help="Curriculum smoothing regime applied to synthetic sampling.",
+    )
+    parser.add_argument(
+        "--input-profile",
+        choices=["piecewise", "texture", "randomfield"],
+        default="piecewise",
+        help="Synthetic input family to sample during diagnostics.",
+    )
+    parser.add_argument(
+        "--noise-color",
+        choices=["white", "multicolor", "patterned"],
+        default="white",
+        help="Noise coloration applied in the corruption process.",
+    )
+    parser.add_argument(
+        "--spectral-slope",
+        choices=["flat", "mild", "steep"],
+        default="flat",
+        help="Spectral slope α used for random field generation.",
+    )
+    parser.add_argument(
+        "--snr-level",
+        choices=["low", "nominal", "high"],
+        default="nominal",
+        help="Discrete SNR level used when --snr-ratio is not provided.",
+    )
+    parser.add_argument(
+        "--seed-mode",
+        choices=["42", "123", "314"],
+        default=None,
+        help="Preset seed to apply before running diagnostics.",
+    )
+    parser.add_argument(
         "--show-flags",
         action="store_true",
         help="Print all resolved configuration flags before training.",
@@ -1257,11 +1525,23 @@ def main(argv: Optional[List[str]] = None) -> None:
         snr_ratio=args.snr_ratio,
         dc_scale_factor=args.dc_scale_factor,
         enable_normalization=bool(args.enable_normalization),
+        normalization_mode=args.normalization_mode,
+        shock_handler=args.shock_handler,
         adaptive_snr=bool(args.adaptive_snr),
         log_snr_json=bool(args.log_snr_json),
         verbose_logs=bool(args.verbose_logs),
         lambda_var=float(args.lambda_var),
         lambda_var_scale=float(args.lambda_var_scale),
+        clip_mode=args.clip_mode,
+        ema_beta=float(args.ema_beta),
+        optimizer=args.optimizer,
+        learning_rate=args.learning_rate,
+        curriculum=args.curriculum,
+        input_profile=args.input_profile,
+        noise_color=args.noise_color,
+        spectral_slope=args.spectral_slope,
+        snr_level=args.snr_level,
+        seed_mode=args.seed_mode,
         show_flags=bool(args.show_flags),
     )
     print(f"Step recorder artefacts written to {output_path}")
@@ -1295,6 +1575,18 @@ def record_training_steps(
     lambda_var: float = 7e-4,
     lambda_var_scale: float = 1.0,
     enable_normalization: bool = False,
+    normalization_mode: str = "off",
+    shock_handler: str = "off",
+    clip_mode: str = "none",
+    ema_beta: float = 0.0,
+    optimizer: Optional[str] = None,
+    learning_rate: Optional[float] = None,
+    curriculum: str = "none",
+    input_profile: str = "piecewise",
+    noise_color: str = "white",
+    spectral_slope: str = "flat",
+    snr_level: str = "nominal",
+    seed_mode: Optional[str] = None,
     show_flags: bool = False,
 ) -> Path:
     """Backwards-compatible wrapper exported for utility scripts."""
@@ -1322,5 +1614,17 @@ def record_training_steps(
         lambda_var=lambda_var,
         lambda_var_scale=lambda_var_scale,
         enable_normalization=enable_normalization,
+        normalization_mode=normalization_mode,
+        shock_handler=shock_handler,
+        clip_mode=clip_mode,
+        ema_beta=ema_beta,
+        optimizer=optimizer,
+        learning_rate=learning_rate,
+        curriculum=curriculum,
+        input_profile=input_profile,
+        noise_color=noise_color,
+        spectral_slope=spectral_slope,
+        snr_level=snr_level,
+        seed_mode=seed_mode,
         show_flags=show_flags,
     )
