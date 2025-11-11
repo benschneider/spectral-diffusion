@@ -291,7 +291,7 @@ class AdaptiveSNRWeight:
             self._last_diag = {key: diag[key] for key in ("kappa", "ema", "mean_weight")}
             message = (
                 "[AdaptiveSNR] step="
-                f"{self._step:04d} snr={diag['snr_mean']:.1f} loss={diag['loss']:.4f} κ={diag['kappa']:.3e} "
+                f"{self._step:04d} \t snr={diag['snr_mean']:.1f} \t loss={diag['loss']:.4f} \t κ={diag['kappa']:.3e} "
                 f"ema={diag['ema']:.3e} α_fac={diag['alpha_fac']:.2f} overflow={diag['overflow']:.3f}"
             )
             if self._log_fn is not None:
