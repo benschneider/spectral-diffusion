@@ -6,6 +6,8 @@ export PYTHONPATH="$ROOT_DIR"
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 
 TAGUCHI_ARRAY_PATH=${TAGUCHI_ARRAY_PATH:-"$ROOT_DIR/configs/taguchi/L27_extended.csv"}
+TAGUCHI_FACTOR_REGISTRY=${TAGUCHI_FACTOR_REGISTRY:-"$ROOT_DIR/configs/taguchi/factor_registry_quick.yaml"}
+TAGUCHI_BASE_CONFIG=${TAGUCHI_BASE_CONFIG:-"$ROOT_DIR/configs/taguchi_smoke_best.yaml"}
 TAGUCHI_RANDOMIZE=${TAGUCHI_RANDOMIZE:-true}
 TAGUCHI_MAPPING_SEED=${TAGUCHI_MAPPING_SEED:-$(date +%s)}
 TAGUCHI_JOBS=${TAGUCHI_JOBS:-0}
@@ -366,15 +368,15 @@ run_taguchi() {
 
   echo "  • Executing $total_rows Taguchi rows with up to $parallelism concurrent python run(s)"
 
-  local -a base_cmd=(
-    python -m src.experiments.run_experiment
-    --config "$ROOT_DIR/configs/taguchi_smoke_base.yaml"
-    --array "$TAGUCHI_ARRAY_PATH"
-    --output-dir "$TAG_DIR"
-    --report-metric "$TAGUCHI_REPORT_METRIC"
-    --report-mode "$TAGUCHI_REPORT_MODE"
-    --factor-registry "$ROOT_DIR/configs/taguchi/factor_registry.yaml"
-  )
+    local -a base_cmd=(
+      python -m src.experiments.run_experiment
+      --config "$TAGUCHI_BASE_CONFIG"
+      --array "$TAGUCHI_ARRAY_PATH"
+      --output-dir "$TAG_DIR"
+      --report-metric "$TAGUCHI_REPORT_METRIC"
+      --report-mode "$TAGUCHI_REPORT_MODE"
+      --factor-registry "$TAGUCHI_FACTOR_REGISTRY"
+    )
   if [[ "${TAGUCHI_RANDOMIZE}" == "true" || "${TAGUCHI_RANDOMIZE}" == "1" ]]; then
     base_cmd+=(--randomize-mapping --seed "$TAGUCHI_MAPPING_SEED")
   fi

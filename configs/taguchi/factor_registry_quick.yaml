@@ -34,4 +34,4 @@ factors:
     levels: [50]
   image_resolution:
     description: Input spatial resolution applied via resize.
-    levels: [32, 64, 128]
+    levels: [32]
