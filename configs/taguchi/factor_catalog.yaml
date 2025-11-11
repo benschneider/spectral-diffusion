@@ -17,6 +17,10 @@ factors:
     cost_weight: 1.2
     role: corruption
     doc: "Level of spectral noise shaping before FFT inversion."
+    depends_on:
+      spectral_adapter_placement:
+        - "input_only"
+        - "input_and_output"
   snr_ratio:
     kind: float
     levels: [0.8, 1.0, 1.4]
@@ -35,6 +39,10 @@ factors:
     cost_weight: 1.3
     role: model
     doc: "Phase correction module head count (0 disables PCM)."
+    depends_on:
+      spectral_adapter_placement:
+        - "input_only"
+        - "input_and_output"
   sampler_type:
     kind: enum
     levels: ["ddim", "dpm_solver_pp", "spectral_guided"]
@@ -149,8 +157,13 @@ factors:
 constraints:
   - expr: 'normalization_mode == "off" and lambda_var == 0.004'
     reason: 'Higher λ_var without normalization destabilizes early gradients.'
+    severity: block
   - expr: 'image_resolution == 128 and sampling_steps == 100'
     reason: 'High resolution with max steps exceeds the runtime budget.'
+    severity: block
+  - expr: 'grad_clipping == "none" and learning_rate == 0.003'
+    reason: 'High LR without clipping tends to overflow; prefer warn then block.'
+    severity: warn
 estimation:
   base_seconds_per_run: 120
   multipliers:
