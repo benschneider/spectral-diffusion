@@ -23,6 +23,9 @@ CIFAR_DIR="$BASE_DIR/cifar"
 TAG_DIR="$BASE_DIR/taguchi"
 FIG_DIR="$BASE_DIR/figures"
 ABL_DIR="$BASE_DIR/ablation"
+TAGUCHI_HDF5_ENABLED=${TAGUCHI_HDF5_ENABLED:-0}
+TAGUCHI_HDF5_PATH=${TAGUCHI_HDF5_PATH:-"$TAG_DIR/taguchi_runs.h5"}
+TAGUCHI_HDF5_PRUNE=${TAGUCHI_HDF5_PRUNE:-0}
 
 mkdir -p "$SYN_DIR" "$CIFAR_DIR" "$TAG_DIR" "$FIG_DIR" "$ABL_DIR"
 
@@ -403,6 +406,19 @@ run_taguchi() {
     "$TAG_DIR/taguchi_report.csv" \
     "$TAGUCHI_REPORT_METRIC" \
     "$TAGUCHI_REPORT_MODE"
+
+  if [[ "${TAGUCHI_HDF5_ENABLED}" == "1" ]]; then
+    local prune_flags=()
+    if [[ "${TAGUCHI_HDF5_PRUNE}" == "1" ]]; then
+      prune_flags=(--prune)
+    fi
+    echo "Converting Taguchi outputs to ${TAGUCHI_HDF5_PATH}"
+    python "$ROOT_DIR/scripts/collate_runs_to_hdf5.py" \
+      --runs-root "$TAG_DIR" \
+      --taguchi-root "$TAG_DIR" \
+      --output "$TAGUCHI_HDF5_PATH" \
+      "${prune_flags[@]}"
+  fi
 }
 
 generate_report() {

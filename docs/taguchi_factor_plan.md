@@ -10,6 +10,10 @@ Our original goal was to move from the legacy L8 (5 binary factors) to a richer 
 
 Run `./scripts/run_taguchi_synthetic_l23.sh` to materialise the full L23 array (23 runs). It produces `L23_synthetic_resolved.csv` with per-factor CLI expansions plus the aggregated metrics table `results.csv` under `results/taguchi_l23_synthetic/` by default.
 
+### Taguchi HDF5 archives
+
+When the full 32×32 report is generated (`scripts/run_full_report_32x32.sh`), set `TAGUCHI_HDF5_ENABLED=1` and (optionally) configure `TAGUCHI_HDF5_PATH` to produce a compressed `taguchi_runs.h5` via `scripts/collate_runs_to_hdf5.py`. The converter ingests every `runs/<run_id>` folder plus the summary/taguchi CSVs, stores them under `/runs` and `/taguchi` groups, and can drop the original JSON/CSV artifacts when `TAGUCHI_HDF5_PRUNE=1`. Downstream tooling can then read this single HDF5 archive instead of scattering through multiple files (install `h5py` if it’s not already available).
+
 | Letter | Factor (two-level) | Level 1 | Level 2 | Notes / Equation | Status / Comments |
 |--------|--------------------|---------|---------|------------------|------------------|
 | **A** | **Spectral noise equalisation** (`spectral.freq_equalized_noise`) | Off – standard Gaussian | On – uniform spectral mask `m(k,ℓ) = √((r/r_min)^2 + 1)` | Existing factor. Keeps FFT noise energy spread across bands. | ✅ Already in L8 – carries into L16. |
