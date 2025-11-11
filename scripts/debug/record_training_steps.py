@@ -9,7 +9,7 @@ import math
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, DefaultDict, Dict, List, Optional
+from typing import Any, Callable, DefaultDict, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -117,6 +117,20 @@ class DiagnosticsBuffer:
                     handle.write("\n")
 
 
+class RecorderState:
+    """Lightweight container for diagnostics recorder metadata."""
+
+    def __init__(self, log_fn: Callable[[str, str], None]) -> None:
+        self._log_fn = log_fn
+        self.normalization_disabled = True
+        self.dc_scale_factor = 0.0
+        self.lambda_var = 7e-4
+        self.adaptive_snr_enabled = False
+
+    def log_event(self, message: str, *, tag: str = "Recorder") -> None:
+        self._log_fn(tag, message)
+
+
 def run_step_recorder(
     config_path: Path,
     *,
@@ -127,9 +141,12 @@ def run_step_recorder(
     log_interval: int = 10,
     snr_ratio: Optional[float] = None,
     dc_scale_factor: Optional[float] = None,
+    enable_normalization: bool = False,
     adaptive_snr: bool = False,
     log_snr_json: bool = False,
     lambda_var: float = 7e-4,
+    lambda_var_scale: float = 1.0,
+    show_flags: bool = False,
     loader: Optional[DataLoader] = None,
     snr_min: float = 0.5,
     snr_max: float = 2.5,
@@ -159,7 +176,13 @@ def run_step_recorder(
     ) -> None:
         diag_buffer.log(tag, message, step=step, level=level, extra=extra)
 
-    _log_event("Normalization", "[Normalization] Disabled for diagnostic mode")
+    recorder = RecorderState(_log_event)
+    if enable_normalization:
+        recorder.normalization_disabled = False
+        recorder.log_event("[Normalization] Enabled for diagnostics", tag="Normalization")
+    else:
+        recorder.log_event("[Normalization] Disabled for diagnostic mode", tag="Normalization")
+    recorder.adaptive_snr_enabled = bool(adaptive_snr)
 
     _log_event("Recorder", f"[RecordTrainingSteps] Running version {RECORDER_VERSION}")
 
@@ -282,6 +305,30 @@ def run_step_recorder(
     effective_dc_scale = float(dc_scale_factor) if dc_scale_factor is not None else float(dc_scale_cfg)
     diffusion_cfg["dc_scale_factor"] = effective_dc_scale
     spectral_cfg["dc_scale_factor"] = effective_dc_scale
+    recorder.dc_scale_factor = effective_dc_scale
+
+    lambda_var_scale_value = float(lambda_var_scale)
+    scaled_lambda_var = float(lambda_var) * lambda_var_scale_value
+    recorder.lambda_var = scaled_lambda_var
+
+    if show_flags:
+        flag_values = [
+            ("config_path", config_path),
+            ("variant", variant),
+            ("steps", steps),
+            ("log_interval", log_interval),
+            ("device", str(device_obj)),
+            ("snr_ratio", effective_snr_ratio),
+            ("enable_normalization", not recorder.normalization_disabled),
+            ("dc_scale_factor", recorder.dc_scale_factor),
+            ("lambda_var", recorder.lambda_var),
+            ("lambda_var_scale", lambda_var_scale_value),
+            ("adaptive_snr", recorder.adaptive_snr_enabled),
+        ]
+        print("Resolved configuration flags:")
+        for name, value in flag_values:
+            print(f"  {name}={value}")
+        print(f"lambda_var={recorder.lambda_var:.4f}, adaptive_snr={recorder.adaptive_snr_enabled}")
 
     min_snr_weight = float(diffusion_cfg.get("min_snr_weight", 0.05))
     max_snr_weight = float(diffusion_cfg.get("max_snr_weight", 10.0))
@@ -331,7 +378,7 @@ def run_step_recorder(
             max_ratio=float(controller_cfg.get("max_snr", 2.5)),
             initial_ratio=effective_snr_ratio,
             overflow_target=float(controller_cfg.get("overflow_target", 0.05)),
-            lambda_var=lambda_var,
+            lambda_var=scaled_lambda_var,
         )
         effective_snr_ratio = controller.ratio
         _log_event(
@@ -417,6 +464,12 @@ def run_step_recorder(
         xb, _ = next(data_iter)
         xb = xb.to(device_obj)
         model.train()
+
+        if not recorder.normalization_disabled:
+            xb_mean = xb.mean()
+            xb_std = xb.std()
+            xb = (xb - xb_mean) / (xb_std + 1e-6)
+            xb = xb + recorder.dc_scale_factor
 
         B = xb.shape[0]
         if loss_aware_enabled:
@@ -527,7 +580,7 @@ def run_step_recorder(
             else:
                 loss = loss_result
         mae = F.l1_loss(pred.detach(), target.detach())
-        lambda_var_tensor = loss.new_tensor(lambda_var)
+        lambda_var_tensor = loss.new_tensor(scaled_lambda_var)
         variance_penalty_val = 0.0
         variance_ratio_val = float("nan")
         pred_std_centered = float("nan")
@@ -1104,11 +1157,12 @@ def run_step_recorder(
         "mean_fft_imag_mae": _mean("fft_imag_mae"),
         "mean_fft_complex_mae": _mean("fft_complex_mae"),
         "recorder_version": RECORDER_VERSION,
-        "normalization_disabled": True,
+        "normalization_disabled": recorder.normalization_disabled,
         "snr_ratio": effective_snr_ratio,
-        "dc_scale_factor": effective_dc_scale,
-        "adaptive_snr_enabled": bool(adaptive_snr),
-        "lambda_var": lambda_var,
+        "dc_scale_factor": recorder.dc_scale_factor,
+        "adaptive_snr_enabled": recorder.adaptive_snr_enabled,
+        "lambda_var": recorder.lambda_var,
+        "lambda_var_scale": lambda_var_scale_value,
         "final_snr_ratio": current_snr_ratio,
     }
 
@@ -1117,6 +1171,11 @@ def run_step_recorder(
 
     with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(summary_payload, handle, indent=2)
+
+    print(
+        f'Summary JSON: "normalization_disabled": {json.dumps(recorder.normalization_disabled)}, '
+        f'"lambda_var": {json.dumps(recorder.lambda_var)}'
+    )
 
     if log_snr_json and snr_summaries:
         snr_path = out_dir / "snr_stats.jsonl"
@@ -1140,10 +1199,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-interval", type=int, default=10, help="Interval for saving images/FFT snapshots.")
     parser.add_argument("--snr-ratio", type=float, default=None, help="Override diffusion.snr_ratio for diagnostics.")
     parser.add_argument(
+        "--enable-normalization",
+        action="store_true",
+        help="Enable per-batch normalization / std scaling before corruption.",
+    )
+    parser.add_argument(
         "--dc-scale-factor",
         type=float,
-        default=None,
-        help="Override diffusion.dc_scale_factor.",
+        default=0.0,
+        help="Override diffusion.dc_scale_factor (default=0.0).",
     )
     parser.add_argument(
         "--adaptive-snr",
@@ -1163,8 +1227,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lambda-var",
         type=float,
-        default=7e-4,
+        default=0.0007,
         help="Variance regulariser weight λ_var.",
+    )
+    parser.add_argument(
+        "--lambda-var-scale",
+        type=float,
+        default=1.0,
+        help="Multiplier applied to λ_var before use in noise control.",
+    )
+    parser.add_argument(
+        "--show-flags",
+        action="store_true",
+        help="Print all resolved configuration flags before training.",
     )
     return parser
 
@@ -1181,10 +1256,13 @@ def main(argv: Optional[List[str]] = None) -> None:
         log_interval=int(args.log_interval),
         snr_ratio=args.snr_ratio,
         dc_scale_factor=args.dc_scale_factor,
+        enable_normalization=bool(args.enable_normalization),
         adaptive_snr=bool(args.adaptive_snr),
         log_snr_json=bool(args.log_snr_json),
         verbose_logs=bool(args.verbose_logs),
         lambda_var=float(args.lambda_var),
+        lambda_var_scale=float(args.lambda_var_scale),
+        show_flags=bool(args.show_flags),
     )
     print(f"Step recorder artefacts written to {output_path}")
 
@@ -1215,6 +1293,9 @@ def record_training_steps(
     verbose_logs: bool = False,
     log_snr_json: bool = False,
     lambda_var: float = 7e-4,
+    lambda_var_scale: float = 1.0,
+    enable_normalization: bool = False,
+    show_flags: bool = False,
 ) -> Path:
     """Backwards-compatible wrapper exported for utility scripts."""
 
@@ -1239,4 +1320,7 @@ def record_training_steps(
         verbose_logs=verbose_logs,
         log_snr_json=log_snr_json,
         lambda_var=lambda_var,
+        lambda_var_scale=lambda_var_scale,
+        enable_normalization=enable_normalization,
+        show_flags=show_flags,
     )
