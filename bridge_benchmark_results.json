@@ -1,0 +1,86 @@
+{
+  "1x256x256_fft2": {
+    "operation": "fft2",
+    "avg_time_ms": 0.40136679308488965,
+    "std_time_ms": 0.08868936931827405,
+    "throughput_mflops": 2612.5130879430394,
+    "backend": "torch_fft"
+  },
+  "1x512x512_fft2": {
+    "operation": "fft2",
+    "avg_time_ms": 2.361137291882187,
+    "std_time_ms": 0.8619440160702359,
+    "throughput_mflops": 1998.440334758578,
+    "backend": "torch_fft"
+  },
+  "8x256x256_fft2": {
+    "operation": "fft2",
+    "avg_time_ms": 3.4418708877637982,
+    "std_time_ms": 0.40016072804273767,
+    "throughput_mflops": 2437.223322299031,
+    "backend": "torch_fft"
+  },
+  "4x512x512_fft2": {
+    "operation": "fft2",
+    "avg_time_ms": 10.05840398138389,
+    "std_time_ms": 6.304650121540513,
+    "throughput_mflops": 1876.477424741809,
+    "backend": "torch_fft"
+  },
+  "1x256x256_ifft2": {
+    "operation": "ifft2",
+    "avg_time_ms": 0.28407933423295617,
+    "std_time_ms": 0.030746875455330253,
+    "throughput_mflops": 3691.13790987741,
+    "backend": "torch_fft"
+  },
+  "1x512x512_ifft2": {
+    "operation": "ifft2",
+    "avg_time_ms": 1.638941781129688,
+    "std_time_ms": 0.6190774121688327,
+    "throughput_mflops": 2879.0479651739515,
+    "backend": "torch_fft"
+  },
+  "8x256x256_ifft2": {
+    "operation": "ifft2",
+    "avg_time_ms": 3.915641503408551,
+    "std_time_ms": 3.068468566729134,
+    "throughput_mflops": 2142.33299772151,
+    "backend": "torch_fft"
+  },
+  "4x512x512_ifft2": {
+    "operation": "ifft2",
+    "avg_time_ms": 7.5653500272892416,
+    "std_time_ms": 1.7742219172443827,
+    "throughput_mflops": 2494.8439836779,
+    "backend": "torch_fft"
+  },
+  "1x256x256_fft_filter2": {
+    "operation": "fft_filter2",
+    "avg_time_ms": 1.622645789757371,
+    "std_time_ms": 2.0333844508609795,
+    "throughput_mflops": 1292.4274744604493,
+    "backend": "torch_fft"
+  },
+  "1x512x512_fft_filter2": {
+    "operation": "fft_filter2",
+    "avg_time_ms": 0.11447498109191656,
+    "std_time_ms": 0.07480430285932244,
+    "throughput_mflops": 82438.83431981095,
+    "backend": "torch_fft"
+  },
+  "8x256x256_fft_filter2": {
+    "operation": "fft_filter2",
+    "avg_time_ms": 0.1563998986966908,
+    "std_time_ms": 0.10834090330955588,
+    "throughput_mflops": 107271.27152771605,
+    "backend": "torch_fft"
+  },
+  "4x512x512_fft_filter2": {
+    "operation": "fft_filter2",
+    "avg_time_ms": 0.20443742396309972,
+    "std_time_ms": 0.011970130292453049,
+    "throughput_mflops": 184646.8971689524,
+    "backend": "torch_fft"
+  }
+}

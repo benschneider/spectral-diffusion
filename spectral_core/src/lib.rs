@@ -78,4 +78,26 @@ impl SpectralCore {
             "fused_cuda".to_string(),
         ]
     }
+
+    /// 2D FFT using DLPack capsules (zero-copy)
+    fn fft2_dlpack(&self, dlpack_capsule: &PyAny) -> PyResult<PyObject> {
+        let tensor = DeviceTensor::from_dlpack(dlpack_capsule)?;
+        let result = self.processor.fft2(&tensor)?;
+        Ok(result.to_dlpack(dlpack_capsule.py())?)
+    }
+
+    /// 2D inverse FFT using DLPack capsules (zero-copy)
+    fn ifft2_dlpack(&self, dlpack_capsule: &PyAny) -> PyResult<PyObject> {
+        let tensor = DeviceTensor::from_dlpack(dlpack_capsule)?;
+        let result = self.processor.ifft2(&tensor)?;
+        Ok(result.to_dlpack(dlpack_capsule.py())?)
+    }
+
+    /// Fused FFT → filter → iFFT using DLPack capsules
+    fn fft_filter2_dlpack(&self, x_capsule: &PyAny, h_capsule: &PyAny) -> PyResult<PyObject> {
+        let x = DeviceTensor::from_dlpack(x_capsule)?;
+        let h = DeviceTensor::from_dlpack(h_capsule)?;
+        let result = self.processor.fft_filter2(&x, &h)?;
+        Ok(result.to_dlpack(x_capsule.py())?)
+    }
 }

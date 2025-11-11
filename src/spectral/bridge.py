@@ -91,11 +91,22 @@ class SpectralBridge:
             self.core = FallbackSpectralCore()
 
     def fft2(self, x: torch.Tensor) -> torch.Tensor:
-        """2D FFT using Rust backend."""
-        # Convert to numpy for Rust processing
-        x_np = x.detach().cpu().numpy()
-        result_np = self.core.fft2(x_np)
-        return torch.from_numpy(result_np)
+        """2D FFT using Rust backend with batch support."""
+        if x.ndim == 3:  # (batch, height, width)
+            batch_size, height, width = x.shape
+            results = []
+            for b in range(batch_size):
+                x_slice = x[b]  # (height, width)
+                x_np = x_slice.detach().cpu().numpy()
+                result_np = self.core.fft2(x_np)
+                result_tensor = torch.from_numpy(result_np).to(x.device, x.dtype)
+                results.append(result_tensor)
+            return torch.stack(results, dim=0)
+        else:
+            # 2D tensor
+            x_np = x.detach().cpu().numpy()
+            result_np = self.core.fft2(x_np)
+            return torch.from_numpy(result_np).to(x.device, x.dtype)
 
     def ifft2(self, x: torch.Tensor) -> torch.Tensor:
         """2D inverse FFT using Rust backend."""
@@ -109,6 +120,38 @@ class SpectralBridge:
         h_np = h.detach().cpu().numpy()
         result_np = self.core.fft_filter2(x_np, h_np)
         return torch.from_numpy(result_np)
+
+    # DLPack interface (zero-copy when Rust available)
+    def fft2_dlpack(self, dlpack_capsule):
+        """2D FFT using DLPack capsules (zero-copy with Rust backend)."""
+        if HAS_SPECTRAL_CORE:
+            return rust_spectral_core.SpectralCore.fft2_dlpack(dlpack_capsule)
+        else:
+            # Fallback: convert through numpy
+            tensor = dlpack.from_dlpack(dlpack_capsule)
+            result = self.fft2(tensor)
+            return dlpack.to_dlpack(result)
+
+    def ifft2_dlpack(self, dlpack_capsule):
+        """2D iFFT using DLPack capsules (zero-copy with Rust backend)."""
+        if HAS_SPECTRAL_CORE:
+            return rust_spectral_core.SpectralCore.ifft2_dlpack(dlpack_capsule)
+        else:
+            # Fallback: convert through numpy
+            tensor = dlpack.from_dlpack(dlpack_capsule)
+            result = self.ifft2(tensor)
+            return dlpack.to_dlpack(result)
+
+    def fft_filter2_dlpack(self, x_capsule, h_capsule):
+        """Fused FFT filtering using DLPack capsules (zero-copy with Rust backend)."""
+        if HAS_SPECTRAL_CORE:
+            return rust_spectral_core.SpectralCore.fft_filter2_dlpack(x_capsule, h_capsule)
+        else:
+            # Fallback: convert through numpy
+            x_tensor = dlpack.from_dlpack(x_capsule)
+            h_tensor = dlpack.from_dlpack(h_capsule)
+            result = self.fft_filter2(x_tensor, h_tensor)
+            return dlpack.to_dlpack(result)
 
     @staticmethod
     def is_available() -> bool:
@@ -150,3 +193,22 @@ def ifft2(x: torch.Tensor) -> torch.Tensor:
 def fft_filter2(x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
     """Fused FFT filtering with automatic backend selection."""
     return get_bridge().fft_filter2(x, h)
+
+
+def diagnostics():
+    """Quick diagnostics to verify bridge health."""
+    import torch
+    from src.spectral.bridge import get_bridge
+
+    bridge = get_bridge()
+    print(f"[Bridge] available={bridge.is_available()}, backends={bridge.available_backends()}")
+
+    # Test with small tensor
+    x = torch.randn(16, 16, dtype=torch.float32)
+    y_bridge = bridge.fft2(x)
+    y_torch = torch.fft.fft2(x)
+
+    diff = torch.norm(y_bridge - torch.abs(y_torch)).item()
+    print(f"[Bridge] dtype={x.dtype}, device={x.device}, diff={diff:.2e}")
+
+    return diff < 1e-5  # Return True if healthy

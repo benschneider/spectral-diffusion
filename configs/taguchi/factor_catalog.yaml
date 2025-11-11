@@ -154,6 +154,24 @@ factors:
     doc: "Preset random seed for deterministic diagnostics."
   spectral_backend:
     kind: enum
+    levels: ["torch_fft", "cpu_pocketfft", "cpu_fftw", "cpu_mkl", "fused_cpu", "fused_cuda"]
+    cost_weight: 1.5
+    role: backend
+    doc: "FFT processing backend selection for spectral operations."
+  data_gen_backend:
+    kind: enum
+    levels: ["python", "rust"]
+    cost_weight: 0.8
+    role: backend
+    doc: "Data generation backend for synthetic datasets."
+  precision_mode:
+    kind: enum
+    levels: ["fp32", "tf32", "bf16"]
+    cost_weight: 1.2
+    role: precision
+    doc: "Numeric precision mode for computations."
+  spectral_backend:
+    kind: enum
     levels: ["torch_fft", "cpu_fftw", "cpu_pocketfft", "fused_cpu", "fused_cuda"]
     cost_weight: 1.5
     role: performance
