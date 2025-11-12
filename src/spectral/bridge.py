@@ -10,22 +10,49 @@ import torch
 from torch.utils import dlpack
 
 try:  # pragma: no cover - exercised in integration tests
-    from spectral_core import (
-        fft2_batch_dlpack as _fft2_batch_dlpack,
-        fft2_dlpack as _fft2_dlpack,
-        ifft2_dlpack as _ifft2_dlpack,
-        fftw_thread_count as _fftw_thread_count,
-    )
+    import ctypes
+    import os
+    import platform
 
-    _HAS_RUST_BACKEND = True
-except ImportError:  # pragma: no cover - fallback path for environments without the extension
+    # Load the shared library
+    lib_name = {
+        'Darwin': 'libspectral_core.dylib',
+        'Linux': 'libspectral_core.so',
+        'Windows': 'spectral_core.dll'
+    }.get(platform.system(), 'libspectral_core.so')
+
+    lib_path = os.path.join(os.path.dirname(__file__), '..', '..', 'spectral_core', 'target', 'release', lib_name)
+    if os.path.exists(lib_path):
+        _lib = ctypes.CDLL(lib_path)
+
+        # Define function signatures
+        _lib.spectral_init.argtypes = []
+        _lib.spectral_init.restype = ctypes.c_int
+
+        _lib.spectral_cleanup.argtypes = []
+        _lib.spectral_cleanup.restype = None
+
+        _lib.spectral_version.argtypes = []
+        _lib.spectral_version.restype = ctypes.c_char_p
+
+        _lib.spectral_backends.argtypes = []
+        _lib.spectral_backends.restype = ctypes.c_char_p
+
+        _lib.spectral_test.argtypes = []
+        _lib.spectral_test.restype = ctypes.c_int
+
+        # Initialize the library
+        if _lib.spectral_init() == 0:
+            _HAS_RUST_BACKEND = True
+        else:
+            _HAS_RUST_BACKEND = False
+    else:
+        _lib = None
+        _HAS_RUST_BACKEND = False
+
+except (ImportError, OSError):  # pragma: no cover - fallback path
+    _lib = None
     _HAS_RUST_BACKEND = False
-    _fft2_dlpack = None
-    _ifft2_dlpack = None
-    _fft2_batch_dlpack = None
-
-    def _fftw_thread_count() -> int:  # type: ignore[override]
-        return torch.get_num_threads()
 
 
 @dataclass
@@ -67,10 +94,18 @@ class SpectralBridge:
 
     def __init__(self) -> None:
         self._has_rust = _HAS_RUST_BACKEND
-        self.backend = "rust-fftw" if self._has_rust else "torch.fft"
+        self.backend = "rust-capi" if self._has_rust else "torch.fft"
         self.dlpack_enabled = self._has_rust
-        self.thread_count = int(_fftw_thread_count())
+        self.thread_count = 8  # Default thread count
         self._last_profile: CallProfile | None = None
+
+        # Test the Rust backend
+        if self._has_rust and _lib:
+            test_result = _lib.spectral_test()
+            if test_result != 42:
+                print(f"Warning: Rust backend test failed (expected 42, got {test_result})")
+                self._has_rust = False
+                self.backend = "torch.fft"
 
     # ---------------------------------------------------------------------
     # Public API ----------------------------------------------------------
@@ -135,7 +170,7 @@ class SpectralBridge:
             conversion_in += time.perf_counter() - t0
 
         ffi_start = time.perf_counter()
-        result_capsules = _fft2_batch_dlpack(capsules)  # type: ignore[arg-type]
+        result_capsules = fft2_batch_dlpack(capsules)  # type: ignore[arg-type]
         ffi_s = time.perf_counter() - ffi_start
 
         results: List[torch.Tensor] = []
@@ -210,7 +245,7 @@ class SpectralBridge:
         conversion_in = time.perf_counter() - t0
 
         ffi_start = time.perf_counter()
-        out_capsule = _fft2_dlpack(capsule)  # type: ignore[operator]
+        out_capsule = fft2_dlpack(capsule)  # type: ignore[operator]
         ffi_time = time.perf_counter() - ffi_start
 
         t1 = time.perf_counter()
