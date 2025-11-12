@@ -9,6 +9,7 @@ from .complex_layers import (  # noqa: F401
     ComplexResidualBlock,
     ComplexSiLU,
 )
+from .bridge import SpectralBridge, get_bridge  # noqa: F401
 
 __all__ = [
     "SpectralAdapter",
@@ -18,4 +19,6 @@ __all__ = [
     "ComplexSiLU",
     "ComplexResidualBlock",
     "add_uniform_frequency_noise",
+    "SpectralBridge",
+    "get_bridge",
 ]

@@ -1,299 +1,329 @@
-"""
-Python bridge to Rust spectral processing core.
+"""Rust ↔ PyTorch bridge built on top of DLPack."""
 
-This module provides a clean Python interface to the Rust spectral_core library,
-handling DLPack tensor conversions and autograd integration.
-"""
+from __future__ import annotations
 
-import numpy as np
+import time
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Tuple
+
 import torch
 from torch.utils import dlpack
-from typing import Optional
 
-# Import the Rust module (will be available after build)
-try:
-    import spectral_core as rust_spectral_core
-    # Check if it has the expected class
-    _ = rust_spectral_core.SpectralCore
-    HAS_SPECTRAL_CORE = True
-except (ImportError, AttributeError):
-    HAS_SPECTRAL_CORE = False
-    rust_spectral_core = None
+try:  # pragma: no cover - exercised in integration tests
+    from spectral_core import (
+        fft2_batch_dlpack as _fft2_batch_dlpack,
+        fft2_dlpack as _fft2_dlpack,
+        ifft2_dlpack as _ifft2_dlpack,
+        fftw_thread_count as _fftw_thread_count,
+    )
+
+    _HAS_RUST_BACKEND = True
+except ImportError:  # pragma: no cover - fallback path for environments without the extension
+    _HAS_RUST_BACKEND = False
+    _fft2_dlpack = None
+    _ifft2_dlpack = None
+    _fft2_batch_dlpack = None
+
+    def _fftw_thread_count() -> int:  # type: ignore[override]
+        return torch.get_num_threads()
 
 
-class FallbackSpectralCore:
-    """Fallback implementation using PyTorch when Rust extension unavailable."""
+@dataclass
+class CallProfile:
+    """Timing information captured for a single bridge invocation."""
 
-    @staticmethod
-    def fft2(array):
-        """Fallback 2D FFT using torch.fft."""
-        # Convert numpy to torch if needed
-        if isinstance(array, np.ndarray):
-            tensor = torch.from_numpy(array)
-        else:
-            tensor = array
+    backend: str
+    total_s: float
+    conversion_in_s: float
+    ffi_s: float
+    conversion_out_s: float
+    thread_count: int
+    batch: int = 1
+    contiguous_copies: int = 0
 
-        # Apply 2D FFT
-        result = torch.fft.fft2(tensor)
+    def as_dict(self) -> Dict[str, float | int | str]:
+        return {
+            "backend": self.backend,
+            "total_s": self.total_s,
+            "conversion_in_s": self.conversion_in_s,
+            "ffi_s": self.ffi_s,
+            "conversion_out_s": self.conversion_out_s,
+            "thread_count": self.thread_count,
+            "batch": self.batch,
+            "contiguous_copies": self.contiguous_copies,
+        }
 
-        # Return magnitude as numpy array (simplified for testing)
-        return torch.abs(result).numpy()
 
-    @staticmethod
-    def ifft2(array):
-        """Fallback 2D iFFT using torch.fft."""
-        if isinstance(array, np.ndarray):
-            tensor = torch.from_numpy(array)
-        else:
-            tensor = array
-
-        # Apply 2D iFFT
-        result = torch.fft.ifft2(tensor)
-
-        # Return real part as numpy array
-        return torch.real(result).numpy()
-
-    @staticmethod
-    def fft_filter2(x_array, h_array):
-        """Fallback fused FFT filtering."""
-        if isinstance(x_array, np.ndarray):
-            x_tensor = torch.from_numpy(x_array)
-        else:
-            x_tensor = x_array
-
-        if isinstance(h_array, np.ndarray):
-            h_tensor = torch.from_numpy(h_array)
-        else:
-            h_tensor = h_array
-
-        # Simple element-wise filtering (placeholder)
-        return (x_tensor * h_tensor).numpy()
-
-    @staticmethod
-    def is_cuda_available():
-        return torch.cuda.is_available()
-
-    @staticmethod
-    def available_backends():
-        backends = ["torch_fft"]
-        if torch.cuda.is_available():
-            backends.append("torch_fft_cuda")
-        return backends
+def _ensure_complex_dtype(x: torch.Tensor) -> torch.dtype:
+    if x.dtype in (torch.float32, torch.complex64):
+        return torch.complex64
+    if x.dtype in (torch.float64, torch.complex128):
+        return torch.complex128
+    raise TypeError(f"Unsupported dtype for spectral bridge: {x.dtype}")
 
 
 class SpectralBridge:
-    """Bridge between PyTorch and Rust spectral processing."""
+    """High-level interface that wraps the Rust FFT implementation via DLPack."""
 
-    def __init__(self):
-        if HAS_SPECTRAL_CORE:
-            self.core = rust_spectral_core.SpectralCore()
-            # Log the selected backend once at initialization
-            best_backend = self.core.best_backend()
-            available = self.core.available_backends()
-            print(f"[SpectralBridge] Using backend: {best_backend} (available: {available})")
-        else:
-            self.core = FallbackSpectralCore()
-            print("[SpectralBridge] Using fallback: torch_fft")
+    def __init__(self) -> None:
+        self._has_rust = _HAS_RUST_BACKEND
+        self.backend = "rust-fftw" if self._has_rust else "torch.fft"
+        self.dlpack_enabled = self._has_rust
+        self.thread_count = int(_fftw_thread_count())
+        self._last_profile: CallProfile | None = None
 
-        # Track code path usage
-        self.numpy_fallback_count = 0
-        self.zero_copy_count = 0
-
+    # ---------------------------------------------------------------------
+    # Public API ----------------------------------------------------------
+    # ---------------------------------------------------------------------
     def fft2(self, x: torch.Tensor) -> torch.Tensor:
-        """2D FFT using Rust backend with batch support."""
-        if x.ndim == 3:  # (batch, height, width) - Use batch processing for FFI optimization
-            batch_size, height, width = x.shape
-            # Prepare batch of numpy arrays
-            numpy_arrays = []
-            for b in range(batch_size):
-                x_slice = x[b]  # (height, width)
-                x_np = x_slice.detach().cpu().numpy()
-                if not x_np.flags.c_contiguous:
-                    x_np = np.ascontiguousarray(x_np)
-                numpy_arrays.append(x_np)
+        """Compute a 2D FFT.
 
-            # Single batch call to Rust (FFI optimization)
-            try:
-                batch_results = self.core.fft2_batch(numpy_arrays)
-                results = []
-                for result_np in batch_results:
-                    result_tensor = torch.from_numpy(result_np).to(x.device, x.dtype)
-                    results.append(result_tensor)
-                self.zero_copy_count += batch_size  # Count all operations
-                return torch.stack(results, dim=0)
-            except Exception as e:
-                print(f"[SpectralBridge] Batch processing failed ({e}), falling back to individual calls")
-                # Fallback to individual processing
-                results = []
-                for x_np in numpy_arrays:
-                    result_np = self.core.fft2(x_np)
-                    result_tensor = torch.from_numpy(result_np).to(x.device, x.dtype)
-                    results.append(result_tensor)
-                self.zero_copy_count += batch_size
-                return torch.stack(results, dim=0)
-        else:
-            # Single 2D tensor
-            return self._fft2_single(x)
+        If a batch dimension is provided (shape ``B × H × W``) the computation
+        is dispatched through :meth:`fft2_batch` to amortise FFI overhead.
+        """
 
-    def _fft2_single(self, x: torch.Tensor) -> torch.Tensor:
-        """Process a single 2D tensor with zero-copy."""
-        try:
-            # Convert to numpy (zero-copy if contiguous)
-            x_np = x.detach().cpu().numpy()
-            if not x_np.flags.c_contiguous:
-                x_np = np.ascontiguousarray(x_np)  # This copies
-
-            # Use the numpy buffer directly (zero-copy)
-            result_np = self.core.fft2(x_np)
-            result = torch.from_numpy(result_np).to(x.device, x.dtype)
-            self.zero_copy_count += 1
-            return result
-        except Exception as e:
-            # Fallback
-            self.numpy_fallback_count += 1
-            print(f"[SpectralBridge] Zero-copy failed ({e}), using numpy fallback")
-            x_np = x.detach().cpu().numpy()
-            if not x_np.flags.c_contiguous:
-                x_np = np.ascontiguousarray(x_np)
-            result_np = self.core.fft2(x_np)
-            return torch.from_numpy(result_np).to(x.device, x.dtype)
-
-    def fft2_dlpack_test(self, x: torch.Tensor) -> torch.Tensor:
-        """Test DLPack direct return path."""
-        try:
-            # Get shape before DLPack conversion
-            height, width = x.shape
-            # Convert to DLPack
-            caps = dlpack.to_dlpack(x)
-            # Call Rust with capsule and explicit shape
-            result_caps = self.core.fft2_dlpack_shaped(caps, height, width)
-            # Convert back
-            return dlpack.from_dlpack(result_caps)
-        except Exception as e:
-            print(f"[SpectralBridge] DLPack test failed ({e}), falling back to numpy")
-            return self.fft2(x)
+        if x.ndim == 3:
+            results = self.fft2_batch(list(x))
+            return torch.stack(results, dim=0)
+        return _RustFFT.apply(self, x)
 
     def ifft2(self, x: torch.Tensor) -> torch.Tensor:
-        """2D inverse FFT using Rust backend."""
-        x_np = x.detach().cpu().numpy()
-        # Ensure contiguous memory layout for FFTW
-        if not x_np.flags.c_contiguous:
-            x_np = np.ascontiguousarray(x_np)
-        result_np = self.core.ifft2(x_np)
-        return torch.from_numpy(result_np)
+        """Compute a 2D inverse FFT with ``norm="backward"`` semantics."""
+
+        if x.ndim == 3:
+            results = [self.ifft2(s) for s in x]
+            return torch.stack(results, dim=0)
+        result = _RustIFFT.apply(self, x)
+        return result
 
     def fft_filter2(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
-        """Fused FFT → filter → iFFT operation."""
-        x_np = x.detach().cpu().numpy()
-        h_np = h.detach().cpu().numpy()
-        result_np = self.core.fft_filter2(x_np, h_np)
-        return torch.from_numpy(result_np)
+        """Apply a frequency-domain filter ``h`` to input ``x``."""
 
-    # DLPack interface (zero-copy when Rust available)
-    def fft2_dlpack(self, dlpack_capsule):
-        """2D FFT using DLPack capsules (zero-copy with Rust backend)."""
-        if HAS_SPECTRAL_CORE:
-            return rust_spectral_core.SpectralCore.fft2_dlpack(dlpack_capsule)
-        else:
-            # Fallback: convert through numpy
-            tensor = dlpack.from_dlpack(dlpack_capsule)
-            result = self.fft2(tensor)
-            return dlpack.to_dlpack(result)
+        spectrum = self.fft2(x)
+        kernel = self.fft2(h)
+        filtered = spectrum * kernel
+        response = self.ifft2(filtered)
+        if not (x.is_complex() or h.is_complex()):
+            return response.real
+        return response
 
-    def ifft2_dlpack(self, dlpack_capsule):
-        """2D iFFT using DLPack capsules (zero-copy with Rust backend)."""
-        if HAS_SPECTRAL_CORE:
-            return rust_spectral_core.SpectralCore.ifft2_dlpack(dlpack_capsule)
-        else:
-            # Fallback: convert through numpy
-            tensor = dlpack.from_dlpack(dlpack_capsule)
-            result = self.ifft2(tensor)
-            return dlpack.to_dlpack(result)
+    def fft2_batch(self, xs: Iterable[torch.Tensor]) -> List[torch.Tensor]:
+        """Run several FFTs via a single FFI call to minimise Python overhead."""
 
-    def fft_filter2_dlpack(self, x_capsule, h_capsule):
-        """Fused FFT filtering using DLPack capsules (zero-copy with Rust backend)."""
-        if HAS_SPECTRAL_CORE:
-            return rust_spectral_core.SpectralCore.fft_filter2_dlpack(x_capsule, h_capsule)
-        else:
-            # Fallback: convert through numpy
-            x_tensor = dlpack.from_dlpack(x_capsule)
-            h_tensor = dlpack.from_dlpack(h_capsule)
-            result = self.fft_filter2(x_tensor, h_tensor)
-            return dlpack.to_dlpack(result)
+        tensor_list = list(xs)
+        if not tensor_list:
+            return []
+
+        if not self._has_rust or any(t.device.type != "cpu" for t in tensor_list):
+            return [torch.fft.fft2(t) for t in tensor_list]
+
+        staged: List[torch.Tensor] = []
+        capsules: List[object] = []
+        conversion_in = 0.0
+        conversion_out = 0.0
+        copies = 0
+        start_total = time.perf_counter()
+
+        for tensor in tensor_list:
+            candidate = tensor.detach()
+            if not candidate.is_contiguous():
+                candidate = candidate.contiguous()
+                copies += 1
+            staged.append(candidate)
+            t0 = time.perf_counter()
+            capsules.append(dlpack.to_dlpack(candidate))
+            conversion_in += time.perf_counter() - t0
+
+        ffi_start = time.perf_counter()
+        result_capsules = _fft2_batch_dlpack(capsules)  # type: ignore[arg-type]
+        ffi_s = time.perf_counter() - ffi_start
+
+        results: List[torch.Tensor] = []
+        for capsule, source in zip(result_capsules, tensor_list):
+            t0 = time.perf_counter()
+            out = dlpack.from_dlpack(capsule)
+            conversion_out += time.perf_counter() - t0
+            out = out.to(dtype=_ensure_complex_dtype(source), device=source.device)
+            if source.requires_grad:
+                out.requires_grad_(True)
+            results.append(out)
+
+        total = time.perf_counter() - start_total
+        self._last_profile = CallProfile(
+            backend=self.backend,
+            total_s=total,
+            conversion_in_s=conversion_in,
+            ffi_s=ffi_s,
+            conversion_out_s=conversion_out,
+            thread_count=self.thread_count,
+            batch=len(results),
+            contiguous_copies=copies,
+        )
+        return results
+
+    def profile_fft2(self, x: torch.Tensor) -> Tuple[torch.Tensor, CallProfile]:
+        """Run :meth:`fft2` without autograd and return timing information."""
+
+        result, profile = self._fft2_forward(x)
+        self._last_profile = profile
+        return result, profile
+
+    def diagnostics(self) -> Dict[str, object]:
+        """Return runtime information about the active backend."""
+
+        payload: Dict[str, object] = {
+            "backend": self.backend,
+            "dlpack_enabled": self.dlpack_enabled,
+            "thread_count": self.thread_count,
+        }
+        if self._last_profile is not None:
+            payload["last_profile"] = self._last_profile.as_dict()
+        return payload
+
+    # ------------------------------------------------------------------
+    # Internal helpers -------------------------------------------------
+    # ------------------------------------------------------------------
+    def _fft2_forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, CallProfile]:
+        if not self._has_rust or x.device.type != "cpu":
+            start = time.perf_counter()
+            result = torch.fft.fft2(x)
+            end = time.perf_counter()
+            profile = CallProfile(
+                backend="torch.fft",
+                total_s=end - start,
+                conversion_in_s=0.0,
+                ffi_s=end - start,
+                conversion_out_s=0.0,
+                thread_count=self.thread_count,
+            )
+            return result, profile
+
+        tensor = x.detach()
+        copies = 0
+        if not tensor.is_contiguous():
+            tensor = tensor.contiguous()
+            copies = 1
+
+        start_total = time.perf_counter()
+        t0 = time.perf_counter()
+        capsule = dlpack.to_dlpack(tensor)
+        conversion_in = time.perf_counter() - t0
+
+        ffi_start = time.perf_counter()
+        out_capsule = _fft2_dlpack(capsule)  # type: ignore[operator]
+        ffi_time = time.perf_counter() - ffi_start
+
+        t1 = time.perf_counter()
+        result = dlpack.from_dlpack(out_capsule)
+        conversion_out = time.perf_counter() - t1
+
+        total = time.perf_counter() - start_total
+        result = result.to(dtype=_ensure_complex_dtype(x), device=x.device)
+        if x.requires_grad:
+            result.requires_grad_(True)
+
+        profile = CallProfile(
+            backend=self.backend,
+            total_s=total,
+            conversion_in_s=conversion_in,
+            ffi_s=ffi_time,
+            conversion_out_s=conversion_out,
+            thread_count=self.thread_count,
+            contiguous_copies=copies,
+        )
+        return result, profile
+
+    def _ifft2_forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, CallProfile]:
+        if not self._has_rust or x.device.type != "cpu":
+            start = time.perf_counter()
+            result = torch.fft.ifft2(x)
+            end = time.perf_counter()
+            profile = CallProfile(
+                backend="torch.fft",
+                total_s=end - start,
+                conversion_in_s=0.0,
+                ffi_s=end - start,
+                conversion_out_s=0.0,
+                thread_count=self.thread_count,
+            )
+            return result, profile
+
+        tensor = x.detach()
+        copies = 0
+        if not tensor.is_contiguous():
+            tensor = tensor.contiguous()
+            copies = 1
+
+        start_total = time.perf_counter()
+        t0 = time.perf_counter()
+        capsule = dlpack.to_dlpack(tensor)
+        conversion_in = time.perf_counter() - t0
+
+        ffi_start = time.perf_counter()
+        out_capsule = _ifft2_dlpack(capsule)  # type: ignore[operator]
+        ffi_time = time.perf_counter() - ffi_start
+
+        t1 = time.perf_counter()
+        result = dlpack.from_dlpack(out_capsule)
+        conversion_out = time.perf_counter() - t1
+
+        total = time.perf_counter() - start_total
+        result = result.to(dtype=_ensure_complex_dtype(x), device=x.device)
+        if x.requires_grad:
+            result.requires_grad_(True)
+
+        profile = CallProfile(
+            backend=self.backend,
+            total_s=total,
+            conversion_in_s=conversion_in,
+            ffi_s=ffi_time,
+            conversion_out_s=conversion_out,
+            thread_count=self.thread_count,
+            contiguous_copies=copies,
+        )
+        return result, profile
+
+    @property
+    def last_profile(self) -> Optional[CallProfile]:
+        return self._last_profile
+
+
+class _RustFFT(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, bridge: SpectralBridge, input_tensor: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        result, profile = bridge._fft2_forward(input_tensor)
+        bridge._last_profile = profile
+        ctx.save_for_backward()
+        return result
 
     @staticmethod
-    def is_available() -> bool:
-        """Check if Rust backend is available."""
-        return HAS_SPECTRAL_CORE
-
-    def is_cuda_available(self) -> bool:
-        """Check if CUDA support is available."""
-        return self.core.is_cuda_available()
-
-    def available_backends(self) -> list[str]:
-        """Get list of available backends."""
-        return self.core.available_backends()
-
-    def current_backend(self) -> str:
-        """Get the currently selected backend."""
-        if HAS_SPECTRAL_CORE:
-            return self.core.best_backend()
-        else:
-            return "torch_fft"
-
-    def print_usage_stats(self):
-        """Print code path usage statistics."""
-        total_calls = self.numpy_fallback_count + self.zero_copy_count
-        if total_calls > 0:
-            numpy_pct = (self.numpy_fallback_count / total_calls) * 100
-            zero_copy_pct = (self.zero_copy_count / total_calls) * 100
-            print(f"[SpectralBridge] Usage stats: numpy_fallback={self.numpy_fallback_count} ({numpy_pct:.1f}%), zero_copy={self.zero_copy_count} ({zero_copy_pct:.1f}%)")
-        else:
-            print("[SpectralBridge] No calls recorded yet")
+    def backward(ctx, grad_output: torch.Tensor) -> Tuple[None, torch.Tensor]:  # type: ignore[override]
+        grad = torch.fft.ifft2(grad_output)
+        return None, grad
 
 
-# Global bridge instance
+class _RustIFFT(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, bridge: SpectralBridge, input_tensor: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        result, profile = bridge._ifft2_forward(input_tensor)
+        bridge._last_profile = profile
+        ctx.save_for_backward()
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor) -> Tuple[None, torch.Tensor]:  # type: ignore[override]
+        grad = torch.fft.fft2(grad_output)
+        return None, grad
+
+
 _bridge: Optional[SpectralBridge] = None
 
 
 def get_bridge() -> SpectralBridge:
-    """Get or create the global spectral bridge."""
     global _bridge
     if _bridge is None:
         _bridge = SpectralBridge()
     return _bridge
 
 
-# Convenience functions
-def fft2(x: torch.Tensor) -> torch.Tensor:
-    """2D FFT with automatic backend selection."""
-    return get_bridge().fft2(x)
-
-
-def ifft2(x: torch.Tensor) -> torch.Tensor:
-    """2D inverse FFT with automatic backend selection."""
-    return get_bridge().ifft2(x)
-
-
-def fft_filter2(x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
-    """Fused FFT filtering with automatic backend selection."""
-    return get_bridge().fft_filter2(x, h)
-
-
-def diagnostics():
-    """Quick diagnostics to verify bridge health."""
-    import torch
-    from src.spectral.bridge import get_bridge
-
-    bridge = get_bridge()
-    print(f"[Bridge] available={bridge.is_available()}, backends={bridge.available_backends()}")
-
-    # Test with small tensor
-    x = torch.randn(16, 16, dtype=torch.float32)
-    y_bridge = bridge.fft2(x)
-    y_torch = torch.fft.fft2(x)
-
-    diff = torch.norm(y_bridge - torch.abs(y_torch)).item()
-    print(f"[Bridge] dtype={x.dtype}, device={x.device}, diff={diff:.2e}")
-
-    return diff < 1e-5  # Return True if healthy
+__all__ = ["SpectralBridge", "get_bridge", "CallProfile"]

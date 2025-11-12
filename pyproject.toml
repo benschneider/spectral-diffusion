@@ -1,0 +1,31 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "spectral-bridge"
+version = "0.2.0"
+description = "SpectralBridge Python package with Rust FFTW backend"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Spectral Diffusion Team" }
+]
+dependencies = [
+    "torch>=2.5",
+]
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/example/spectral-diffusion"
+
+[tool.maturin]
+module-name = "spectral_core"
+python-source = "src"
+features = ["fftw"]
