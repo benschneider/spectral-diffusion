@@ -1,4 +1,4 @@
-use crate::plan::{Plan2D, PlanCache, PlanDirection};
+use crate::plan::{Plan2D, PlanCache, PlanDirection, SmallPlanCache};
 use num_cpus;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::env;
 use std::ptr::NonNull;
 use std::slice;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 const ALIGN_BYTES: usize = 64;
@@ -101,6 +101,14 @@ impl PhaseTimings {
     }
 }
 
+fn resolve_plan(height: usize, width: usize, direction: PlanDirection) -> (Arc<Plan2D>, Duration) {
+    if let Some(plan) = SmallPlanCache::global().get(height, width, direction) {
+        (plan, Duration::ZERO)
+    } else {
+        PlanCache::global().get_or_build(height, width, direction)
+    }
+}
+
 pub struct FftEngine {
     max_height: usize,
     max_width: usize,
@@ -146,8 +154,7 @@ impl FftEngine {
         debug_assert_eq!(output.len(), dims.elements());
 
         let mut timings = PhaseTimings::default();
-        let (plan, elapsed) =
-            PlanCache::global().get_or_build(dims.height, dims.width, PlanDirection::Forward);
+        let (plan, elapsed) = resolve_plan(dims.height, dims.width, PlanDirection::Forward);
         timings.plan += elapsed;
 
         let total = dims.elements();
@@ -175,8 +182,7 @@ impl FftEngine {
         debug_assert_eq!(output.len(), dims.elements());
 
         let mut timings = PhaseTimings::default();
-        let (plan, elapsed) =
-            PlanCache::global().get_or_build(dims.height, dims.width, PlanDirection::Inverse);
+        let (plan, elapsed) = resolve_plan(dims.height, dims.width, PlanDirection::Inverse);
         timings.plan += elapsed;
 
         let total = dims.elements();
@@ -210,9 +216,9 @@ impl FftEngine {
 
         let mut timings = PhaseTimings::default();
         let (forward_plan, f_elapsed) =
-            PlanCache::global().get_or_build(dims.height, dims.width, PlanDirection::Forward);
+            resolve_plan(dims.height, dims.width, PlanDirection::Forward);
         let (inverse_plan, i_elapsed) =
-            PlanCache::global().get_or_build(dims.height, dims.width, PlanDirection::Inverse);
+            resolve_plan(dims.height, dims.width, PlanDirection::Inverse);
         timings.plan += f_elapsed + i_elapsed;
 
         let total = dims.elements();
