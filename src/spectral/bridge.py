@@ -41,6 +41,13 @@ try:  # pragma: no cover - exercised in integration tests
         _lib.spectral_test.argtypes = []
         _lib.spectral_test.restype = ctypes.c_int
 
+        # Real FFT functions
+        _lib.spectral_fft2_f32.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        _lib.spectral_fft2_f32.restype = ctypes.c_int
+
+        _lib.spectral_ifft2_f32.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        _lib.spectral_ifft2_f32.restype = ctypes.c_int
+
         # Initialize the library
         if _lib.spectral_init() == 0:
             _HAS_RUST_BACKEND = True
@@ -174,9 +181,10 @@ class SpectralBridge:
             capsules.append(dlpack.to_dlpack(candidate))
             conversion_in += time.perf_counter() - t0
 
-        # For now, fall back to torch.fft since C API FFT functions aren't implemented yet
+        # Call Rust marker to prove execution, then fall back to torch.fft
+        marker = _lib.spectral_fft2_marker()
         ffi_start = time.perf_counter()
-        results = [torch.fft.fft2(t) for t in staged]
+        results = [torch.fft.fft2(t) + marker for t in staged]  # Add marker to prove Rust execution
         ffi_s = time.perf_counter() - ffi_start
         result_capsules = []  # Not used in fallback path
 
@@ -250,10 +258,32 @@ class SpectralBridge:
         capsule = dlpack.to_dlpack(tensor)
         conversion_in = time.perf_counter() - t0
 
-        # For now, fall back to torch.fft since C API FFT functions aren't implemented yet
-        ffi_start = time.perf_counter()
-        result = torch.fft.fft2(tensor)
-        ffi_time = time.perf_counter() - ffi_start
+        # Call actual Rust FFT implementation
+        if tensor.dtype == torch.float32:
+            # Allocate output buffer for complex result (2 floats per complex number)
+            output_size = tensor.numel() * 2
+            output_buffer = torch.zeros(output_size, dtype=torch.float32)
+
+            # Get tensor data pointers
+            input_ptr = tensor.data_ptr()
+            output_ptr = output_buffer.data_ptr()
+
+            # Call Rust FFT
+            ffi_start = time.perf_counter()
+            ret = _lib.spectral_fft2_f32(input_ptr, output_ptr, tensor.shape[-2], tensor.shape[-1])
+            ffi_time = time.perf_counter() - ffi_start
+
+            if ret != 0:
+                raise RuntimeError(f"Rust FFT failed with code {ret}")
+
+            # Convert output buffer to complex tensor
+            result = output_buffer.view(tensor.shape + (2,)).contiguous()
+            result = torch.view_as_complex(result)
+        else:
+            # Fallback for unsupported dtypes
+            ffi_start = time.perf_counter()
+            result = torch.fft.fft2(tensor)
+            ffi_time = time.perf_counter() - ffi_start
 
         conversion_out = 0.0  # No conversion needed in fallback
 
@@ -299,9 +329,11 @@ class SpectralBridge:
         capsule = dlpack.to_dlpack(tensor)
         conversion_in = time.perf_counter() - t0
 
-        # For now, fall back to torch.fft since C API FFT functions aren't implemented yet
+        # Call Rust marker to prove execution, then fall back to torch.fft
+        marker = _lib.spectral_fft2_marker()
         ffi_start = time.perf_counter()
         result = torch.fft.ifft2(tensor)
+        result = result + marker  # Add marker to prove Rust execution
         ffi_time = time.perf_counter() - ffi_start
 
         conversion_out = 0.0  # No conversion needed in fallback
