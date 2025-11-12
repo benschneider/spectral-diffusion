@@ -48,6 +48,13 @@ try:  # pragma: no cover - exercised in integration tests
         _lib.spectral_ifft2_f32.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
         _lib.spectral_ifft2_f32.restype = ctypes.c_int
 
+        # Timing functions
+        _lib.spectral_get_timing_stats.argtypes = []
+        _lib.spectral_get_timing_stats.restype = ctypes.c_char_p
+
+        _lib.spectral_reset_timing_stats.argtypes = []
+        _lib.spectral_reset_timing_stats.restype = None
+
         # Initialize the library
         if _lib.spectral_init() == 0:
             _HAS_RUST_BACKEND = True
@@ -227,7 +234,18 @@ class SpectralBridge:
         }
         if self._last_profile is not None:
             payload["last_profile"] = self._last_profile.as_dict()
+
+        # Add Rust timing statistics if available
+        if self._has_rust and _lib:
+            timing_stats = _lib.spectral_get_timing_stats().decode('utf-8')
+            payload["rust_timing"] = timing_stats
+
         return payload
+
+    def reset_timing_stats(self) -> None:
+        """Reset Rust-side timing statistics."""
+        if self._has_rust and _lib:
+            _lib.spectral_reset_timing_stats()
 
     # ------------------------------------------------------------------
     # Internal helpers -------------------------------------------------

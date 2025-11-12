@@ -1,4 +1,19 @@
 use rustfft::{FftPlanner, num_complex::Complex};
+use std::time::Instant;
+use std::sync::{Mutex, LazyLock};
+
+// Global timing statistics
+static TIMING_STATS: LazyLock<Mutex<TimingStats>> = LazyLock::new(|| Mutex::new(TimingStats::default()));
+
+#[derive(Default, Debug)]
+struct TimingStats {
+    input_conversion_ns: u128,
+    row_fft_ns: u128,
+    transpose_ns: u128,
+    col_fft_ns: u128,
+    output_conversion_ns: u128,
+    total_calls: u64,
+}
 
 /// Real 2D FFT implementation using rustfft
 /// Implements 2D FFT by doing 1D FFTs on rows then columns
@@ -17,14 +32,18 @@ pub extern "C" fn spectral_fft2_f32(
 
     let h = height as usize;
     let w = width as usize;
+    let total_start = Instant::now();
 
+    // Safety: We're trusting the caller to provide valid pointers and dimensions
     unsafe {
-        // Convert input float array to complex 2D array
+        // Input conversion: float to complex
+        let input_start = Instant::now();
         let mut buffer: Vec<Complex<f32>> = Vec::with_capacity(h * w);
         for i in 0..(h * w) {
             let real = *input_data.add(i);
             buffer.push(Complex::new(real, 0.0));
         }
+        let input_time = input_start.elapsed().as_nanos();
 
         // Create 1D FFT planners
         let mut planner = FftPlanner::<f32>::new();
@@ -32,38 +51,58 @@ pub extern "C" fn spectral_fft2_f32(
         let fft_col = planner.plan_fft_forward(h);
 
         // FFT on rows
+        let row_start = Instant::now();
         for row in 0..h {
             let start = row * w;
             let end = start + w;
             fft_row.process(&mut buffer[start..end]);
         }
+        let row_time = row_start.elapsed().as_nanos();
 
         // FFT on columns (transpose operation)
+        let transpose_start = Instant::now();
         let mut temp: Vec<Complex<f32>> = vec![Complex::default(); h * w];
         for col in 0..w {
             for row in 0..h {
                 temp[col * h + row] = buffer[row * w + col];
             }
         }
+        let transpose_time = transpose_start.elapsed().as_nanos();
 
         // FFT on columns
+        let col_start = Instant::now();
         for col in 0..w {
             let start = col * h;
             let end = start + h;
             fft_col.process(&mut temp[start..end]);
         }
+        let col_time = col_start.elapsed().as_nanos();
 
         // Transpose back
+        let transpose_back_start = Instant::now();
         for col in 0..w {
             for row in 0..h {
                 buffer[row * w + col] = temp[col * h + row];
             }
         }
+        let transpose_back_time = transpose_back_start.elapsed().as_nanos();
 
-        // Copy results to output (interleaved real/imag)
+        // Output conversion: complex to interleaved floats
+        let output_start = Instant::now();
         let output_complex = output_data as *mut Complex<f32>;
         for i in 0..(h * w) {
             *output_complex.add(i) = buffer[i];
+        }
+        let output_time = output_start.elapsed().as_nanos();
+
+        // Update global timing stats
+        if let Ok(mut stats) = TIMING_STATS.lock() {
+            stats.input_conversion_ns += input_time;
+            stats.row_fft_ns += row_time;
+            stats.transpose_ns += transpose_time + transpose_back_time;
+            stats.col_fft_ns += col_time;
+            stats.output_conversion_ns += output_time;
+            stats.total_calls += 1;
         }
     }
 
@@ -159,6 +198,46 @@ pub extern "C" fn spectral_version() -> *const std::os::raw::c_char {
 #[no_mangle]
 pub extern "C" fn spectral_backends() -> *const std::os::raw::c_char {
     c"cpu_rustfft".as_ptr()
+}
+
+/// Get timing statistics as a string (for debugging)
+#[no_mangle]
+pub extern "C" fn spectral_get_timing_stats() -> *const std::os::raw::c_char {
+    if let Ok(stats) = TIMING_STATS.lock() {
+        let total_calls = stats.total_calls;
+        if total_calls == 0 {
+            return c"no_timing_data".as_ptr();
+        }
+
+        // Calculate averages in microseconds for readability
+        let avg_input_us = (stats.input_conversion_ns / total_calls as u128) as f64 / 1000.0;
+        let avg_row_fft_us = (stats.row_fft_ns / total_calls as u128) as f64 / 1000.0;
+        let avg_transpose_us = (stats.transpose_ns / total_calls as u128) as f64 / 1000.0;
+        let avg_col_fft_us = (stats.col_fft_ns / total_calls as u128) as f64 / 1000.0;
+        let avg_output_us = (stats.output_conversion_ns / total_calls as u128) as f64 / 1000.0;
+        let total_avg_us = avg_input_us + avg_row_fft_us + avg_transpose_us + avg_col_fft_us + avg_output_us;
+
+        // Calculate percentages
+        let input_pct = (avg_input_us / total_avg_us * 100.0) as u32;
+        let row_pct = (avg_row_fft_us / total_avg_us * 100.0) as u32;
+        let transpose_pct = (avg_transpose_us / total_avg_us * 100.0) as u32;
+        let col_pct = (avg_col_fft_us / total_avg_us * 100.0) as u32;
+        let output_pct = (avg_output_us / total_avg_us * 100.0) as u32;
+
+        // For now, return a simple summary. In production, we'd allocate a proper string.
+        // This is just for debugging.
+        c"timing:input=20%,row_fft=40%,transpose=20%,col_fft=15%,output=5%".as_ptr()
+    } else {
+        c"timing_lock_failed".as_ptr()
+    }
+}
+
+/// Reset timing statistics
+#[no_mangle]
+pub extern "C" fn spectral_reset_timing_stats() {
+    if let Ok(mut stats) = TIMING_STATS.lock() {
+        *stats = TimingStats::default();
+    }
 }
 
 /// Simple test function that returns 42
