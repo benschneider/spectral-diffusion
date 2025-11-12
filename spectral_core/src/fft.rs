@@ -16,7 +16,7 @@ const BLOCK_SIZE_SMALL: usize = 32;
 const BLOCK_SIZE_LARGE: usize = 64;
 const PARALLEL_ROW_THRESHOLD: usize = 8;
 const PARALLEL_COL_THRESHOLD: usize = 8;
-const TRANSPOSE_MIN_DIM: usize = 384;
+const DEFAULT_TRANSPOSE_MIN_DIM: usize = usize::MAX;
 
 thread_local! {
     static TLS_COMPLEX: RefCell<Vec<Complex32>> = RefCell::new(Vec::new());
@@ -133,7 +133,7 @@ impl FftEngine {
         if !self.transpose_enabled {
             return false;
         }
-        dims.height.max(dims.width) >= TRANSPOSE_MIN_DIM
+        dims.height.max(dims.width) >= transpose_threshold()
     }
 
     pub fn fft2_real_to_complex(
@@ -560,6 +560,17 @@ fn debug_enabled() -> bool {
     *FLAG.get_or_init(|| match env::var("RUSTFFT_DEBUG") {
         Ok(value) => value == "1" || value.eq_ignore_ascii_case("true"),
         Err(_) => false,
+    })
+}
+
+fn transpose_threshold() -> usize {
+    static THRESHOLD: OnceLock<usize> = OnceLock::new();
+    *THRESHOLD.get_or_init(|| {
+        env::var("RUSTFFT_TRANSPOSE_MIN")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_TRANSPOSE_MIN_DIM)
     })
 }
 
