@@ -15,20 +15,25 @@ thiserror = "1.0"
 anyhow = "1.0"
 rustfft = "6.1"
 rayon = "1.8"
+once_cell = "1.19"
 
 [features]
 default = []
-fftw = ["fftw-sys"]
-mkl = ["intel-mkl-sys"]
-cuda = ["cust"]
+fftw = ["dep:fftw-sys", "dep:fftw"]
+mkl = ["dep:intel-mkl-sys"]
+cuda = ["dep:cust"]
 
 [dependencies.fftw-sys]
-version = "0.4"
+version = "0.8.0"
 optional = true
 features = ["system"]
 
+[dependencies.fftw]
+version = "0.8.0"
+optional = true
+
 [dependencies.intel-mkl-sys]
-version = "0.2"
+version = "0.8.1"
 optional = true
 
 [dependencies.cust]

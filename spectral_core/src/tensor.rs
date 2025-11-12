@@ -1,11 +1,18 @@
-use crate::error::{Result, SpectralError};
+use crate::error::Result;
 use pyo3::prelude::*;
-use dlpack;
+use pyo3::buffer::PyBuffer;
 
 /// Simplified tensor representation for CPU f32 only
 #[derive(Debug, Clone)]
 pub struct DeviceTensor {
     pub data: Vec<f32>,
+    pub shape: Vec<usize>,
+}
+
+/// Zero-copy tensor that borrows from numpy array
+#[derive(Debug)]
+pub struct ZeroCopyTensor<'py> {
+    pub data: &'py [f32],
     pub shape: Vec<usize>,
 }
 
@@ -22,7 +29,29 @@ impl DeviceTensor {
 
         Ok(Self { data, shape })
     }
+}
 
+impl<'py> ZeroCopyTensor<'py> {
+    /// Create zero-copy tensor from numpy array
+    pub fn from_numpy(array: &'py PyAny) -> Result<Self> {
+        // Extract shape
+        let shape_py: Vec<i64> = array.getattr("shape")?.extract()?;
+        let shape: Vec<usize> = shape_py.into_iter().map(|x| x as usize).collect();
+
+        // Get buffer without copying
+        let buffer: PyBuffer<f32> = PyBuffer::get(array)?;
+        let data = unsafe {
+            std::slice::from_raw_parts(
+                buffer.buf_ptr() as *const f32,
+                buffer.len_bytes() / std::mem::size_of::<f32>()
+            )
+        };
+
+        Ok(Self { data, shape })
+    }
+}
+
+impl DeviceTensor {
     /// Convert back to numpy array
     pub fn to_numpy(&self, py: Python) -> Result<PyObject> {
         Ok(numpy::PyArray::from_vec(py, self.data.clone())

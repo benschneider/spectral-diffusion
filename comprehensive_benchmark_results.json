@@ -2,51 +2,76 @@
   "1x256x256": {
     "implementations": {
       "numpy": {
-        "avg_time_ms": 0.9530749637633562,
-        "std_time_ms": 0.14828981832496974,
-        "memory_mb": 3.1281986236572266,
-        "throughput_mflops": 1100.2030688746079
+        "avg_time_ms": 0.7072495621396229,
+        "std_time_ms": 0.09140989465032309,
+        "memory_mb": 3.128148078918457,
+        "throughput_mflops": 1482.611027467831
       },
       "torch_direct": {
-        "avg_time_ms": 0.3350414102897048,
-        "std_time_ms": 0.0874683661401964,
+        "avg_time_ms": 0.28678730002138764,
+        "std_time_ms": 0.4761832724562313,
         "memory_mb": 0.00018310546875,
-        "throughput_mflops": 3129.690742088608
+        "throughput_mflops": 3656.2846399467503
       },
       "bridge": {
-        "avg_time_ms": 0.7783668115735054,
-        "std_time_ms": 0.01768893551169445,
-        "memory_mb": 0.02363872528076172,
-        "throughput_mflops": 1347.1489076984847
+        "avg_time_ms": 1.6753470645053312,
+        "std_time_ms": 1.3627862857428503,
+        "memory_mb": 0.002010345458984375,
+        "throughput_mflops": 625.8858371591239
       }
     },
-    "overhead_torch": 2.3231958428674964,
-    "speedup_vs_numpy": 1.2244547809491901,
-    "memory_overhead_mb": 0.02345561981201172
+    "overhead_torch": 5.841775644808502,
+    "speedup_vs_numpy": 0.4221510737230127,
+    "memory_overhead_mb": 0.001827239990234375
   },
   "1x512x512": {
     "implementations": {
       "numpy": {
-        "avg_time_ms": 5.282158218324184,
-        "std_time_ms": 0.38007210239237305,
+        "avg_time_ms": 4.166552554816008,
+        "std_time_ms": 0.8353458897780136,
         "memory_mb": 12.003219604492188,
-        "throughput_mflops": 893.3075846972677
+        "throughput_mflops": 1132.493095411914
       },
       "torch_direct": {
-        "avg_time_ms": 1.4867497840896249,
-        "std_time_ms": 0.2615469782271211,
+        "avg_time_ms": 1.6013417702633888,
+        "std_time_ms": 1.367217214424564,
         "memory_mb": 0.00018310546875,
-        "throughput_mflops": 3173.7633665703306
+        "throughput_mflops": 2946.64892131296
       },
       "bridge": {
-        "avg_time_ms": 4.44936656858772,
-        "std_time_ms": 0.1347179096479336,
-        "memory_mb": 0.0011377334594726562,
-        "throughput_mflops": 1060.5087100067224
+        "avg_time_ms": 10.138299965532497,
+        "std_time_ms": 1.7596728653314193,
+        "memory_mb": 0.002071380615234375,
+        "throughput_mflops": 465.4224096783434
       }
     },
-    "overhead_torch": 2.9926801511608634,
-    "speedup_vs_numpy": 1.1871708336229088,
-    "memory_overhead_mb": 0.0009546279907226562
+    "overhead_torch": 6.331128153776285,
+    "speedup_vs_numpy": 0.41097152076592425,
+    "memory_overhead_mb": 0.001888275146484375
+  },
+  "1x1024x1024": {
+    "implementations": {
+      "numpy": {
+        "avg_time_ms": 14.8074533441104,
+        "std_time_ms": 1.114189551911852,
+        "memory_mb": 48.00321960449219,
+        "throughput_mflops": 1416.281349172127
+      },
+      "torch_direct": {
+        "avg_time_ms": 6.981765130767599,
+        "std_time_ms": 0.6588153133994752,
+        "memory_mb": 0.00018310546875,
+        "throughput_mflops": 3003.756157247633
+      },
+      "bridge": {
+        "avg_time_ms": 41.07142537634354,
+        "std_time_ms": 2.775141341888006,
+        "memory_mb": 0.002071380615234375,
+        "throughput_mflops": 510.6109614612803
+      }
+    },
+    "overhead_torch": 5.882670729690961,
+    "speedup_vs_numpy": 0.3605293268599158,
+    "memory_overhead_mb": 0.001888275146484375
   }
 }

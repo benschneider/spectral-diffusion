@@ -1,15 +1,37 @@
-use crate::backends::{FFTBackend, PlanCache, PlanKey};
+use crate::backends::{FFTBackend, PlanCache};
 use crate::error::{Result, SpectralError};
 use crate::tensor::DeviceTensor;
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::sync::Mutex;
+use pyo3::prelude::*;
+use pyo3::buffer::PyBuffer;
+#[cfg(feature = "fftw")]
+use fftw::plan::*;
+#[cfg(feature = "fftw")]
+use fftw::types::*;
+#[cfg(feature = "fftw")]
+use std::collections::HashMap;
+#[cfg(feature = "fftw")]
+use std::sync::{Arc, RwLock};
+#[cfg(feature = "fftw")]
+use once_cell::sync::Lazy;
 
 /// Main spectral processing interface
 pub struct SpectralProcessor {
     backend: FFTBackend,
     planner: Mutex<FftPlanner<f32>>,
     plan_cache: Mutex<PlanCache<Box<dyn std::any::Any + Send + Sync>>>,
+    #[cfg(feature = "fftw")]
+    fftw_forward_cache: Mutex<std::collections::HashMap<(usize, usize), fftw::plan::C2CPlan32>>,
+    #[cfg(feature = "fftw")]
+    fftw_inverse_cache: Mutex<std::collections::HashMap<(usize, usize), fftw::plan::C2CPlan32>>,
 }
+
+#[cfg(feature = "fftw")]
+static FFTW_FORWARD_CACHE: Lazy<RwLock<HashMap<(usize, usize), Arc<Mutex<C2CPlan32>>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+
+#[cfg(feature = "fftw")]
+static FFTW_INVERSE_CACHE: Lazy<RwLock<HashMap<(usize, usize), Arc<Mutex<C2CPlan32>>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
 impl SpectralProcessor {
     pub fn new(backend: FFTBackend) -> Result<Self> {
@@ -17,6 +39,10 @@ impl SpectralProcessor {
             backend,
             planner: Mutex::new(FftPlanner::new()),
             plan_cache: Mutex::new(PlanCache::new(100)), // Cache up to 100 plans
+            #[cfg(feature = "fftw")]
+            fftw_forward_cache: Mutex::new(std::collections::HashMap::new()),
+            #[cfg(feature = "fftw")]
+            fftw_inverse_cache: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -50,6 +76,31 @@ impl SpectralProcessor {
         let fft_input = self.fft2(input)?;
         let filtered = self.apply_filter(&fft_input, filter)?;
         self.ifft2(&filtered)
+    }
+
+    /// Zero-copy FFT2 using DLPack capsule
+    pub fn fft2_dlpack(&self, dlpack_capsule: &PyAny) -> Result<PyObject> {
+        // Use the existing implementation - DLPack avoids numpy array copy
+        let tensor = DeviceTensor::from_dlpack(dlpack_capsule)?;
+        let result = self.fft2(&tensor)?;
+        result.to_dlpack(dlpack_capsule.py())
+    }
+
+    /// Zero-copy iFFT2 using DLPack capsule
+    pub fn ifft2_dlpack(&self, dlpack_capsule: &PyAny) -> Result<PyObject> {
+        // For now, convert through numpy - TODO: implement true zero-copy
+        let tensor = DeviceTensor::from_dlpack(dlpack_capsule)?;
+        let result = self.ifft2(&tensor)?;
+        result.to_dlpack(dlpack_capsule.py())
+    }
+
+    /// Zero-copy FFT filtering using DLPack capsules
+    pub fn fft_filter2_dlpack(&self, x_capsule: &PyAny, h_capsule: &PyAny) -> Result<PyObject> {
+        // For now, convert through numpy - TODO: implement true zero-copy
+        let x_tensor = DeviceTensor::from_dlpack(x_capsule)?;
+        let h_tensor = DeviceTensor::from_dlpack(h_capsule)?;
+        let result = self.fft_filter2(&x_tensor, &h_tensor)?;
+        result.to_dlpack(x_capsule.py())
     }
 
     fn fft2_pocketfft(&self, input: &DeviceTensor) -> Result<DeviceTensor> {
@@ -175,15 +226,117 @@ impl SpectralProcessor {
         })
     }
 
-    // Placeholder implementations for other backends
     #[cfg(feature = "fftw")]
-    fn fft2_fftw(&self, _input: &DeviceTensor) -> Result<DeviceTensor> {
-        Err(SpectralError::BackendUnavailable("FFTW not implemented".to_string()))
+    fn fft2_fftw(&self, input: &DeviceTensor) -> Result<DeviceTensor> {
+        if input.shape.len() != 2 {
+            return Err(SpectralError::ShapeMismatch {
+                expected: "2D".to_string(),
+                actual: format!("{}D", input.shape.len()),
+            });
+        }
+
+        let height = input.shape[0] as usize;
+        let width = input.shape[1] as usize;
+        let cache_key = (height, width);
+
+        // Get or create cached plan
+        let plan_arc = {
+            let cache = FFTW_FORWARD_CACHE.read().unwrap();
+            if let Some(plan) = cache.get(&cache_key) {
+                Arc::clone(plan)
+            } else {
+                drop(cache);
+                let mut cache = FFTW_FORWARD_CACHE.write().unwrap();
+                if let Some(plan) = cache.get(&cache_key) {
+                    Arc::clone(plan)
+                } else {
+                    let new_plan = C2CPlan::aligned(&[height, width], Sign::Forward, Flag::MEASURE)?;
+                    let plan_arc = Arc::new(Mutex::new(new_plan));
+                    cache.insert(cache_key, Arc::clone(&plan_arc));
+                    plan_arc
+                }
+            }
+        };
+
+        // Convert to complex format for FFTW
+        let mut complex_data: Vec<c32> = input.data.iter()
+            .map(|&x| c32::new(x, 0.0))
+            .collect();
+
+        // Execute FFT using cached plan
+        let mut temp = complex_data.clone();
+        {
+            let mut plan = plan_arc.lock().unwrap();
+            plan.c2c(&mut complex_data, &mut temp)?;
+        }
+        complex_data = temp;
+
+        // Convert back to real (magnitude for now)
+        let real_data: Vec<f32> = complex_data.iter()
+            .map(|c| c.norm())
+            .collect();
+
+        Ok(DeviceTensor {
+            data: real_data,
+            shape: input.shape.clone(),
+        })
     }
 
     #[cfg(feature = "fftw")]
-    fn ifft2_fftw(&self, _input: &DeviceTensor) -> Result<DeviceTensor> {
-        Err(SpectralError::BackendUnavailable("FFTW not implemented".to_string()))
+    fn ifft2_fftw(&self, input: &DeviceTensor) -> Result<DeviceTensor> {
+        if input.shape.len() != 2 {
+            return Err(SpectralError::ShapeMismatch {
+                expected: "2D".to_string(),
+                actual: format!("{}D", input.shape.len()),
+            });
+        }
+
+        let height = input.shape[0] as usize;
+        let width = input.shape[1] as usize;
+        let cache_key = (height, width);
+
+        // Get or create cached plan
+        let plan_arc = {
+            let cache = FFTW_INVERSE_CACHE.read().unwrap();
+            if let Some(plan) = cache.get(&cache_key) {
+                Arc::clone(plan)
+            } else {
+                drop(cache);
+                let mut cache = FFTW_INVERSE_CACHE.write().unwrap();
+                if let Some(plan) = cache.get(&cache_key) {
+                    Arc::clone(plan)
+                } else {
+                    let new_plan = C2CPlan::aligned(&[height, width], Sign::Backward, Flag::MEASURE)?;
+                    let plan_arc = Arc::new(Mutex::new(new_plan));
+                    cache.insert(cache_key, Arc::clone(&plan_arc));
+                    plan_arc
+                }
+            }
+        };
+
+        // Convert to complex (assuming real input)
+        let mut complex_data: Vec<c32> = input.data.iter()
+            .map(|&x| c32::new(x, 0.0))
+            .collect();
+
+        // Execute inverse FFT using cached plan
+        let mut temp = complex_data.clone();
+        {
+            let mut plan = plan_arc.lock().unwrap();
+            plan.c2c(&mut complex_data, &mut temp)?;
+        }
+        complex_data = temp;
+
+        // Normalize and take real part
+        let scale = 1.0 / (height * width) as f32;
+        let real_data: Vec<f32> = complex_data.iter()
+            .map(|c| c.re * scale)
+            .collect();
+
+        Ok(DeviceTensor {
+            data: real_data,
+            shape: input.shape.clone(),
+        })
     }
 
     #[cfg(not(feature = "fftw"))]

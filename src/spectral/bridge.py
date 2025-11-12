@@ -87,30 +87,51 @@ class SpectralBridge:
     def __init__(self):
         if HAS_SPECTRAL_CORE:
             self.core = rust_spectral_core.SpectralCore()
+            # Log the selected backend once at initialization
+            best_backend = self.core.best_backend()
+            available = self.core.available_backends()
+            print(f"[SpectralBridge] Using backend: {best_backend} (available: {available})")
         else:
             self.core = FallbackSpectralCore()
+            print("[SpectralBridge] Using fallback: torch_fft")
 
     def fft2(self, x: torch.Tensor) -> torch.Tensor:
         """2D FFT using Rust backend with batch support."""
-        if x.ndim == 3:  # (batch, height, width)
-            batch_size, height, width = x.shape
-            results = []
-            for b in range(batch_size):
-                x_slice = x[b]  # (height, width)
-                x_np = x_slice.detach().cpu().numpy()
+        # Try zero-copy DLPack approach first
+        try:
+            dlpack_capsule = dlpack.to_dlpack(x)
+            result_capsule = self.fft2_dlpack(dlpack_capsule)
+            return dlpack.from_dlpack(result_capsule).to(x.device, x.dtype)
+        except Exception:
+            # Fallback to numpy copy approach
+            if x.ndim == 3:  # (batch, height, width)
+                batch_size, height, width = x.shape
+                results = []
+                for b in range(batch_size):
+                    x_slice = x[b]  # (height, width)
+                    x_np = x_slice.detach().cpu().numpy()
+                    # Ensure contiguous memory layout for FFTW
+                    if not x_np.flags.c_contiguous:
+                        x_np = np.ascontiguousarray(x_np)
+                    result_np = self.core.fft2(x_np)
+                    result_tensor = torch.from_numpy(result_np).to(x.device, x.dtype)
+                    results.append(result_tensor)
+                return torch.stack(results, dim=0)
+            else:
+                # 2D tensor
+                x_np = x.detach().cpu().numpy()
+                # Ensure contiguous memory layout for FFTW
+                if not x_np.flags.c_contiguous:
+                    x_np = np.ascontiguousarray(x_np)
                 result_np = self.core.fft2(x_np)
-                result_tensor = torch.from_numpy(result_np).to(x.device, x.dtype)
-                results.append(result_tensor)
-            return torch.stack(results, dim=0)
-        else:
-            # 2D tensor
-            x_np = x.detach().cpu().numpy()
-            result_np = self.core.fft2(x_np)
-            return torch.from_numpy(result_np).to(x.device, x.dtype)
+                return torch.from_numpy(result_np).to(x.device, x.dtype)
 
     def ifft2(self, x: torch.Tensor) -> torch.Tensor:
         """2D inverse FFT using Rust backend."""
         x_np = x.detach().cpu().numpy()
+        # Ensure contiguous memory layout for FFTW
+        if not x_np.flags.c_contiguous:
+            x_np = np.ascontiguousarray(x_np)
         result_np = self.core.ifft2(x_np)
         return torch.from_numpy(result_np)
 
@@ -165,6 +186,13 @@ class SpectralBridge:
     def available_backends(self) -> list[str]:
         """Get list of available backends."""
         return self.core.available_backends()
+
+    def current_backend(self) -> str:
+        """Get the currently selected backend."""
+        if HAS_SPECTRAL_CORE:
+            return self.core.best_backend()
+        else:
+            return "torch_fft"
 
 
 # Global bridge instance

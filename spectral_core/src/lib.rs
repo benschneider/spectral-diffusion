@@ -7,7 +7,6 @@ mod tensor;
 mod fft;
 mod backends;
 
-use crate::error::SpectralError;
 use crate::tensor::DeviceTensor;
 use crate::fft::SpectralProcessor;
 use crate::backends::FFTBackend;
@@ -61,22 +60,48 @@ impl SpectralCore {
     /// Check if CUDA is available
     #[staticmethod]
     fn is_cuda_available() -> bool {
-        // TODO: Implement CUDA detection
-        false
+        #[cfg(feature = "cuda")]
+        {
+            FFTBackend::is_cuda_available()
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            false
+        }
+    }
+
+    /// Get the best available backend
+    #[staticmethod]
+    fn best_backend() -> String {
+        match FFTBackend::detect_best() {
+            Ok(FFTBackend::CpuPocketfft) => "cpu_pocketfft".to_string(),
+            #[cfg(feature = "fftw")]
+            Ok(FFTBackend::CpuFftw) => "cpu_fftw".to_string(),
+            #[cfg(feature = "mkl")]
+            Ok(FFTBackend::CpuMkl) => "cpu_mkl".to_string(),
+            #[cfg(feature = "cuda")]
+            Ok(FFTBackend::CudaFused) => "fused_cuda".to_string(),
+            Err(_) => "cpu_pocketfft".to_string(),
+        }
     }
 
     /// Get available backends
     #[staticmethod]
     fn available_backends() -> Vec<String> {
-        vec![
-            "cpu_pocketfft".to_string(),
-            #[cfg(feature = "fftw")]
-            "cpu_fftw".to_string(),
-            #[cfg(feature = "mkl")]
-            "cpu_mkl".to_string(),
-            #[cfg(feature = "cuda")]
-            "fused_cuda".to_string(),
-        ]
+        let mut backends = vec!["cpu_pocketfft".to_string()];
+        #[cfg(feature = "fftw")]
+        if FFTBackend::is_fftw_available() {
+            backends.push("cpu_fftw".to_string());
+        }
+        #[cfg(feature = "mkl")]
+        if FFTBackend::is_mkl_available() {
+            backends.push("cpu_mkl".to_string());
+        }
+        #[cfg(feature = "cuda")]
+        if FFTBackend::is_cuda_available() {
+            backends.push("fused_cuda".to_string());
+        }
+        backends
     }
 
     /// 2D FFT using DLPack capsules (zero-copy)

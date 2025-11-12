@@ -27,6 +27,10 @@ pub enum SpectralError {
 
     #[error("Invalid configuration: {0}")]
     ConfigError(String),
+
+    #[cfg(feature = "fftw")]
+    #[error("FFTW error: {0}")]
+    FFTW(#[from] fftw::error::Error),
 }
 
 impl From<SpectralError> for PyErr {

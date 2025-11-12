@@ -1,4 +1,4 @@
-use crate::error::{Result, SpectralError};
+use crate::error::Result;
 use std::collections::HashMap;
 
 /// FFT backend enumeration
@@ -62,7 +62,7 @@ impl FFTBackend {
 
     /// Check if FFTW is available
     #[cfg(feature = "fftw")]
-    fn is_fftw_available() -> bool {
+    pub fn is_fftw_available() -> bool {
         // TODO: Implement FFTW detection
         true
     }

@@ -29,7 +29,7 @@ def measure_memory_usage(func, *args, **kwargs):
     return result, peak / 1024 / 1024  # MB
 
 
-def benchmark_fft2_comprehensive(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 5) -> Dict[str, Any]:
+def benchmark_fft2_comprehensive(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 1000) -> Dict[str, Any]:
     """Comprehensive FFT2 benchmark comparing multiple implementations."""
     bridge = get_bridge()
     results = {}
@@ -86,6 +86,10 @@ def benchmark_fft2_comprehensive(tensor_shapes: List[Tuple[int, int, int]], num_
         def bridge_fft():
             return bridge.fft2(x_torch)
 
+        # Extensive warmup for FFTW plan caching
+        for _ in range(10):
+            bridge.fft2(x_torch)
+
         _, mem_bridge = measure_memory_usage(bridge_fft)
         times_bridge = []
         for _ in range(num_runs):
@@ -116,7 +120,7 @@ def benchmark_fft2_comprehensive(tensor_shapes: List[Tuple[int, int, int]], num_
     return results
 
 
-def benchmark_fft2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 10) -> dict:
+def benchmark_fft2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 1000) -> dict:
     """Benchmark 2D FFT performance."""
     bridge = get_bridge()
     results = {}
@@ -157,7 +161,7 @@ def benchmark_fft2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 10
     return results
 
 
-def benchmark_ifft2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 10) -> dict:
+def benchmark_ifft2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 1000) -> dict:
     """Benchmark 2D iFFT performance."""
     bridge = get_bridge()
     results = {}
@@ -198,7 +202,7 @@ def benchmark_ifft2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 1
     return results
 
 
-def benchmark_fft_filter2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 10) -> dict:
+def benchmark_fft_filter2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 1000) -> dict:
     """Benchmark fused FFT filtering performance."""
     bridge = get_bridge()
     results = {}
@@ -241,13 +245,14 @@ def benchmark_fft_filter2(tensor_shapes: List[Tuple[int, int, int]], num_runs: i
     return results
 
 
-def print_comprehensive_results(results: Dict[str, Any]):
+def print_comprehensive_results(results: Dict[str, Any], num_runs: int):
     """Print comprehensive benchmark results comparing all implementations."""
     print("\n" + "="*100)
     print("SPECTRAL PERFORMANCE COMPARISON: NumPy vs PyTorch vs Bridge")
     print("="*100)
 
     print(f"{'Shape':<12} {'Implementation':<15} {'Time (ms)':<10} {'Memory (MB)':<12} {'MFLOPS':<10} {'vs Torch'}")
+    print(f"Benchmarked with {num_runs} runs per implementation")
     print("-" * 100)
 
     for shape_name, data in results.items():
@@ -298,6 +303,7 @@ def main():
     test_shapes = [
         (1, 256, 256),   # Small batch, moderate size
         (1, 512, 512),   # Single image, large
+        (1, 1024, 1024), # Large image, like typical ML datasets
     ]
 
     print("Starting Comprehensive Spectral Performance Benchmark...")
@@ -307,10 +313,10 @@ def main():
     print(f"NumPy version: {np.__version__}")
 
     # Run comprehensive FFT2 benchmark
-    fft2_results = benchmark_fft2_comprehensive(test_shapes)
+    fft2_results = benchmark_fft2_comprehensive(test_shapes, num_runs=1000)
 
     # Print comprehensive results
-    print_comprehensive_results(fft2_results)
+    print_comprehensive_results(fft2_results, 1000)
 
     # Save detailed results
     import json
