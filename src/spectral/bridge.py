@@ -244,8 +244,17 @@ class SpectralBridge:
 
         # Add Rust timing statistics if available
         if self._has_rust and _lib:
-            timing_stats = _lib.spectral_get_timing_stats().decode('utf-8')
-            payload["rust_timing"] = timing_stats
+            timing_str = _lib.spectral_get_timing_stats().decode('utf-8')
+            if timing_str.startswith('fft_compute='):
+                # Parse structured timing data
+                parts = {}
+                for part in timing_str.split(', '):
+                    if '=' in part:
+                        key, value = part.split('=', 1)
+                        parts[key] = float(value)
+                payload["rust_timing_breakdown"] = parts
+            else:
+                payload["rust_timing"] = timing_str
 
         return payload
 

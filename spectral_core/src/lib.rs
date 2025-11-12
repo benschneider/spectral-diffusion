@@ -1,25 +1,27 @@
-use rustfft::{FftPlanner, num_complex::Complex, Fft};
+use rustfft::{FftPlanner, num_complex::Complex};
 use std::time::Instant;
 use std::sync::{Mutex, LazyLock};
-use std::sync::Arc;
 
 // Global timing statistics
 static TIMING_STATS: LazyLock<Mutex<TimingStats>> = LazyLock::new(|| Mutex::new(TimingStats::default()));
 
 #[derive(Default, Debug)]
 struct TimingStats {
-    input_conversion_ns: u128,
-    row_fft_ns: u128,
-    transpose_ns: u128,
-    col_fft_ns: u128,
-    output_conversion_ns: u128,
+    input_conversion_ns: u128,  // Data transfer: float -> complex
+    row_fft_ns: u128,          // FFT computation: row-wise FFTs
+    transpose_alloc_ns: u128,  // Memory: temp buffer allocation
+    transpose_copy_ns: u128,   // Data movement: transpose copy
+    col_fft_ns: u128,          // FFT computation: column-wise FFTs
+    transpose_back_ns: u128,   // Data movement: transpose back copy
+    output_conversion_ns: u128, // Data transfer: complex -> interleaved
     total_calls: u64,
 }
 
 // Persistent context for FFT operations
 #[repr(C)]
 pub struct SDContext {
-    work_buffer: Vec<Complex<f32>>, // Pre-allocated work buffer
+    work_buffer: Vec<Complex<f32>>, // Pre-allocated work buffer for input/output
+    transpose_buffer: Vec<Complex<f32>>, // Pre-allocated buffer for transpose operations
     max_height: usize,
     max_width: usize,
 }
@@ -28,9 +30,11 @@ impl SDContext {
     fn new(max_h: usize, max_w: usize) -> Self {
         let buffer_size = max_h * max_w;
         let work_buffer = vec![Complex::<f32>::default(); buffer_size];
+        let transpose_buffer = vec![Complex::<f32>::default(); buffer_size];
 
         SDContext {
             work_buffer,
+            transpose_buffer,
             max_height: max_h,
             max_width: max_w,
         }
@@ -38,6 +42,10 @@ impl SDContext {
 
     fn get_work_buffer(&mut self) -> &mut [Complex<f32>] {
         &mut self.work_buffer
+    }
+
+    fn get_buffers(&mut self) -> (&mut [Complex<f32>], &mut [Complex<f32>]) {
+        (&mut self.work_buffer, &mut self.transpose_buffer)
     }
 }
 
@@ -94,8 +102,8 @@ pub extern "C" fn sd_fft2_f32(
         let fft_row = planner.plan_fft_forward(w);
         let fft_col = planner.plan_fft_forward(h);
 
-        // Get pre-allocated work buffer
-        let buffer = context.get_work_buffer();
+        // Get pre-allocated work buffers
+        let (buffer, temp) = context.get_buffers();
 
         // Input conversion: float to complex (into pre-allocated buffer)
         let input_start = Instant::now();
@@ -114,17 +122,23 @@ pub extern "C" fn sd_fft2_f32(
         }
         let row_time = row_start.elapsed().as_nanos();
 
-        // FFT on columns (transpose operation)
-        let transpose_start = Instant::now();
-        let mut temp: Vec<Complex<f32>> = vec![Complex::default(); h * w];
+        // FFT on columns using pre-allocated transpose buffer (no heap alloc!)
+        let alloc_start = Instant::now();
+        // temp is already available - no allocation needed!
+        let alloc_time = alloc_start.elapsed().as_nanos();
+
+        let copy_start = Instant::now();
+        // Copy to transpose buffer for column FFTs
         for col in 0..w {
             for row in 0..h {
-                temp[col * h + row] = buffer[row * w + col];
+                let src_idx = row * w + col;
+                let dst_idx = col * h + row;
+                temp[dst_idx] = buffer[src_idx];
             }
         }
-        let transpose_time = transpose_start.elapsed().as_nanos();
+        let copy_time = copy_start.elapsed().as_nanos();
 
-        // FFT on columns
+        // FFT on columns using transpose buffer
         let col_start = Instant::now();
         for col in 0..w {
             let start = col * h;
@@ -133,14 +147,16 @@ pub extern "C" fn sd_fft2_f32(
         }
         let col_time = col_start.elapsed().as_nanos();
 
-        // Transpose back
-        let transpose_back_start = Instant::now();
-        for col in 0..w {
-            for row in 0..h {
-                buffer[row * w + col] = temp[col * h + row];
+        // Copy back from transpose buffer
+        let back_start = Instant::now();
+        for row in 0..h {
+            for col in 0..w {
+                let src_idx = col * h + row;
+                let dst_idx = row * w + col;
+                buffer[dst_idx] = temp[src_idx];
             }
         }
-        let transpose_back_time = transpose_back_start.elapsed().as_nanos();
+        let back_time = back_start.elapsed().as_nanos();
 
         // Output conversion: complex to interleaved floats
         let output_start = Instant::now();
@@ -154,8 +170,10 @@ pub extern "C" fn sd_fft2_f32(
         if let Ok(mut stats) = TIMING_STATS.lock() {
             stats.input_conversion_ns += input_time;
             stats.row_fft_ns += row_time;
-            stats.transpose_ns += transpose_time + transpose_back_time;
+            stats.transpose_alloc_ns += alloc_time;
+            stats.transpose_copy_ns += copy_time;
             stats.col_fft_ns += col_time;
+            stats.transpose_back_ns += back_time;
             stats.output_conversion_ns += output_time;
             stats.total_calls += 1;
         }
@@ -255,7 +273,7 @@ pub extern "C" fn spectral_backends() -> *const std::os::raw::c_char {
     c"cpu_rustfft".as_ptr()
 }
 
-/// Get timing statistics as a string (for debugging)
+/// Get detailed timing statistics as a structured string
 #[no_mangle]
 pub extern "C" fn spectral_get_timing_stats() -> *const std::os::raw::c_char {
     if let Ok(stats) = TIMING_STATS.lock() {
@@ -264,24 +282,18 @@ pub extern "C" fn spectral_get_timing_stats() -> *const std::os::raw::c_char {
             return c"no_timing_data".as_ptr();
         }
 
-        // Calculate averages in microseconds for readability
-        let avg_input_us = (stats.input_conversion_ns / total_calls as u128) as f64 / 1000.0;
-        let avg_row_fft_us = (stats.row_fft_ns / total_calls as u128) as f64 / 1000.0;
-        let avg_transpose_us = (stats.transpose_ns / total_calls as u128) as f64 / 1000.0;
-        let avg_col_fft_us = (stats.col_fft_ns / total_calls as u128) as f64 / 1000.0;
-        let avg_output_us = (stats.output_conversion_ns / total_calls as u128) as f64 / 1000.0;
-        let total_avg_us = avg_input_us + avg_row_fft_us + avg_transpose_us + avg_col_fft_us + avg_output_us;
+        // Calculate average seconds per call for each component
+        let fft_compute_s = ((stats.row_fft_ns + stats.col_fft_ns) as f64 / total_calls as f64) / 1_000_000_000.0;
+        let data_transfer_s = ((stats.input_conversion_ns + stats.output_conversion_ns) as f64 / total_calls as f64) / 1_000_000_000.0;
+        let data_movement_s = ((stats.transpose_alloc_ns + stats.transpose_copy_ns + stats.transpose_back_ns) as f64 / total_calls as f64) / 1_000_000_000.0;
 
-        // Calculate percentages
-        let input_pct = (avg_input_us / total_avg_us * 100.0) as u32;
-        let row_pct = (avg_row_fft_us / total_avg_us * 100.0) as u32;
-        let transpose_pct = (avg_transpose_us / total_avg_us * 100.0) as u32;
-        let col_pct = (avg_col_fft_us / total_avg_us * 100.0) as u32;
-        let output_pct = (avg_output_us / total_avg_us * 100.0) as u32;
+        // Format the actual timing values using format! macro
+        let timing_str = format!("fft_compute={:e}, data_transfer={:e}, data_movement={:e}",
+                                fft_compute_s, data_transfer_s, data_movement_s);
 
-        // For now, return a simple summary. In production, we'd allocate a proper string.
-        // This is just for debugging.
-        c"timing:input=20%,row_fft=40%,transpose=20%,col_fft=15%,output=5%".as_ptr()
+        // Leak the string to get a static reference (this is safe for FFI)
+        // In production, we'd want to manage this memory properly
+        Box::leak(timing_str.into_boxed_str()).as_ptr() as *const std::os::raw::c_char
     } else {
         c"timing_lock_failed".as_ptr()
     }
