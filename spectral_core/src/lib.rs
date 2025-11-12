@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::PyResult;
+use pyo3::buffer::PyBuffer;
 use std::sync::Arc;
 
 mod error;
@@ -40,6 +41,37 @@ impl SpectralCore {
         let tensor = DeviceTensor::from_numpy(array)?;
         let result = self.processor.fft2(&tensor)?;
         Ok(result.to_numpy(array.py())?)
+    }
+
+    /// Batch 2D FFT using numpy arrays (FFI optimization)
+    fn fft2_batch(&self, arrays: Vec<&PyAny>) -> PyResult<Vec<PyObject>> {
+        let mut results = Vec::with_capacity(arrays.len());
+        for array in arrays {
+            let tensor = DeviceTensor::from_numpy(array)?;
+            let result = self.processor.fft2(&tensor)?;
+            results.push(result.to_numpy(array.py())?);
+        }
+        Ok(results)
+    }
+
+    /// 2D FFT returning DLPack capsule directly (zero-copy return)
+    fn fft2_dlpack(&self, dlpack_capsule: &PyAny) -> PyResult<PyObject> {
+        // Extract shape from the capsule by creating a temporary buffer view
+        let buffer: PyBuffer<f32> = PyBuffer::get(dlpack_capsule)?;
+        let data_len = buffer.len_bytes() / std::mem::size_of::<f32>();
+
+        // Assume 2D tensor - extract height/width from buffer info
+        // For now, assume square tensors or extract from buffer if possible
+        // TODO: Extract actual shape from DLPack metadata
+        let width = (data_len as f64).sqrt() as usize;
+        let height = data_len / width;
+
+        if height * width != data_len {
+            return Err(pyo3::exceptions::PyValueError::new_err("Cannot determine 2D shape from buffer size"));
+        }
+
+        // Perform FFT and return DLPack capsule
+        Ok(self.processor.fft2_dlpack_shaped(dlpack_capsule, height, width)?)
     }
 
     /// 2D inverse FFT using numpy arrays
@@ -104,11 +136,10 @@ impl SpectralCore {
         backends
     }
 
-    /// 2D FFT using DLPack capsules (zero-copy)
-    fn fft2_dlpack(&self, dlpack_capsule: &PyAny) -> PyResult<PyObject> {
-        let tensor = DeviceTensor::from_dlpack(dlpack_capsule)?;
-        let result = self.processor.fft2(&tensor)?;
-        Ok(result.to_dlpack(dlpack_capsule.py())?)
+
+    /// 2D FFT using DLPack capsules with explicit shape (hybrid zero-copy)
+    fn fft2_dlpack_shaped(&self, dlpack_capsule: &PyAny, height: usize, width: usize) -> PyResult<PyObject> {
+        Ok(self.processor.fft2_dlpack_shaped(dlpack_capsule, height, width)?)
     }
 
     /// 2D inverse FFT using DLPack capsules (zero-copy)

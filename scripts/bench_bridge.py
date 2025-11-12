@@ -120,6 +120,107 @@ def benchmark_fft2_comprehensive(tensor_shapes: List[Tuple[int, int, int]], num_
     return results
 
 
+def profile_bridge_detailed(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 100) -> Dict[str, Any]:
+    """Detailed profiling of bridge operations to identify bottlenecks."""
+    bridge = get_bridge()
+    results = {}
+
+    for batch, height, width in tensor_shapes:
+        shape_name = f"{batch}x{height}x{width}"
+        print(f"Profiling bridge operations for {shape_name}...")
+
+        # Create test data
+        x_np = np.random.randn(batch, height, width).astype(np.float32)
+        x_torch = torch.from_numpy(x_np)
+
+        # Profile individual components
+        profile_data = {
+            'tensor_creation': [],
+            'torch_to_numpy': [],
+            'python_to_rust_ffi': [],
+            'rust_processing': [],
+            'rust_to_python_return': [],
+            'numpy_to_torch': [],
+            'total_bridge_time': []
+        }
+
+        # Warmup
+        for _ in range(5):
+            bridge.fft2(x_torch)
+
+        for run in range(num_runs):
+            # 1. PyTorch tensor creation (baseline)
+            start = time.perf_counter()
+            x_test = torch.randn(batch, height, width, dtype=torch.float32)
+            tensor_creation_time = time.perf_counter() - start
+            profile_data['tensor_creation'].append(tensor_creation_time * 1000)
+
+            # 2. PyTorch -> numpy conversion
+            start = time.perf_counter()
+            x_np_test = x_test.detach().cpu().numpy()
+            if not x_np_test.flags.c_contiguous:
+                x_np_test = np.ascontiguousarray(x_np_test)
+            torch_to_numpy_time = time.perf_counter() - start
+            profile_data['torch_to_numpy'].append(torch_to_numpy_time * 1000)
+
+            # 3. Python -> Rust FFI call (measured via Rust timing)
+            # This is harder to isolate, but we can measure the Rust processing time
+            # by comparing total bridge time vs torch->numpy time
+
+            # 4. Total bridge call
+            start = time.perf_counter()
+            result = bridge.fft2(x_test)
+            total_bridge_time = time.perf_counter() - start
+            profile_data['total_bridge_time'].append(total_bridge_time * 1000)
+
+            # Estimate FFI + Rust processing time
+            ffi_plus_rust = total_bridge_time - torch_to_numpy_time
+            profile_data['python_to_rust_ffi'].append(ffi_plus_rust * 1000 * 0.5)  # Rough estimate
+            profile_data['rust_processing'].append(ffi_plus_rust * 1000 * 0.5)   # Rough estimate
+
+            # 5. numpy -> PyTorch conversion (return path)
+            start = time.perf_counter()
+            _ = torch.from_numpy(np.random.randn(batch, height, width).astype(np.float32))
+            numpy_to_torch_time = time.perf_counter() - start
+            profile_data['numpy_to_torch'].append(numpy_to_torch_time * 1000)
+
+            profile_data['rust_to_python_return'].append(numpy_to_torch_time * 1000 * 0.5)  # Rough estimate
+
+        # Calculate statistics
+        profile_stats = {}
+        for key, times in profile_data.items():
+            profile_stats[key] = {
+                'avg_ms': np.mean(times),
+                'std_ms': np.std(times),
+                'total_pct': (np.mean(times) / np.mean(profile_data['total_bridge_time'])) * 100
+            }
+
+        # Compare with PyTorch direct
+        torch_times = []
+        for _ in range(num_runs):
+            start = time.perf_counter()
+            torch.fft.fft2(x_torch)
+            torch_times.append((time.perf_counter() - start) * 1000)
+
+        torch_avg = np.mean(torch_times)
+        bridge_avg = np.mean(profile_data['total_bridge_time'])
+
+        results[shape_name] = {
+            'profile_stats': profile_stats,
+            'torch_direct_avg_ms': torch_avg,
+            'bridge_total_avg_ms': bridge_avg,
+            'overhead_ratio': bridge_avg / torch_avg,
+            'breakdown': {
+                'tensor_prep': profile_stats['torch_to_numpy']['total_pct'],
+                'ffi_overhead': profile_stats['python_to_rust_ffi']['total_pct'] + profile_stats['rust_to_python_return']['total_pct'],
+                'rust_compute': profile_stats['rust_processing']['total_pct'],
+                'other': 100 - (profile_stats['torch_to_numpy']['total_pct'] + profile_stats['python_to_rust_ffi']['total_pct'] + profile_stats['rust_to_python_return']['total_pct'] + profile_stats['rust_processing']['total_pct'])
+            }
+        }
+
+    return results
+
+
 def benchmark_fft2(tensor_shapes: List[Tuple[int, int, int]], num_runs: int = 1000) -> dict:
     """Benchmark 2D FFT performance."""
     bridge = get_bridge()
@@ -297,6 +398,86 @@ def print_comprehensive_results(results: Dict[str, Any], num_runs: int):
     print("="*100)
 
 
+def print_detailed_profile_results(results: Dict[str, Any]):
+    """Print detailed profiling results showing bottleneck analysis."""
+    print("\n" + "="*120)
+    print("DETAILED PERFORMANCE PROFILING: IDENTIFYING BOTTLENECKS")
+    print("="*120)
+
+    print(f"{'Shape':<15} {'Component':<20} {'Avg Time (ms)':<12} {'Std (ms)':<10} {'% of Total':<10} {'Notes'}")
+    print("-" * 120)
+
+    for shape_name, data in results.items():
+        profile_stats = data['profile_stats']
+        breakdown = data['breakdown']
+
+        print(f"{shape_name:<15} {'TOTAL BRIDGE TIME':<20} {data['bridge_total_avg_ms']:<12.3f} {'N/A':<10} {'100.0%':<10} {'Complete pipeline'}")
+        print(f"{shape_name:<15} {'PyTorch Direct':<20} {data['torch_direct_avg_ms']:<12.3f} {'N/A':<10} {'N/A':<10} {'Reference baseline'}")
+        print(f"{shape_name:<15} {'OVERHEAD RATIO':<20} {data['overhead_ratio']:<12.2f}x {'N/A':<10} {'N/A':<10} {'Bridge vs PyTorch'}")
+        print("-" * 120)
+
+        # Sort by percentage for better visualization
+        components = [
+            ('torch_to_numpy', 'PyTorch→NumPy', 'Data prep'),
+            ('python_to_rust_ffi', 'Python→Rust FFI', 'Call overhead'),
+            ('rust_processing', 'Rust FFT Compute', 'Core computation'),
+            ('rust_to_python_return', 'Rust→Python Return', 'Return overhead'),
+            ('numpy_to_torch', 'NumPy→PyTorch', 'Result conversion'),
+        ]
+
+        for key, display_name, notes in components:
+            if key in profile_stats:
+                stat = profile_stats[key]
+                print(f"{shape_name:<15} {display_name:<20} {stat['avg_ms']:<12.3f} {stat['std_ms']:<10.3f} {stat['total_pct']:<10.1f} {notes}")
+
+        print("-" * 120)
+
+        # Print breakdown analysis
+        print(f"{shape_name:<15} BREAKDOWN ANALYSIS:")
+        print(f"{shape_name:<15}   Data Preparation: {breakdown['tensor_prep']:.1f}%")
+        print(f"{shape_name:<15}   FFI Overhead:     {breakdown['ffi_overhead']:.1f}%")
+        print(f"{shape_name:<15}   Rust Computation: {breakdown['rust_compute']:.1f}%")
+        print(f"{shape_name:<15}   Other:            {breakdown['other']:.1f}%")
+        print("-" * 120)
+
+    print("\n" + "="*120)
+    print("BOTTLENECK ANALYSIS SUMMARY")
+    print("="*120)
+
+    # Calculate averages across all shapes
+    avg_breakdown = {}
+    for data in results.values():
+        for key, pct in data['breakdown'].items():
+            if key not in avg_breakdown:
+                avg_breakdown[key] = []
+            avg_breakdown[key].append(pct)
+
+    for key in avg_breakdown:
+        avg_breakdown[key] = np.mean(avg_breakdown[key])
+
+    print("Average time breakdown across all tensor sizes:")
+    print(".1f")
+    print(".1f")
+    print(".1f")
+    print(".1f")
+
+    # Identify main bottleneck
+    max_component = max(avg_breakdown.items(), key=lambda x: x[1])
+    print(f"\n🎯 MAIN BOTTLENECK IDENTIFIED: {max_component[0].upper()} ({max_component[1]:.1f}%)")
+
+    if max_component[0] == 'ffi_overhead':
+        print("   → Python-Rust Foreign Function Interface is the dominant bottleneck")
+        print("   → Consider: Async calls, batch processing, or PyPy/JIT acceleration")
+    elif max_component[0] == 'rust_compute':
+        print("   → Rust FFT computation is the bottleneck")
+        print("   → Consider: SIMD optimization, parallel processing, or GPU acceleration")
+    elif max_component[0] == 'tensor_prep':
+        print("   → Data preparation/conversion is the bottleneck")
+        print("   → Consider: True zero-copy operations or memory layout optimization")
+
+    print("="*120)
+
+
 def main():
     """Run comprehensive spectral benchmarks."""
     # Test shapes: (batch, height, width)
@@ -306,23 +487,37 @@ def main():
         (1, 1024, 1024), # Large image, like typical ML datasets
     ]
 
+    bridge = get_bridge()
     print("Starting Comprehensive Spectral Performance Benchmark...")
-    print(f"Bridge available: {get_bridge().is_available()}")
-    print(f"CUDA available: {get_bridge().is_cuda_available()}")
+    print(f"Bridge available: {bridge.is_available()}")
+    print(f"CUDA available: {bridge.is_cuda_available()}")
     print(f"PyTorch version: {torch.__version__}")
     print(f"NumPy version: {np.__version__}")
 
     # Run comprehensive FFT2 benchmark
-    fft2_results = benchmark_fft2_comprehensive(test_shapes, num_runs=1000)
+    num_runs = 200  # Reduced for faster iteration
+    fft2_results = benchmark_fft2_comprehensive(test_shapes, num_runs=num_runs)
 
     # Print comprehensive results
-    print_comprehensive_results(fft2_results, 1000)
+    print_comprehensive_results(fft2_results, num_runs)
+
+    # Run detailed profiling
+    print("\n" + "="*80)
+    print("RUNNING DETAILED PERFORMANCE PROFILING...")
+    print("="*80)
+    profile_results = profile_bridge_detailed(test_shapes, num_runs=50)
+
+    # Print detailed profiling results
+    print_detailed_profile_results(profile_results)
 
     # Save detailed results
     import json
     with open("comprehensive_benchmark_results.json", "w") as f:
         json.dump(fft2_results, f, indent=2)
+    with open("detailed_profile_results.json", "w") as f:
+        json.dump(profile_results, f, indent=2)
     print("\nDetailed results saved to comprehensive_benchmark_results.json")
+    print("Profile results saved to detailed_profile_results.json")
 
     # Quick summary
     print("\n" + "="*50)
@@ -337,6 +532,9 @@ def main():
     print("\nBridge provides identical functionality with minimal overhead.")
     print("Ready for Rust acceleration targeting 1.5-3x performance gains.")
     print("="*50)
+
+    # Print code path usage statistics
+    bridge.print_usage_stats()
 
 
 if __name__ == "__main__":

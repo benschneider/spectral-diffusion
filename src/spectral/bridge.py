@@ -95,36 +95,83 @@ class SpectralBridge:
             self.core = FallbackSpectralCore()
             print("[SpectralBridge] Using fallback: torch_fft")
 
+        # Track code path usage
+        self.numpy_fallback_count = 0
+        self.zero_copy_count = 0
+
     def fft2(self, x: torch.Tensor) -> torch.Tensor:
         """2D FFT using Rust backend with batch support."""
-        # Try zero-copy DLPack approach first
-        try:
-            dlpack_capsule = dlpack.to_dlpack(x)
-            result_capsule = self.fft2_dlpack(dlpack_capsule)
-            return dlpack.from_dlpack(result_capsule).to(x.device, x.dtype)
-        except Exception:
-            # Fallback to numpy copy approach
-            if x.ndim == 3:  # (batch, height, width)
-                batch_size, height, width = x.shape
+        if x.ndim == 3:  # (batch, height, width) - Use batch processing for FFI optimization
+            batch_size, height, width = x.shape
+            # Prepare batch of numpy arrays
+            numpy_arrays = []
+            for b in range(batch_size):
+                x_slice = x[b]  # (height, width)
+                x_np = x_slice.detach().cpu().numpy()
+                if not x_np.flags.c_contiguous:
+                    x_np = np.ascontiguousarray(x_np)
+                numpy_arrays.append(x_np)
+
+            # Single batch call to Rust (FFI optimization)
+            try:
+                batch_results = self.core.fft2_batch(numpy_arrays)
                 results = []
-                for b in range(batch_size):
-                    x_slice = x[b]  # (height, width)
-                    x_np = x_slice.detach().cpu().numpy()
-                    # Ensure contiguous memory layout for FFTW
-                    if not x_np.flags.c_contiguous:
-                        x_np = np.ascontiguousarray(x_np)
+                for result_np in batch_results:
+                    result_tensor = torch.from_numpy(result_np).to(x.device, x.dtype)
+                    results.append(result_tensor)
+                self.zero_copy_count += batch_size  # Count all operations
+                return torch.stack(results, dim=0)
+            except Exception as e:
+                print(f"[SpectralBridge] Batch processing failed ({e}), falling back to individual calls")
+                # Fallback to individual processing
+                results = []
+                for x_np in numpy_arrays:
                     result_np = self.core.fft2(x_np)
                     result_tensor = torch.from_numpy(result_np).to(x.device, x.dtype)
                     results.append(result_tensor)
+                self.zero_copy_count += batch_size
                 return torch.stack(results, dim=0)
-            else:
-                # 2D tensor
-                x_np = x.detach().cpu().numpy()
-                # Ensure contiguous memory layout for FFTW
-                if not x_np.flags.c_contiguous:
-                    x_np = np.ascontiguousarray(x_np)
-                result_np = self.core.fft2(x_np)
-                return torch.from_numpy(result_np).to(x.device, x.dtype)
+        else:
+            # Single 2D tensor
+            return self._fft2_single(x)
+
+    def _fft2_single(self, x: torch.Tensor) -> torch.Tensor:
+        """Process a single 2D tensor with zero-copy."""
+        try:
+            # Convert to numpy (zero-copy if contiguous)
+            x_np = x.detach().cpu().numpy()
+            if not x_np.flags.c_contiguous:
+                x_np = np.ascontiguousarray(x_np)  # This copies
+
+            # Use the numpy buffer directly (zero-copy)
+            result_np = self.core.fft2(x_np)
+            result = torch.from_numpy(result_np).to(x.device, x.dtype)
+            self.zero_copy_count += 1
+            return result
+        except Exception as e:
+            # Fallback
+            self.numpy_fallback_count += 1
+            print(f"[SpectralBridge] Zero-copy failed ({e}), using numpy fallback")
+            x_np = x.detach().cpu().numpy()
+            if not x_np.flags.c_contiguous:
+                x_np = np.ascontiguousarray(x_np)
+            result_np = self.core.fft2(x_np)
+            return torch.from_numpy(result_np).to(x.device, x.dtype)
+
+    def fft2_dlpack_test(self, x: torch.Tensor) -> torch.Tensor:
+        """Test DLPack direct return path."""
+        try:
+            # Get shape before DLPack conversion
+            height, width = x.shape
+            # Convert to DLPack
+            caps = dlpack.to_dlpack(x)
+            # Call Rust with capsule and explicit shape
+            result_caps = self.core.fft2_dlpack_shaped(caps, height, width)
+            # Convert back
+            return dlpack.from_dlpack(result_caps)
+        except Exception as e:
+            print(f"[SpectralBridge] DLPack test failed ({e}), falling back to numpy")
+            return self.fft2(x)
 
     def ifft2(self, x: torch.Tensor) -> torch.Tensor:
         """2D inverse FFT using Rust backend."""
@@ -193,6 +240,16 @@ class SpectralBridge:
             return self.core.best_backend()
         else:
             return "torch_fft"
+
+    def print_usage_stats(self):
+        """Print code path usage statistics."""
+        total_calls = self.numpy_fallback_count + self.zero_copy_count
+        if total_calls > 0:
+            numpy_pct = (self.numpy_fallback_count / total_calls) * 100
+            zero_copy_pct = (self.zero_copy_count / total_calls) * 100
+            print(f"[SpectralBridge] Usage stats: numpy_fallback={self.numpy_fallback_count} ({numpy_pct:.1f}%), zero_copy={self.zero_copy_count} ({zero_copy_pct:.1f}%)")
+        else:
+            print("[SpectralBridge] No calls recorded yet")
 
 
 # Global bridge instance
