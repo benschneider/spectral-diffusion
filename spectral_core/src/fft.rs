@@ -12,11 +12,56 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 const ALIGN_BYTES: usize = 64;
-const BLOCK_SIZE: usize = 32;
+const BLOCK_SIZE_SMALL: usize = 32;
+const BLOCK_SIZE_LARGE: usize = 64;
 const PARALLEL_ROW_THRESHOLD: usize = 8;
+const PARALLEL_COL_THRESHOLD: usize = 8;
+const TRANSPOSE_MIN_DIM: usize = 384;
 
 thread_local! {
     static TLS_COMPLEX: RefCell<Vec<Complex32>> = RefCell::new(Vec::new());
+}
+
+#[derive(Clone, Copy)]
+struct RawMutPtr<T>(*mut T);
+
+#[derive(Clone, Copy)]
+struct RawConstPtr<T>(*const T);
+
+unsafe impl<T: Send> Send for RawMutPtr<T> {}
+unsafe impl<T: Send> Sync for RawMutPtr<T> {}
+
+unsafe impl<T: Sync> Send for RawConstPtr<T> {}
+unsafe impl<T: Sync> Sync for RawConstPtr<T> {}
+
+#[derive(Clone, Copy)]
+struct BlockTransposer {
+    src: RawConstPtr<Complex32>,
+    dst: RawMutPtr<Complex32>,
+    rows: usize,
+    cols: usize,
+    block: usize,
+    col_blocks: usize,
+}
+
+impl BlockTransposer {
+    fn run(&self, block_idx: usize) {
+        let rb = block_idx / self.col_blocks;
+        let cb = block_idx % self.col_blocks;
+        let row_start = rb * self.block;
+        let col_start = cb * self.block;
+        let row_end = (row_start + self.block).min(self.rows);
+        let col_end = (col_start + self.block).min(self.cols);
+        for r in row_start..row_end {
+            for c in col_start..col_end {
+                let src_idx = r * self.cols + c;
+                let dst_idx = c * self.rows + r;
+                unsafe {
+                    *self.dst.0.add(dst_idx) = *self.src.0.add(src_idx);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -83,6 +128,14 @@ impl FftEngine {
         dims.height <= self.max_height && dims.width <= self.max_width
     }
 
+    #[inline]
+    fn use_transpose_for(&self, dims: Dimensions) -> bool {
+        if !self.transpose_enabled {
+            return false;
+        }
+        dims.height.max(dims.width) >= TRANSPOSE_MIN_DIM
+    }
+
     pub fn fft2_real_to_complex(
         &mut self,
         input: &[f32],
@@ -98,20 +151,14 @@ impl FftEngine {
         timings.plan += elapsed;
 
         let total = dims.elements();
+        let use_transpose = self.use_transpose_for(dims);
         self.work.ensure_len(total);
         self.scratch.ensure_len(total);
 
         let work = self.work.as_mut_slice();
         let scratch = self.scratch.as_mut_slice();
         timings.conversion_in += convert_real_to_complex(input, work);
-        execute_fft(
-            self.transpose_enabled,
-            work,
-            scratch,
-            dims,
-            &plan,
-            &mut timings,
-        );
+        execute_fft(use_transpose, work, scratch, dims, &plan, &mut timings);
         timings.conversion_out += copy_complex(work, output);
 
         log_debug("fft2", dims, &timings);
@@ -133,20 +180,14 @@ impl FftEngine {
         timings.plan += elapsed;
 
         let total = dims.elements();
+        let use_transpose = self.use_transpose_for(dims);
         self.work.ensure_len(total);
         self.scratch.ensure_len(total);
         let work = self.work.as_mut_slice();
         let scratch = self.scratch.as_mut_slice();
         work.copy_from_slice(input);
 
-        execute_fft(
-            self.transpose_enabled,
-            work,
-            scratch,
-            dims,
-            &plan,
-            &mut timings,
-        );
+        execute_fft(use_transpose, work, scratch, dims, &plan, &mut timings);
 
         let scale = 1.0 / dims.elements() as f32;
         timings.elementwise += scale_complex(work, scale);
@@ -175,6 +216,7 @@ impl FftEngine {
         timings.plan += f_elapsed + i_elapsed;
 
         let total = dims.elements();
+        let use_transpose = self.use_transpose_for(dims);
         self.work.ensure_len(total);
         self.scratch.ensure_len(total);
 
@@ -186,7 +228,7 @@ impl FftEngine {
         timings.conversion_in += convert_real_to_complex(kernel, filter_slice);
 
         execute_fft(
-            self.transpose_enabled,
+            use_transpose,
             filter_slice,
             scratch,
             dims,
@@ -194,7 +236,7 @@ impl FftEngine {
             &mut timings,
         );
         execute_fft(
-            self.transpose_enabled,
+            use_transpose,
             work,
             scratch,
             dims,
@@ -204,7 +246,7 @@ impl FftEngine {
 
         timings.elementwise += multiply_inplace(work, filter_slice);
         execute_fft(
-            self.transpose_enabled,
+            use_transpose,
             work,
             scratch,
             dims,
@@ -221,7 +263,7 @@ impl FftEngine {
 }
 
 fn execute_fft(
-    transpose_enabled: bool,
+    use_transpose: bool,
     data: &mut [Complex32],
     scratch: &mut [Complex32],
     dims: Dimensions,
@@ -231,7 +273,7 @@ fn execute_fft(
     configure_rayon_pool();
 
     timings.row_fft += process_rows(data, dims.width, plan.row_plan.clone());
-    if transpose_enabled {
+    if use_transpose {
         timings.transpose += blocked_transpose(&*data, scratch, dims.height, dims.width);
         timings.col_fft += process_rows(scratch, dims.height, plan.col_plan.clone());
         timings.transpose_back += blocked_transpose(scratch, data, dims.width, dims.height);
@@ -339,9 +381,9 @@ fn process_columns_tls(
     let height = dims.height;
     let width = dims.width;
     let stride = width;
-    let data_ptr = data.as_mut_ptr();
+    let data_ptr = RawMutPtr(data.as_mut_ptr());
 
-    for col in 0..width {
+    let process_col = |col: usize, data_ptr: RawMutPtr<Complex32>| {
         TLS_COMPLEX.with(|cell| {
             let mut buffer = cell.borrow_mut();
             if buffer.len() < height {
@@ -350,16 +392,27 @@ fn process_columns_tls(
             let slice = &mut buffer[..height];
             for row in 0..height {
                 unsafe {
-                    slice[row] = *data_ptr.add(row * stride + col);
+                    slice[row] = *data_ptr.0.add(row * stride + col);
                 }
             }
             plan.process(slice);
             for row in 0..height {
                 unsafe {
-                    *data_ptr.add(row * stride + col) = slice[row];
+                    *data_ptr.0.add(row * stride + col) = slice[row];
                 }
             }
         });
+    };
+
+    if width >= PARALLEL_COL_THRESHOLD {
+        let ptr = data_ptr;
+        (0..width)
+            .into_par_iter()
+            .for_each(move |col| process_col(col, ptr));
+    } else {
+        for col in 0..width {
+            process_col(col, data_ptr);
+        }
     }
 
     start.elapsed()
@@ -372,16 +425,33 @@ fn blocked_transpose(
     cols: usize,
 ) -> Duration {
     let start = Instant::now();
-    let block = BLOCK_SIZE.max(1);
-    for row_block in (0..rows).step_by(block) {
-        for col_block in (0..cols).step_by(block) {
-            let row_max = (row_block + block).min(rows);
-            let col_max = (col_block + block).min(cols);
-            for r in row_block..row_max {
-                for c in col_block..col_max {
-                    dst[c * rows + r] = src[r * cols + c];
-                }
-            }
+    let max_dim = rows.max(cols);
+    let block = if max_dim >= 512 {
+        BLOCK_SIZE_LARGE
+    } else {
+        BLOCK_SIZE_SMALL
+    };
+    let block = block.max(1);
+    let row_blocks = (rows + block - 1) / block;
+    let col_blocks = (cols + block - 1) / block;
+    let total_blocks = row_blocks * col_blocks;
+
+    let transposer = BlockTransposer {
+        src: RawConstPtr(src.as_ptr()),
+        dst: RawMutPtr(dst.as_mut_ptr()),
+        rows,
+        cols,
+        block,
+        col_blocks,
+    };
+
+    if max_dim >= 512 {
+        (0..total_blocks)
+            .into_par_iter()
+            .for_each(|idx| transposer.run(idx));
+    } else {
+        for block_idx in 0..total_blocks {
+            transposer.run(block_idx);
         }
     }
     start.elapsed()

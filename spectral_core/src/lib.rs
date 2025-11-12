@@ -216,17 +216,20 @@ pub extern "C" fn spectral_get_timing_stats() -> *const c_char {
         if stats.total_calls == 0 {
             return NO_DATA_CSTR.as_ptr();
         }
-        let fft_compute = stats.row_fft_ns + stats.col_fft_ns;
-        let data_transfer = stats.conversion_in_ns + stats.conversion_out_ns;
-        let data_movement = stats.transpose_ns + stats.transpose_back_ns;
+        let calls = stats.total_calls;
+        let fft_compute = avg_seconds(stats.row_fft_ns + stats.col_fft_ns, calls);
+        let data_transfer = avg_seconds(stats.conversion_in_ns + stats.conversion_out_ns, calls);
+        let data_movement = avg_seconds(stats.transpose_ns + stats.transpose_back_ns, calls);
+        let plan = avg_seconds(stats.plan_ns, calls);
+        let elementwise = avg_seconds(stats.elementwise_ns, calls);
         let payload = format!(
             "fft_compute={:.6e}, data_transfer={:.6e}, data_movement={:.6e}, plan={:.6e}, elementwise={:.6e}, calls={}",
-            to_seconds(fft_compute),
-            to_seconds(data_transfer),
-            to_seconds(data_movement),
-            to_seconds(stats.plan_ns),
-            to_seconds(stats.elementwise_ns),
-            stats.total_calls
+            fft_compute,
+            data_transfer,
+            data_movement,
+            plan,
+            elementwise,
+            calls
         );
         return leak_string(payload);
     }
@@ -240,13 +243,17 @@ pub extern "C" fn spectral_reset_timing_stats() {
     }
 }
 
-fn to_seconds(ns: u128) -> f64 {
-    ns as f64 / 1_000_000_000.0
-}
-
 fn leak_string(payload: String) -> *const c_char {
     match CString::new(payload) {
         Ok(cstr) => cstr.into_raw() as *const c_char,
         Err(_) => NO_DATA_CSTR.as_ptr(),
+    }
+}
+
+fn avg_seconds(ns: u128, calls: u64) -> f64 {
+    if calls == 0 {
+        0.0
+    } else {
+        ns as f64 / calls as f64 / 1_000_000_000.0
     }
 }
