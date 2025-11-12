@@ -41,12 +41,16 @@ try:  # pragma: no cover - exercised in integration tests
         _lib.spectral_test.argtypes = []
         _lib.spectral_test.restype = ctypes.c_int
 
-        # Real FFT functions
-        _lib.spectral_fft2_f32.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
-        _lib.spectral_fft2_f32.restype = ctypes.c_int
+        # Context management functions
+        _lib.sd_ctx_new.argtypes = [ctypes.c_int, ctypes.c_int]
+        _lib.sd_ctx_new.restype = ctypes.c_void_p
 
-        _lib.spectral_ifft2_f32.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
-        _lib.spectral_ifft2_f32.restype = ctypes.c_int
+        _lib.sd_ctx_free.argtypes = [ctypes.c_void_p]
+        _lib.sd_ctx_free.restype = None
+
+        # Context-based FFT functions
+        _lib.sd_fft2_f32.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        _lib.sd_fft2_f32.restype = ctypes.c_int
 
         # Timing functions
         _lib.spectral_get_timing_stats.argtypes = []
@@ -113,6 +117,9 @@ class SpectralBridge:
         self.thread_count = 8  # Default thread count
         self.version = "unknown"
         self._last_profile: CallProfile | None = None
+        self._ctx = None  # Persistent FFT context
+        self._ctx_max_h = 0
+        self._ctx_max_w = 0
 
         # Test the Rust backend
         if self._has_rust and _lib:
@@ -242,6 +249,28 @@ class SpectralBridge:
 
         return payload
 
+    def _ensure_context(self, height: int, width: int) -> None:
+        """Ensure we have a context that's large enough for the given dimensions."""
+        if not self._has_rust or _lib is None:
+            return
+
+        # If context doesn't exist or is too small, create a new one
+        if (self._ctx is None or
+            height > self._ctx_max_h or
+            width > self._ctx_max_w):
+
+            # Free existing context if it exists
+            if self._ctx is not None:
+                _lib.sd_ctx_free(self._ctx)
+
+            # Create new context with some headroom (1.5x the requested size)
+            self._ctx_max_h = max(height, int(height * 1.5))
+            self._ctx_max_w = max(width, int(width * 1.5))
+            self._ctx = _lib.sd_ctx_new(self._ctx_max_h, self._ctx_max_w)
+
+            if self._ctx is None:
+                raise RuntimeError("Failed to create Rust FFT context")
+
     def reset_timing_stats(self) -> None:
         """Reset Rust-side timing statistics."""
         if self._has_rust and _lib:
@@ -276,8 +305,11 @@ class SpectralBridge:
         capsule = dlpack.to_dlpack(tensor)
         conversion_in = time.perf_counter() - t0
 
-        # Call actual Rust FFT implementation
+        # Call actual Rust FFT implementation with persistent context
         if tensor.dtype == torch.float32:
+            # Ensure we have a context large enough for this tensor
+            self._ensure_context(tensor.shape[-2], tensor.shape[-1])
+
             # Allocate output buffer for complex result (2 floats per complex number)
             output_size = tensor.numel() * 2
             output_buffer = torch.zeros(output_size, dtype=torch.float32)
@@ -286,9 +318,9 @@ class SpectralBridge:
             input_ptr = tensor.data_ptr()
             output_ptr = output_buffer.data_ptr()
 
-            # Call Rust FFT
+            # Call Rust FFT with context
             ffi_start = time.perf_counter()
-            ret = _lib.spectral_fft2_f32(input_ptr, output_ptr, tensor.shape[-2], tensor.shape[-1])
+            ret = _lib.sd_fft2_f32(self._ctx, input_ptr, output_ptr, tensor.shape[-2], tensor.shape[-1])
             ffi_time = time.perf_counter() - ffi_start
 
             if ret != 0:
@@ -371,6 +403,11 @@ class SpectralBridge:
             contiguous_copies=copies,
         )
         return result, profile
+
+    def __del__(self) -> None:
+        """Clean up the persistent context."""
+        if hasattr(self, '_ctx') and self._ctx is not None and _lib is not None:
+            _lib.sd_ctx_free(self._ctx)
 
     @property
     def last_profile(self) -> Optional[CallProfile]:

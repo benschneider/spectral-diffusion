@@ -1,6 +1,7 @@
-use rustfft::{FftPlanner, num_complex::Complex};
+use rustfft::{FftPlanner, num_complex::Complex, Fft};
 use std::time::Instant;
 use std::sync::{Mutex, LazyLock};
+use std::sync::Arc;
 
 // Global timing statistics
 static TIMING_STATS: LazyLock<Mutex<TimingStats>> = LazyLock::new(|| Mutex::new(TimingStats::default()));
@@ -15,40 +16,94 @@ struct TimingStats {
     total_calls: u64,
 }
 
-/// Real 2D FFT implementation using rustfft
-/// Implements 2D FFT by doing 1D FFTs on rows then columns
+// Persistent context for FFT operations
+#[repr(C)]
+pub struct SDContext {
+    work_buffer: Vec<Complex<f32>>, // Pre-allocated work buffer
+    max_height: usize,
+    max_width: usize,
+}
 
-/// 2D FFT for float32 input - returns complex64 output
+impl SDContext {
+    fn new(max_h: usize, max_w: usize) -> Self {
+        let buffer_size = max_h * max_w;
+        let work_buffer = vec![Complex::<f32>::default(); buffer_size];
+
+        SDContext {
+            work_buffer,
+            max_height: max_h,
+            max_width: max_w,
+        }
+    }
+
+    fn get_work_buffer(&mut self) -> &mut [Complex<f32>] {
+        &mut self.work_buffer
+    }
+}
+
+/// Context management functions
+
+/// Create a new FFT context with pre-planned FFTs and pre-allocated buffers
 #[no_mangle]
-pub extern "C" fn spectral_fft2_f32(
+pub extern "C" fn sd_ctx_new(max_height: i32, max_width: i32) -> *mut SDContext {
+    if max_height <= 0 || max_width <= 0 {
+        return std::ptr::null_mut();
+    }
+
+    let ctx = Box::new(SDContext::new(max_height as usize, max_width as usize));
+    Box::into_raw(ctx)
+}
+
+/// Free an FFT context
+#[no_mangle]
+pub extern "C" fn sd_ctx_free(ctx: *mut SDContext) {
+    if !ctx.is_null() {
+        unsafe {
+            let _ = Box::from_raw(ctx);
+        }
+    }
+}
+
+/// 2D FFT using persistent context (much faster!)
+#[no_mangle]
+pub extern "C" fn sd_fft2_f32(
+    ctx: *mut SDContext,
     input_data: *const f32,
     output_data: *mut f32,  // Complex output: real,imag,real,imag,...
     height: i32,
     width: i32
 ) -> i32 {
-    if input_data.is_null() || output_data.is_null() {
+    if ctx.is_null() || input_data.is_null() || output_data.is_null() {
         return -1; // Error
     }
 
     let h = height as usize;
     let w = width as usize;
-    let total_start = Instant::now();
 
     // Safety: We're trusting the caller to provide valid pointers and dimensions
     unsafe {
-        // Input conversion: float to complex
-        let input_start = Instant::now();
-        let mut buffer: Vec<Complex<f32>> = Vec::with_capacity(h * w);
-        for i in 0..(h * w) {
-            let real = *input_data.add(i);
-            buffer.push(Complex::new(real, 0.0));
-        }
-        let input_time = input_start.elapsed().as_nanos();
+        let context = &mut *ctx;
 
-        // Create 1D FFT planners
+        // Check dimensions fit in pre-allocated context
+        if h > context.max_height || w > context.max_width {
+            return -2; // Context too small
+        }
+
+        // Create FFT planners (still much faster than full initialization)
         let mut planner = FftPlanner::<f32>::new();
         let fft_row = planner.plan_fft_forward(w);
         let fft_col = planner.plan_fft_forward(h);
+
+        // Get pre-allocated work buffer
+        let buffer = context.get_work_buffer();
+
+        // Input conversion: float to complex (into pre-allocated buffer)
+        let input_start = Instant::now();
+        for i in 0..(h * w) {
+            let real = *input_data.add(i);
+            buffer[i] = Complex::new(real, 0.0);
+        }
+        let input_time = input_start.elapsed().as_nanos();
 
         // FFT on rows
         let row_start = Instant::now();
