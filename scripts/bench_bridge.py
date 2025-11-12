@@ -97,6 +97,54 @@ def benchmark_shape(bridge: SpectralBridge, height: int, width: int) -> Dict[str
     return report
 
 
+def _print_report(results: List[Dict[str, object]]) -> None:
+    """Pretty-print the aggregated benchmark results to stdout."""
+
+    def format_stats(stats: Dict[str, float]) -> Tuple[float, float, float]:
+        return (
+            float(stats["median_ms"]),
+            float(stats["mean_ms"]),
+            float(stats["std_ms"]),
+        )
+
+    print("\n" + "=" * 86)
+    print("SpectralBridge Benchmark Summary")
+    print("=" * 86)
+    header = f"{'Shape':<12} {'Impl':<12} {'Median (ms)':>14} {'Mean (ms)':>12} {'Std (ms)':>10}"
+    print(header)
+    print("-" * len(header))
+
+    for entry in results:
+        shape = entry["shape"]
+        for impl, label in (
+            (entry["torch_direct"], "torch.fft"),
+            (entry["numpy"], "numpy"),
+            (entry["bridge"], "bridge"),
+        ):
+            median_ms, mean_ms, std_ms = format_stats(impl)
+            print(
+                f"{str(shape):<12} {label:<12} "
+                f"{median_ms:>14.3f} {mean_ms:>12.3f} {std_ms:>10.3f}"
+            )
+
+        bridge_stats = entry["bridge"]
+        bridge_median = float(bridge_stats["median_ms"])
+        ffi_ms = float(entry["ffi_overhead_ms"])
+        conv_ms = float(entry["conversion_overhead_ms"])
+        ffi_pct = (ffi_ms / bridge_median * 100.0) if bridge_median else 0.0
+        conv_pct = (conv_ms / bridge_median * 100.0) if bridge_median else 0.0
+        print(
+            f"{'':<12} {'↳ breakdown':<12} "
+            f"FFI {ffi_ms:.3f} ms ({ffi_pct:>5.1f}%), "
+            f"DLPack {conv_ms:.3f} ms ({conv_pct:>5.1f}%)"
+        )
+        print("-" * len(header))
+
+    print(
+        "Note: timings are medians across runs; breakdown uses median FFI/conversion costs.\n"
+    )
+
+
 def main() -> int:
     bridge = SpectralBridge()
     diagnostics = bridge.diagnostics()
@@ -116,6 +164,7 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(output, indent=2))
     print(f"\nSaved benchmark results to {output_path}")
+    _print_report(results)
     return 0
 
 
