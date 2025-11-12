@@ -18,7 +18,7 @@ pub extern "C" fn spectral_cleanup() {
 /// Get version string
 #[no_mangle]
 pub extern "C" fn spectral_version() -> *const std::os::raw::c_char {
-    c"0.3.0".as_ptr()
+    c"0.3.0-rust-capi-marker".as_ptr()
 }
 
 /// Get available backends (returns null-terminated string)

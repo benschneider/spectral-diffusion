@@ -97,15 +97,20 @@ class SpectralBridge:
         self.backend = "rust-capi" if self._has_rust else "torch.fft"
         self.dlpack_enabled = self._has_rust
         self.thread_count = 8  # Default thread count
+        self.version = "unknown"
         self._last_profile: CallProfile | None = None
 
         # Test the Rust backend
         if self._has_rust and _lib:
             test_result = _lib.spectral_test()
+            version = _lib.spectral_version().decode('utf-8')
             if test_result != 42:
                 print(f"Warning: Rust backend test failed (expected 42, got {test_result})")
                 self._has_rust = False
                 self.backend = "torch.fft"
+            else:
+                print(f"✅ Rust backend loaded: {version}")
+                self.version = version
 
     # ---------------------------------------------------------------------
     # Public API ----------------------------------------------------------
@@ -208,6 +213,7 @@ class SpectralBridge:
 
         payload: Dict[str, object] = {
             "backend": self.backend,
+            "version": self.version,
             "dlpack_enabled": self.dlpack_enabled,
             "thread_count": self.thread_count,
         }
