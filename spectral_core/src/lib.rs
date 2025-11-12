@@ -39,11 +39,7 @@ impl SDContext {
             max_width: max_w,
         }
     }
-
-    fn get_work_buffer(&mut self) -> &mut [Complex<f32>] {
-        &mut self.work_buffer
-    }
-
+    
     fn get_buffers(&mut self) -> (&mut [Complex<f32>], &mut [Complex<f32>]) {
         (&mut self.work_buffer, &mut self.transpose_buffer)
     }
