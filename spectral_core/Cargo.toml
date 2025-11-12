@@ -11,10 +11,13 @@ crate-type = ["cdylib"]
 once_cell = "1.19"
 num_cpus = "1.16"
 ndarray = "0.17.1"
+rayon = "1.8"
 rustfft = { version = "6.4", features = ["avx", "sse", "neon"] }
+lru = "0.12"
 
 [features]
 default = []
 fftw = []
 mkl = []
 cuda = []
+simd_avx2 = []

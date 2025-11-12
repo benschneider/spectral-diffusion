@@ -52,6 +52,19 @@ try:  # pragma: no cover - exercised in integration tests
         _lib.sd_fft2_f32.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
         _lib.sd_fft2_f32.restype = ctypes.c_int
 
+        _lib.spectral_ifft2_f32.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        _lib.spectral_ifft2_f32.restype = ctypes.c_int
+
+        _lib.sd_fft_filter_ifft_f32.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
+        _lib.sd_fft_filter_ifft_f32.restype = ctypes.c_int
+
         # Timing functions
         _lib.spectral_get_timing_stats.argtypes = []
         _lib.spectral_get_timing_stats.restype = ctypes.c_char_p
@@ -160,6 +173,49 @@ class SpectralBridge:
     def fft_filter2(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
         """Apply a frequency-domain filter ``h`` to input ``x``."""
 
+        if (
+            self._has_rust
+            and x.device.type == "cpu"
+            and h.device.type == "cpu"
+            and x.dtype == torch.float32
+            and h.dtype == torch.float32
+            and x.ndim == 2
+            and h.shape == x.shape
+        ):
+            signal = x.detach()
+            kernel = h.detach()
+            copies = 0
+            if not signal.is_contiguous():
+                signal = signal.contiguous()
+                copies += 1
+            if not kernel.is_contiguous():
+                kernel = kernel.contiguous()
+                copies += 1
+            self._ensure_context(signal.shape[-2], signal.shape[-1])
+            output = torch.empty_like(signal)
+            ffi_start = time.perf_counter()
+            ret = _lib.sd_fft_filter_ifft_f32(
+                self._ctx,
+                ctypes.c_void_p(signal.data_ptr()),
+                ctypes.c_void_p(kernel.data_ptr()),
+                ctypes.c_void_p(output.data_ptr()),
+                signal.shape[-2],
+                signal.shape[-1],
+            )
+            ffi_time = time.perf_counter() - ffi_start
+            if ret != 0:
+                raise RuntimeError(f"Rust fused FFT filter failed with code {ret}")
+            self._last_profile = CallProfile(
+                backend=self.backend,
+                total_s=ffi_time,
+                conversion_in_s=0.0,
+                ffi_s=ffi_time,
+                conversion_out_s=0.0,
+                thread_count=self.thread_count,
+                contiguous_copies=copies,
+            )
+            return output
+
         spectrum = self.fft2(x)
         kernel = self.fft2(h)
         filtered = spectrum * kernel
@@ -198,12 +254,12 @@ class SpectralBridge:
         # Call Rust marker to prove execution, then fall back to torch.fft
         marker = _lib.spectral_fft2_marker()
         ffi_start = time.perf_counter()
-        results = [torch.fft.fft2(t) + marker for t in staged]  # Add marker to prove Rust execution
+        computed = [torch.fft.fft2(t) + marker for t in staged]  # Add marker to prove Rust execution
         ffi_s = time.perf_counter() - ffi_start
         result_capsules = []  # Not used in fallback path
 
         results: List[torch.Tensor] = []
-        for result, source in zip(results, tensor_list):
+        for result, source in zip(computed, tensor_list):
             # Results are already computed above in the fallback
             result = result.to(dtype=_ensure_complex_dtype(source), device=source.device)
             if source.requires_grad:
@@ -310,9 +366,7 @@ class SpectralBridge:
             copies = 1
 
         start_total = time.perf_counter()
-        t0 = time.perf_counter()
-        capsule = dlpack.to_dlpack(tensor)
-        conversion_in = time.perf_counter() - t0
+        conversion_in = 0.0
 
         # Call actual Rust FFT implementation with persistent context
         if tensor.dtype == torch.float32:
@@ -329,7 +383,13 @@ class SpectralBridge:
 
             # Call Rust FFT with context
             ffi_start = time.perf_counter()
-            ret = _lib.sd_fft2_f32(self._ctx, input_ptr, output_ptr, tensor.shape[-2], tensor.shape[-1])
+            ret = _lib.sd_fft2_f32(
+                self._ctx,
+                ctypes.c_void_p(input_ptr),
+                ctypes.c_void_p(output_ptr),
+                tensor.shape[-2],
+                tensor.shape[-1],
+            )
             ffi_time = time.perf_counter() - ffi_start
 
             if ret != 0:
@@ -384,18 +444,38 @@ class SpectralBridge:
             copies = 1
 
         start_total = time.perf_counter()
-        t0 = time.perf_counter()
-        capsule = dlpack.to_dlpack(tensor)
-        conversion_in = time.perf_counter() - t0
+        conversion_in = 0.0
 
-        # Call Rust marker to prove execution, then fall back to torch.fft
-        marker = _lib.spectral_fft2_marker()
-        ffi_start = time.perf_counter()
-        result = torch.fft.ifft2(tensor)
-        result = result + marker  # Add marker to prove Rust execution
-        ffi_time = time.perf_counter() - ffi_start
+        if tensor.dtype == torch.complex64:
+            self._ensure_context(tensor.shape[-2], tensor.shape[-1])
 
-        conversion_out = 0.0  # No conversion needed in fallback
+            output_size = tensor.numel() * 2
+            output_buffer = torch.zeros(output_size, dtype=torch.float32)
+
+            input_ptr = tensor.data_ptr()
+            output_ptr = output_buffer.data_ptr()
+
+            ffi_start = time.perf_counter()
+            ret = _lib.spectral_ifft2_f32(
+                self._ctx,
+                ctypes.c_void_p(input_ptr),
+                ctypes.c_void_p(output_ptr),
+                tensor.shape[-2],
+                tensor.shape[-1],
+            )
+            ffi_time = time.perf_counter() - ffi_start
+
+            if ret != 0:
+                raise RuntimeError(f"Rust iFFT failed with code {ret}")
+
+            result = output_buffer.view(tensor.shape + (2,)).contiguous()
+            result = torch.view_as_complex(result)
+        else:
+            ffi_start = time.perf_counter()
+            result = torch.fft.ifft2(tensor)
+            ffi_time = time.perf_counter() - ffi_start
+
+        conversion_out = 0.0
 
         total = time.perf_counter() - start_total
         result = result.to(dtype=_ensure_complex_dtype(x), device=x.device)

@@ -1,310 +1,252 @@
-use rustfft::{FftPlanner, num_complex::Complex};
-use std::time::Instant;
-use std::sync::{Mutex, LazyLock};
+#![cfg_attr(feature = "simd_avx2", feature(portable_simd))]
 
-// Global timing statistics
-static TIMING_STATS: LazyLock<Mutex<TimingStats>> = LazyLock::new(|| Mutex::new(TimingStats::default()));
+mod fft;
+mod plan;
 
-#[derive(Default, Debug)]
-struct TimingStats {
-    input_conversion_ns: u128,  // Data transfer: float -> complex
-    row_fft_ns: u128,          // FFT computation: row-wise FFTs
-    transpose_alloc_ns: u128,  // Memory: temp buffer allocation
-    transpose_copy_ns: u128,   // Data movement: transpose copy
-    col_fft_ns: u128,          // FFT computation: column-wise FFTs
-    transpose_back_ns: u128,   // Data movement: transpose back copy
-    output_conversion_ns: u128, // Data transfer: complex -> interleaved
-    total_calls: u64,
-}
+use fft::{Dimensions, FftEngine, PhaseTimings};
+use once_cell::sync::Lazy;
+use rustfft::num_complex::Complex32;
+use std::ffi::CString;
+use std::os::raw::{c_char, c_float};
+use std::slice;
+use std::sync::Mutex;
 
-// Persistent context for FFT operations
+const VERSION: &str = "0.5.0-rustfft-opt";
+const BACKEND: &str = "cpu_rustfft_optimized";
+
 #[repr(C)]
 pub struct SDContext {
-    work_buffer: Vec<Complex<f32>>, // Pre-allocated work buffer for input/output
-    transpose_buffer: Vec<Complex<f32>>, // Pre-allocated buffer for transpose operations
-    max_height: usize,
-    max_width: usize,
+    engine: FftEngine,
 }
 
 impl SDContext {
-    fn new(max_h: usize, max_w: usize) -> Self {
-        let buffer_size = max_h * max_w;
-        let work_buffer = vec![Complex::<f32>::default(); buffer_size];
-        let transpose_buffer = vec![Complex::<f32>::default(); buffer_size];
-
-        SDContext {
-            work_buffer,
-            transpose_buffer,
-            max_height: max_h,
-            max_width: max_w,
+    fn new(max_height: usize, max_width: usize) -> Self {
+        Self {
+            engine: FftEngine::new(max_height, max_width),
         }
-    }
-    
-    fn get_buffers(&mut self) -> (&mut [Complex<f32>], &mut [Complex<f32>]) {
-        (&mut self.work_buffer, &mut self.transpose_buffer)
     }
 }
 
-/// Context management functions
+#[derive(Default, Debug)]
+struct TimingStats {
+    plan_ns: u128,
+    conversion_in_ns: u128,
+    conversion_out_ns: u128,
+    row_fft_ns: u128,
+    col_fft_ns: u128,
+    transpose_ns: u128,
+    transpose_back_ns: u128,
+    elementwise_ns: u128,
+    total_calls: u64,
+}
 
-/// Create a new FFT context with pre-planned FFTs and pre-allocated buffers
+impl TimingStats {
+    fn record(&mut self, timings: &PhaseTimings) {
+        self.plan_ns += timings.plan.as_nanos();
+        self.conversion_in_ns += timings.conversion_in.as_nanos();
+        self.conversion_out_ns += timings.conversion_out.as_nanos();
+        self.row_fft_ns += timings.row_fft.as_nanos();
+        self.col_fft_ns += timings.col_fft.as_nanos();
+        self.transpose_ns += timings.transpose.as_nanos();
+        self.transpose_back_ns += timings.transpose_back.as_nanos();
+        self.elementwise_ns += timings.elementwise.as_nanos();
+        self.total_calls += 1;
+    }
+
+    fn reset(&mut self) {
+        *self = TimingStats::default();
+    }
+}
+
+static TIMING_STATS: Lazy<Mutex<TimingStats>> = Lazy::new(|| Mutex::new(TimingStats::default()));
+static VERSION_CSTR: Lazy<CString> = Lazy::new(|| CString::new(VERSION).unwrap());
+static BACKEND_CSTR: Lazy<CString> = Lazy::new(|| CString::new(BACKEND).unwrap());
+static NO_DATA_CSTR: Lazy<CString> = Lazy::new(|| CString::new("no_timing_data").unwrap());
+
+fn record_timings(timings: PhaseTimings) {
+    if let Ok(mut stats) = TIMING_STATS.lock() {
+        stats.record(&timings);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn spectral_init() -> i32 {
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn spectral_cleanup() {}
+
+#[no_mangle]
+pub extern "C" fn spectral_version() -> *const c_char {
+    VERSION_CSTR.as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn spectral_backends() -> *const c_char {
+    BACKEND_CSTR.as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn spectral_test() -> i32 {
+    42
+}
+
+#[no_mangle]
+pub extern "C" fn spectral_fft2_marker() -> c_float {
+    1e-9
+}
+
 #[no_mangle]
 pub extern "C" fn sd_ctx_new(max_height: i32, max_width: i32) -> *mut SDContext {
     if max_height <= 0 || max_width <= 0 {
         return std::ptr::null_mut();
     }
-
-    let ctx = Box::new(SDContext::new(max_height as usize, max_width as usize));
-    Box::into_raw(ctx)
+    Box::into_raw(Box::new(SDContext::new(
+        max_height as usize,
+        max_width as usize,
+    )))
 }
 
-/// Free an FFT context
 #[no_mangle]
 pub extern "C" fn sd_ctx_free(ctx: *mut SDContext) {
-    if !ctx.is_null() {
-        unsafe {
-            let _ = Box::from_raw(ctx);
-        }
+    if ctx.is_null() {
+        return;
+    }
+    unsafe {
+        drop(Box::from_raw(ctx));
     }
 }
 
-/// 2D FFT using persistent context (much faster!)
 #[no_mangle]
 pub extern "C" fn sd_fft2_f32(
     ctx: *mut SDContext,
-    input_data: *const f32,
-    output_data: *mut f32,  // Complex output: real,imag,real,imag,...
+    input_ptr: *const f32,
+    output_ptr: *mut f32,
     height: i32,
-    width: i32
+    width: i32,
 ) -> i32 {
-    if ctx.is_null() || input_data.is_null() || output_data.is_null() {
-        return -1; // Error
+    if ctx.is_null() || input_ptr.is_null() || output_ptr.is_null() || height <= 0 || width <= 0 {
+        return -1;
+    }
+    let dims = Dimensions {
+        height: height as usize,
+        width: width as usize,
+    };
+    let ctx = unsafe { &mut *ctx };
+    if !ctx.engine.supports(dims) {
+        return -2;
     }
 
-    let h = height as usize;
-    let w = width as usize;
-
-    // Safety: We're trusting the caller to provide valid pointers and dimensions
-    unsafe {
-        let context = &mut *ctx;
-
-        // Check dimensions fit in pre-allocated context
-        if h > context.max_height || w > context.max_width {
-            return -2; // Context too small
-        }
-
-        // Create FFT planners (still much faster than full initialization)
-        let mut planner = FftPlanner::<f32>::new();
-        let fft_row = planner.plan_fft_forward(w);
-        let fft_col = planner.plan_fft_forward(h);
-
-        // Get pre-allocated work buffers
-        let (buffer, temp) = context.get_buffers();
-
-        // Input conversion: float to complex (into pre-allocated buffer)
-        let input_start = Instant::now();
-        for i in 0..(h * w) {
-            let real = *input_data.add(i);
-            buffer[i] = Complex::new(real, 0.0);
-        }
-        let input_time = input_start.elapsed().as_nanos();
-
-        // FFT on rows
-        let row_start = Instant::now();
-        for row in 0..h {
-            let start = row * w;
-            let end = start + w;
-            fft_row.process(&mut buffer[start..end]);
-        }
-        let row_time = row_start.elapsed().as_nanos();
-
-        // FFT on columns using pre-allocated transpose buffer (no heap alloc!)
-        let alloc_start = Instant::now();
-        // temp is already available - no allocation needed!
-        let alloc_time = alloc_start.elapsed().as_nanos();
-
-        let copy_start = Instant::now();
-        // Copy to transpose buffer for column FFTs
-        for col in 0..w {
-            for row in 0..h {
-                let src_idx = row * w + col;
-                let dst_idx = col * h + row;
-                temp[dst_idx] = buffer[src_idx];
-            }
-        }
-        let copy_time = copy_start.elapsed().as_nanos();
-
-        // FFT on columns using transpose buffer
-        let col_start = Instant::now();
-        for col in 0..w {
-            let start = col * h;
-            let end = start + h;
-            fft_col.process(&mut temp[start..end]);
-        }
-        let col_time = col_start.elapsed().as_nanos();
-
-        // Copy back from transpose buffer
-        let back_start = Instant::now();
-        for row in 0..h {
-            for col in 0..w {
-                let src_idx = col * h + row;
-                let dst_idx = row * w + col;
-                buffer[dst_idx] = temp[src_idx];
-            }
-        }
-        let back_time = back_start.elapsed().as_nanos();
-
-        // Output conversion: complex to interleaved floats
-        let output_start = Instant::now();
-        let output_complex = output_data as *mut Complex<f32>;
-        for i in 0..(h * w) {
-            *output_complex.add(i) = buffer[i];
-        }
-        let output_time = output_start.elapsed().as_nanos();
-
-        // Update global timing stats
-        if let Ok(mut stats) = TIMING_STATS.lock() {
-            stats.input_conversion_ns += input_time;
-            stats.row_fft_ns += row_time;
-            stats.transpose_alloc_ns += alloc_time;
-            stats.transpose_copy_ns += copy_time;
-            stats.col_fft_ns += col_time;
-            stats.transpose_back_ns += back_time;
-            stats.output_conversion_ns += output_time;
-            stats.total_calls += 1;
-        }
-    }
-
-    0 // Success
+    let len = dims.elements();
+    let input = unsafe { slice::from_raw_parts(input_ptr, len) };
+    let output = unsafe { slice::from_raw_parts_mut(output_ptr as *mut Complex32, len) };
+    let timings = ctx.engine.fft2_real_to_complex(input, output, dims);
+    record_timings(timings);
+    0
 }
 
-/// 2D inverse FFT for complex input - returns float output
 #[no_mangle]
 pub extern "C" fn spectral_ifft2_f32(
-    input_data: *const f32,  // Complex input: real,imag,real,imag,...
-    output_data: *mut f32,
+    ctx: *mut SDContext,
+    input_ptr: *const f32,
+    output_ptr: *mut f32,
     height: i32,
-    width: i32
+    width: i32,
 ) -> i32 {
-    if input_data.is_null() || output_data.is_null() {
-        return -1; // Error
+    if ctx.is_null() || input_ptr.is_null() || output_ptr.is_null() || height <= 0 || width <= 0 {
+        return -1;
+    }
+    let dims = Dimensions {
+        height: height as usize,
+        width: width as usize,
+    };
+    let ctx = unsafe { &mut *ctx };
+    if !ctx.engine.supports(dims) {
+        return -2;
     }
 
-    let h = height as usize;
-    let w = width as usize;
+    let len = dims.elements();
+    let input = unsafe { slice::from_raw_parts(input_ptr as *const Complex32, len) };
+    let output = unsafe { slice::from_raw_parts_mut(output_ptr as *mut Complex32, len) };
+    let timings = ctx.engine.ifft2_complex(input, output, dims);
+    record_timings(timings);
+    0
+}
 
-    unsafe {
-        // Convert interleaved complex input to Complex array
-        let mut buffer: Vec<Complex<f32>> = Vec::with_capacity(h * w);
-        let input_complex = input_data as *const Complex<f32>;
-        for i in 0..(h * w) {
-            buffer.push(*input_complex.add(i));
-        }
-
-        // Create 1D inverse FFT planners
-        let mut planner = FftPlanner::<f32>::new();
-        let ifft_row = planner.plan_fft_inverse(w);
-        let ifft_col = planner.plan_fft_inverse(h);
-
-        // Inverse FFT on columns first (reverse of forward)
-        let mut temp: Vec<Complex<f32>> = vec![Complex::default(); h * w];
-        for col in 0..w {
-            for row in 0..h {
-                temp[col * h + row] = buffer[row * w + col];
-            }
-        }
-
-        // Inverse FFT on columns
-        for col in 0..w {
-            let start = col * h;
-            let end = start + h;
-            ifft_col.process(&mut temp[start..end]);
-        }
-
-        // Transpose back
-        for col in 0..w {
-            for row in 0..h {
-                buffer[row * w + col] = temp[col * h + row];
-            }
-        }
-
-        // Inverse FFT on rows
-        for row in 0..h {
-            let start = row * w;
-            let end = start + w;
-            ifft_row.process(&mut buffer[start..end]);
-        }
-
-        // Copy real parts to output and normalize
-        let norm = 1.0 / ((h * w) as f32);
-        for i in 0..(h * w) {
-            *output_data.add(i) = buffer[i].re * norm;
-        }
+#[no_mangle]
+pub extern "C" fn sd_fft_filter_ifft_f32(
+    ctx: *mut SDContext,
+    signal_ptr: *const f32,
+    kernel_ptr: *const f32,
+    output_ptr: *mut f32,
+    height: i32,
+    width: i32,
+) -> i32 {
+    if ctx.is_null()
+        || signal_ptr.is_null()
+        || kernel_ptr.is_null()
+        || output_ptr.is_null()
+        || height <= 0
+        || width <= 0
+    {
+        return -1;
+    }
+    let dims = Dimensions {
+        height: height as usize,
+        width: width as usize,
+    };
+    let ctx = unsafe { &mut *ctx };
+    if !ctx.engine.supports(dims) {
+        return -2;
     }
 
-    0 // Success
+    let len = dims.elements();
+    let signal = unsafe { slice::from_raw_parts(signal_ptr, len) };
+    let kernel = unsafe { slice::from_raw_parts(kernel_ptr, len) };
+    let output = unsafe { slice::from_raw_parts_mut(output_ptr, len) };
+    let timings = ctx.engine.fft_filter_ifft(signal, kernel, output, dims);
+    record_timings(timings);
+    0
 }
 
-/// Initialize the spectral core (returns 0 on success)
 #[no_mangle]
-pub extern "C" fn spectral_init() -> i32 {
-    0  // Success
-}
-
-/// Cleanup the spectral core
-#[no_mangle]
-pub extern "C" fn spectral_cleanup() {
-    // Cleanup code here
-}
-
-/// Get version string
-#[no_mangle]
-pub extern "C" fn spectral_version() -> *const std::os::raw::c_char {
-    c"0.4.0-rust-fft".as_ptr()
-}
-
-/// Get available backends (returns null-terminated string)
-#[no_mangle]
-pub extern "C" fn spectral_backends() -> *const std::os::raw::c_char {
-    c"cpu_rustfft".as_ptr()
-}
-
-/// Get detailed timing statistics as a structured string
-#[no_mangle]
-pub extern "C" fn spectral_get_timing_stats() -> *const std::os::raw::c_char {
+pub extern "C" fn spectral_get_timing_stats() -> *const c_char {
     if let Ok(stats) = TIMING_STATS.lock() {
-        let total_calls = stats.total_calls;
-        if total_calls == 0 {
-            return c"no_timing_data".as_ptr();
+        if stats.total_calls == 0 {
+            return NO_DATA_CSTR.as_ptr();
         }
-
-        // Calculate average seconds per call for each component
-        let fft_compute_s = ((stats.row_fft_ns + stats.col_fft_ns) as f64 / total_calls as f64) / 1_000_000_000.0;
-        let data_transfer_s = ((stats.input_conversion_ns + stats.output_conversion_ns) as f64 / total_calls as f64) / 1_000_000_000.0;
-        let data_movement_s = ((stats.transpose_alloc_ns + stats.transpose_copy_ns + stats.transpose_back_ns) as f64 / total_calls as f64) / 1_000_000_000.0;
-
-        // Format the actual timing values using format! macro
-        let timing_str = format!("fft_compute={:e}, data_transfer={:e}, data_movement={:e}",
-                                fft_compute_s, data_transfer_s, data_movement_s);
-
-        // Leak the string to get a static reference (this is safe for FFI)
-        // In production, we'd want to manage this memory properly
-        Box::leak(timing_str.into_boxed_str()).as_ptr() as *const std::os::raw::c_char
-    } else {
-        c"timing_lock_failed".as_ptr()
+        let fft_compute = stats.row_fft_ns + stats.col_fft_ns;
+        let data_transfer = stats.conversion_in_ns + stats.conversion_out_ns;
+        let data_movement = stats.transpose_ns + stats.transpose_back_ns;
+        let payload = format!(
+            "fft_compute={:.6e}, data_transfer={:.6e}, data_movement={:.6e}, plan={:.6e}, elementwise={:.6e}, calls={}",
+            to_seconds(fft_compute),
+            to_seconds(data_transfer),
+            to_seconds(data_movement),
+            to_seconds(stats.plan_ns),
+            to_seconds(stats.elementwise_ns),
+            stats.total_calls
+        );
+        return leak_string(payload);
     }
+    NO_DATA_CSTR.as_ptr()
 }
 
-/// Reset timing statistics
 #[no_mangle]
 pub extern "C" fn spectral_reset_timing_stats() {
     if let Ok(mut stats) = TIMING_STATS.lock() {
-        *stats = TimingStats::default();
+        stats.reset();
     }
 }
 
-/// Simple test function that returns 42
-#[no_mangle]
-pub extern "C" fn spectral_test() -> i32 {
-    42
+fn to_seconds(ns: u128) -> f64 {
+    ns as f64 / 1_000_000_000.0
+}
+
+fn leak_string(payload: String) -> *const c_char {
+    match CString::new(payload) {
+        Ok(cstr) => cstr.into_raw() as *const c_char,
+        Err(_) => NO_DATA_CSTR.as_ptr(),
+    }
 }
