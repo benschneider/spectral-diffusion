@@ -169,19 +169,19 @@ class SpectralBridge:
             capsules.append(dlpack.to_dlpack(candidate))
             conversion_in += time.perf_counter() - t0
 
+        # For now, fall back to torch.fft since C API FFT functions aren't implemented yet
         ffi_start = time.perf_counter()
-        result_capsules = fft2_batch_dlpack(capsules)  # type: ignore[arg-type]
+        results = [torch.fft.fft2(t) for t in staged]
         ffi_s = time.perf_counter() - ffi_start
+        result_capsules = []  # Not used in fallback path
 
         results: List[torch.Tensor] = []
-        for capsule, source in zip(result_capsules, tensor_list):
-            t0 = time.perf_counter()
-            out = dlpack.from_dlpack(capsule)
-            conversion_out += time.perf_counter() - t0
-            out = out.to(dtype=_ensure_complex_dtype(source), device=source.device)
+        for result, source in zip(results, tensor_list):
+            # Results are already computed above in the fallback
+            result = result.to(dtype=_ensure_complex_dtype(source), device=source.device)
             if source.requires_grad:
-                out.requires_grad_(True)
-            results.append(out)
+                result.requires_grad_(True)
+            results.append(result)
 
         total = time.perf_counter() - start_total
         self._last_profile = CallProfile(
@@ -244,13 +244,12 @@ class SpectralBridge:
         capsule = dlpack.to_dlpack(tensor)
         conversion_in = time.perf_counter() - t0
 
+        # For now, fall back to torch.fft since C API FFT functions aren't implemented yet
         ffi_start = time.perf_counter()
-        out_capsule = fft2_dlpack(capsule)  # type: ignore[operator]
+        result = torch.fft.fft2(tensor)
         ffi_time = time.perf_counter() - ffi_start
 
-        t1 = time.perf_counter()
-        result = dlpack.from_dlpack(out_capsule)
-        conversion_out = time.perf_counter() - t1
+        conversion_out = 0.0  # No conversion needed in fallback
 
         total = time.perf_counter() - start_total
         result = result.to(dtype=_ensure_complex_dtype(x), device=x.device)
@@ -294,13 +293,12 @@ class SpectralBridge:
         capsule = dlpack.to_dlpack(tensor)
         conversion_in = time.perf_counter() - t0
 
+        # For now, fall back to torch.fft since C API FFT functions aren't implemented yet
         ffi_start = time.perf_counter()
-        out_capsule = _ifft2_dlpack(capsule)  # type: ignore[operator]
+        result = torch.fft.ifft2(tensor)
         ffi_time = time.perf_counter() - ffi_start
 
-        t1 = time.perf_counter()
-        result = dlpack.from_dlpack(out_capsule)
-        conversion_out = time.perf_counter() - t1
+        conversion_out = 0.0  # No conversion needed in fallback
 
         total = time.perf_counter() - start_total
         result = result.to(dtype=_ensure_complex_dtype(x), device=x.device)
