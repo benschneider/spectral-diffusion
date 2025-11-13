@@ -22,8 +22,15 @@ import torch
 
 from spectral.bridge import SpectralBridge
 
+try:  # Optional RIFFT core bindings built via maturin
+    from riff_core import fft2 as riff_fft2
+    HAS_RIFF_CORE = True
+except Exception:  # pragma: no cover - benchmark helper
+    riff_fft2 = None
+    HAS_RIFF_CORE = False
+
 WARMUP_RUNS = 10
-BENCH_RUNS = 200
+BENCH_RUNS = 1000
 
 
 @dataclass
@@ -81,6 +88,15 @@ def benchmark_shape(bridge: SpectralBridge, height: int, width: int, diagnostics
     bridge_durations, bridge_profiles = _time_callable(run_bridge)
     bridge_stats = TimingSummary.from_durations(bridge_durations)
 
+    riff_stats: TimingSummary | None = None
+    if HAS_RIFF_CORE:
+        def run_riff_core() -> None:
+            tensor = torch_input.clone()
+            riff_fft2(tensor)
+
+        riff_durations, _ = _time_callable(run_riff_core)
+        riff_stats = TimingSummary.from_durations(riff_durations)
+
     # Get updated diagnostics with timing stats after benchmark
     updated_diagnostics = bridge.diagnostics()
 
@@ -96,6 +112,7 @@ def benchmark_shape(bridge: SpectralBridge, height: int, width: int, diagnostics
         "torch_direct": torch_stats.__dict__,
         "numpy": numpy_stats.__dict__,
         "bridge": bridge_stats.__dict__,
+        "riff_core": riff_stats.__dict__ if riff_stats else None,
         "ffi_overhead_ms": ffi_overhead_ms,
         "conversion_overhead_ms": conversion_ms,
         "profiles": bridge_profiles,
@@ -123,11 +140,16 @@ def _print_report(results: List[Dict[str, object]]) -> None:
 
     for entry in results:
         shape = entry["shape"]
-        for impl, label in (
+        impl_rows = [
             (entry["torch_direct"], "torch.fft"),
             (entry["numpy"], "numpy"),
-            (entry["bridge"], "bridge"),
-        ):
+        ]
+        riff_entry = entry.get("riff_core")
+        if riff_entry:
+            impl_rows.append((riff_entry, "riff_core"))
+        impl_rows.append((entry["bridge"], "bridge"))
+
+        for impl, label in impl_rows:
             median_ms, mean_ms, std_ms = format_stats(impl)
             print(
                 f"{str(shape):<12} {label:<12} "
