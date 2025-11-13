@@ -88,6 +88,7 @@ cargo bench --bench bench_fft256
 cargo bench --bench bench_fft512
 cargo bench --bench bench_fft1024
 cargo bench --bench bench_fused
+python scripts/bench_rifft_compare.py
 ```
 
 ## Roadmap
