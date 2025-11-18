@@ -65,10 +65,12 @@ class OverflowHandler:
         if not torch.any(regimes["overflow"]):
             return
         mode, loss_mode = describe_regime(regimes)
-        logging.getLogger("OverflowHandler").error(
-            "mode="
-            f"{mode} snr={float(snr_display.max().item()):.1f} "
-            f"loss_mode={loss_mode} count="
-            f"{int(torch.count_nonzero(regimes['overflow']).item())}"
+        message = (
+            "[OverflowHandler] "
+            f"mode={mode} "
+            f"snr={float(snr_display.max().item()):.1f} "
+            f"loss_mode={loss_mode} "
+            f"count={int(torch.count_nonzero(regimes['overflow']).item())}"
         )
-
+        logging.getLogger("OverflowHandler").error(message)
+        print(message)

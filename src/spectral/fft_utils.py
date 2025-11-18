@@ -2,6 +2,9 @@ from typing import Dict
 
 import torch
 
+from .fast_fft import fft2 as _fast_fft2
+from .fast_fft import ifft2 as _fast_ifft2
+
 
 def fft_transform(batch: torch.Tensor, normalize: bool = True) -> torch.Tensor:
     """
@@ -11,7 +14,7 @@ def fft_transform(batch: torch.Tensor, normalize: bool = True) -> torch.Tensor:
     Shape: [B, C, H, W, 2]
     """
     norm = "ortho" if normalize else None
-    x_fft = torch.fft.fft2(batch, norm=norm)
+    x_fft = _fast_fft2(batch, norm=norm)
     return torch.stack([x_fft.real, x_fft.imag], dim=-1)
 
 
@@ -22,7 +25,7 @@ def inverse_fft_transform(batch: torch.Tensor, normalize: bool = True) -> torch.
     """
     norm = "ortho" if normalize else None
     x_complex = torch.complex(batch[..., 0], batch[..., 1])
-    x_rec = torch.fft.ifft2(x_complex, norm=norm)
+    x_rec = _fast_ifft2(x_complex, norm=norm)
     return x_rec.real
 
 

@@ -7,6 +7,10 @@ from typing import Dict, Optional, Tuple
 
 import torch
 
+from .fast_fft import fft2 as _fast_fft2
+from .fast_fft import fftn as _fast_fftn
+from .fast_fft import ifftn as _fast_ifftn
+
 
 @lru_cache(maxsize=32)
 def _radial_mask_base(shape: Tuple[int, int]) -> torch.Tensor:
@@ -53,8 +57,8 @@ def _compute_similarity_metrics(x: torch.Tensor, y: torch.Tensor) -> dict:
 
 
 def _compute_fft_correlation(x: torch.Tensor, y: torch.Tensor, norm: str = "ortho") -> float:
-    x_fft = torch.fft.fftshift(torch.fft.fft2(x, dim=(-2, -1), norm=norm), dim=(-2, -1))
-    y_fft = torch.fft.fftshift(torch.fft.fft2(y, dim=(-2, -1), norm=norm), dim=(-2, -1))
+    x_fft = torch.fft.fftshift(_fast_fft2(x, norm=norm), dim=(-2, -1))
+    y_fft = torch.fft.fftshift(_fast_fft2(y, norm=norm), dim=(-2, -1))
     x_mag = torch.log1p(torch.abs(x_fft))
     y_mag = torch.log1p(torch.abs(y_fft))
     b = x_mag.shape[0]
@@ -86,7 +90,7 @@ def _normalize_fft_noise(
     This leverages Parseval by measuring energy after inverse FFT with the
     same normalization used during synthesis.
     """
-    noise_spatial = torch.fft.ifftn(noise_fft, dim=(-2, -1), norm=fft_norm).real
+    noise_spatial = _fast_ifftn(noise_fft, dim=(-2, -1), norm=fft_norm).real
     noise_rms = _per_sample_rms(noise_spatial)
     return noise_fft / noise_rms
 
@@ -184,10 +188,10 @@ def add_uniform_frequency_noise(
     strength = float(strength)
     phase_std = float(phase_std)
 
-    signal_component_fft = torch.fft.fftn(signal_component, dim=(-2, -1), norm=fft_norm)
+    signal_component_fft = _fast_fftn(signal_component, dim=(-2, -1), norm=fft_norm)
     _check_parseval_consistency(signal_component, signal_component_fft, fft_norm, "signal")
 
-    base_noise_fft = torch.fft.fftn(noise, dim=(-2, -1), norm=fft_norm)
+    base_noise_fft = _fast_fftn(noise, dim=(-2, -1), norm=fft_norm)
 
     if mode == "phase":
         phase_noise = torch.randn_like(signal_component_fft.real) * phase_std
@@ -197,7 +201,7 @@ def add_uniform_frequency_noise(
 
     coloured_fft = _normalize_fft_noise(coloured_fft, fft_norm=fft_norm)
 
-    coloured_spatial = torch.fft.ifftn(coloured_fft, dim=(-2, -1), norm=fft_norm).real
+    coloured_spatial = _fast_ifftn(coloured_fft, dim=(-2, -1), norm=fft_norm).real
     coloured_spatial = coloured_spatial * strength
 
     noise_component = sqrt_one_minus_alpha_t_complex * coloured_spatial
@@ -223,10 +227,10 @@ def add_uniform_frequency_noise(
 
     x_t = signal_component + noise_component
 
-    noise_component_fft = torch.fft.fftn(noise_component, dim=(-2, -1), norm=fft_norm)
+    noise_component_fft = _fast_fftn(noise_component, dim=(-2, -1), norm=fft_norm)
     _check_parseval_consistency(noise_component, noise_component_fft, fft_norm, "noise")
 
-    X_t = torch.fft.fftn(x_t, dim=(-2, -1), norm=fft_norm)
+    X_t = _fast_fftn(x_t, dim=(-2, -1), norm=fft_norm)
     _check_parseval_consistency(x_t, X_t, fft_norm, "noised")
 
     fft_corr = _compute_fft_correlation(x0, x_t, norm=fft_norm)

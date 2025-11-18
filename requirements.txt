@@ -14,3 +14,4 @@ piq
 torch-fidelity
 torchmetrics
 pypandoc
+rifft @ git+https://github.com/benschneider/rifft
