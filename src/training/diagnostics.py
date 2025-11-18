@@ -95,6 +95,8 @@ class TrainingDiagnostics:
         self.grad_norm_steps: list[int] = []
         self.noise_norm_history: list[float] = []
         self.noise_norm_steps: list[int] = []
+        self.noise_stats_steps: list[int] = []
+        self.noise_stats_history: Dict[str, list[float]] = defaultdict(list)
         self.fft_feedback_steps: list[int] = []
         self.fft_history: Dict[str, list[float]] = defaultdict(list)
         self.coeff_steps: list[int] = []
@@ -195,6 +197,14 @@ class TrainingDiagnostics:
     def record_noise_norm(self, step: int, norm: float) -> None:
         self.noise_norm_steps.append(step)
         self.noise_norm_history.append(norm)
+
+    def record_noise_stats(self, step: int, stats: Mapping[str, float]) -> None:
+        if not stats:
+            return
+        self.noise_stats_steps.append(step)
+        for key, value in stats.items():
+            if isinstance(value, (int, float)):
+                self.noise_stats_history[key].append(float(value))
 
     def record_fft_feedback(self, step: int, feedback: Mapping[str, float]) -> None:
         self.fft_feedback_steps.append(step)
@@ -311,6 +321,17 @@ class TrainingDiagnostics:
                 json.dump(payload, handle, indent=2)
             for factor, factor_dir in self.aggregator.iter_factor_dirs():
                 shutil.copy(target, factor_dir / f"snr_weights_{self.run_id}.json")
+
+        if self.noise_stats_history:
+            payload = {"steps": self.noise_stats_steps}
+            for key, values in self.noise_stats_history.items():
+                payload[key] = values
+                payload[f"{key}_mean"] = mean(values) if values else None
+            target = self.diagnostics_dir / "noise_stats.json"
+            with target.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+            for factor, factor_dir in self.aggregator.iter_factor_dirs():
+                shutil.copy(target, factor_dir / f"noise_stats_{self.run_id}.json")
 
         stability_csv = self._export_stability_metrics()
         if stability_csv is not None:

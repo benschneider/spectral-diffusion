@@ -113,7 +113,10 @@ folder per run.
    `src/reporting/generate_markdown.py` to produce tables showing stability and
    efficiency metrics per condition. `src/utils/report_sanitizer.py` can redact
    noisy keys if needed.
-4. **Taguchi S/N scores** – when using the DOE flow, combine per-factor CSVs
+4. **Stability batch processor** – run `python scripts/process_stability_metrics.py --root results/runs --plot-dir docs/figures/stability`
+   to emit `results/stability_summary.csv` plus per-run SNR/overflow/variance
+   plots. These feed directly into Figure 2 panels.
+5. **Taguchi S/N scores** – when using the DOE flow, combine per-factor CSVs
    (under `results/<suite>/factors/...`) to report delta S/N caused by toggling
    the SNR controls.
 
@@ -121,9 +124,9 @@ folder per run.
 
 - [ ] Create YAML snippets (or config templates) for each condition so CI /
   automation can call them directly.
-- [ ] Ensure `TrainingDiagnostics` copies `noise_batch.stats["snr_measured"]`
-  into `stability_metrics.csv` for easy plotting (currently only visible via
-  logged coeff stats).
+- [x] Ensure `TrainingDiagnostics` copies `noise_batch.stats` (SNR ratios,
+  FFT correlation, mean/std) into the diagnostics bundle (`noise_stats.json`)
+  so plotting scripts can consume them.
 - [ ] Extend `generate_markdown.py` to highlight `snr_ratio`, `snr_scale_factor`,
   and FFT variance metrics in the report summary table.
 - [ ] Add recorder plots comparing `loss_drop_per_second` vs. `snr_ratio`

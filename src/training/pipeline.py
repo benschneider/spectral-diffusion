@@ -164,6 +164,7 @@ class TrainingPipeline:
                 )
 
                 diagnostics.capture_noisy_example(noise_batch.noisy)
+                diagnostics.record_noise_stats(step + 1, noise_batch.stats or {})
 
                 outcome = step_executor.run_step(
                     xb,
