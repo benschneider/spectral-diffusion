@@ -1,0 +1,56 @@
+name: RIFFT Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  bench:
+    runs-on: ubuntu-22.04
+    env:
+      RUSTFLAGS: -C target-cpu=native
+      RUSTUP_TOOLCHAIN: nightly
+      RIFFT_FEATURES: python,simd_avx2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect core count
+        run: |
+          echo "RAYON_NUM_THREADS=$(nproc)" >> $GITHUB_ENV
+          echo "RUSTFFT_THREADS=$(nproc)" >> $GITHUB_ENV
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin pytest numpy torch
+
+      - name: Build RIFFT (release)
+        run: |
+          cargo build --release --features simd_avx2
+
+      - name: Install RIFFT into Python env
+        run: |
+          ./scripts/install_python_binding.sh --locked
+
+      - name: Run RIFFT benchmark
+        run: |
+          python scripts/bench_rifft_compare.py
+
+      - name: Upload benchmark result
+        uses: actions/upload-artifact@v4
+        with:
+          name: rifft-benchmark
+          path: results/rifft_benchmark.json

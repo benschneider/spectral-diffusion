@@ -1,0 +1,49 @@
+name: RIFFT CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-22.04
+    env:
+      RUSTFLAGS: -C target-cpu=native
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: Cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Cargo test
+        run: cargo test
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin pytest numpy
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.2.2+cpu
+
+      - name: Build Python extension
+        run: ./scripts/install_python_binding.sh --locked
+
+      - name: Pytest
+        run: pytest python/tests -q
