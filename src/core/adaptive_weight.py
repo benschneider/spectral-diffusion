@@ -285,17 +285,12 @@ class AdaptiveSNRWeight:
         self._step += 1
         diag["step"] = self._step
         should_log = self._should_log(diag)
-        diag["log_event"] = should_log
+        diag["log_event"] = False
         if should_log:
             self._last_log_step = self._step
             self._last_diag = {key: diag[key] for key in ("kappa", "ema", "mean_weight")}
-            message = (
-                "[AdaptiveSNR] step="
-                f"{self._step:04d} \t snr={diag['snr_mean']:.1f} \t loss={diag['loss']:.4f} \t κ={diag['kappa']:.3e} "
-                f"ema={diag['ema']:.3e} α_fac={diag['alpha_fac']:.2f} overflow={diag['overflow']:.3f}"
-            )
-            if self._log_fn is not None:
-                self._log_fn(message, diag)
+            # Instead of printing every event, accumulate log-worthy events for downstream analysis.
+            diag["log_event"] = True
 
         return weight, diag
 

@@ -61,6 +61,25 @@ describe_run() {
   python - "$config" "$run_id" "$variant_label" <<'PY'
 import sys
 import yaml
+import re
+
+def infer_size(cfg, run_id):
+    data = (cfg or {}).get("data", {})
+    height = data.get("height")
+    width = data.get("width")
+    if height is None and width is None:
+        image_size = data.get("image_size") or (cfg or {}).get("evaluation", {}).get("image_size")
+        if isinstance(image_size, int):
+            height = height or image_size
+            width = width or image_size
+    if (height is None or width is None) and run_id:
+        match = re.search(r"(\d+)\s*x\s*(\d+)", run_id)
+        if match:
+            if height is None:
+                height = int(match.group(1))
+            if width is None:
+                width = int(match.group(2))
+    return height, width
 
 config_path, run_id, variant = sys.argv[1:4]
 try:
@@ -70,7 +89,12 @@ except FileNotFoundError:
     cfg = {}
 data_family = cfg.get("data", {}).get("family", "default")
 data_source = cfg.get("data", {}).get("source", "unknown")
-data_size = f"{cfg.get('data', {}).get('height', '?')}x{cfg.get('data', {}).get('width', '?')}"
+height, width = infer_size(cfg, run_id)
+if height is None:
+    height = "?"
+if width is None:
+    width = "?"
+data_size = f"{height}x{width}"
 model = cfg.get("model", {}).get("type", "default")
 print(f"  • Run {run_id}: {config_path} (source={data_source}, size={data_size}, family={data_family}, model={model}, variant={variant})")
 PY
