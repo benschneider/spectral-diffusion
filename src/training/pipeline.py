@@ -263,7 +263,7 @@ class TrainingPipeline:
         initial_loss = loss_history[0] if loss_history else None
         final_loss = loss_history[-1] if loss_history else None
         loss_drop = (
-            (final_loss - initial_loss)
+            (initial_loss - final_loss)
             if initial_loss is not None and final_loss is not None
             else None
         )

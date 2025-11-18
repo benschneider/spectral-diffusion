@@ -17,27 +17,44 @@ if [[ -d "$OUT_DIR/runs" ]]; then
   rm -rf "$OUT_DIR/runs"
 fi
 
-echo "[1/4] Running baseline (TinyUNet) training"
-python "$ROOT_DIR/train.py" \
-  --config "$CONFIG" \
-  --output-dir "$OUT_DIR" \
-  --run-id "${RUN_PREFIX}_baseline"
+IFS=' ' read -r -a BENCHMARK_SEEDS <<< "${BENCHMARK_SEEDS:-0 1 2}"
+echo "Benchmark seeds: ${BENCHMARK_SEEDS[*]}"
 
-echo "[2/4] Running spectral UNet training"
-python "$ROOT_DIR/train.py" \
-  --config "$CONFIG" \
-  --output-dir "$OUT_DIR" \
-  --run-id "${RUN_PREFIX}_spectral" \
-  --variant spectral
+run_variant() {
+  local variant_label="$1"
+  shift || true
+  local variant_args=("$@")
+  for seed in "${BENCHMARK_SEEDS[@]}"; do
+    local run_id="${RUN_PREFIX}_${variant_label}_seed${seed}"
+    echo "Running ${variant_label} (seed=${seed})"
+    python "$ROOT_DIR/train.py" \
+      --config "$CONFIG" \
+      --output-dir "$OUT_DIR" \
+      --run-id "$run_id" \
+      --seed "$seed" \
+      "${variant_args[@]}"
+  done
+}
+
+echo "[1/5] Running baseline (TinyUNet) training across seeds"
+run_variant "baseline"
+
+echo "[2/5] Running spectral UNet training across seeds"
+run_variant "spectral" --variant spectral
 
 if [[ -f "$SUMMARY" ]]; then
-  echo "[3/4] Summary entries (tail)"
+  echo "[3/5] Summary entries (tail)"
   tail -n 2 "$SUMMARY"
 else
   echo "Summary file not found at $SUMMARY" >&2
 fi
 
-echo "[4/4] Benchmark comparison (sorted by loss_drop):"
+echo "[4/5] Aggregated stats (mean/std/CI per variant)"
+python "$ROOT_DIR/scripts/aggregate_benchmark_runs.py" \
+  --summary "$SUMMARY" \
+  --run-prefix "$RUN_PREFIX"
+
+echo "[5/5] Benchmark comparison (sorted by loss_drop):"
 python "$ROOT_DIR/scripts/report_summary.py" \
   --summary "$SUMMARY" \
   --metric loss_drop \

@@ -90,6 +90,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Remove generated artifacts after completion (useful for dry runs).",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override config.seed for deterministic repeats.",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="WARNING",
@@ -125,6 +131,7 @@ def train_from_config(
     variant: Optional[str] = None,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     run_id: Optional[str] = None,
+    seed: Optional[int] = None,
     dry_run: bool = False,
     cleanup: bool = False,
     log_level: str = "INFO",
@@ -207,6 +214,8 @@ def train_from_config(
 
     config = load_config(config_path=config_path)
     apply_variant_override(config=config, variant=variant)
+    if seed is not None:
+        config["seed"] = int(seed)
     seed_everything(config)
     if snr_ratio is not None:
         diffusion_cfg = config.setdefault("diffusion", {})
@@ -323,6 +332,7 @@ def main(argv: Optional[Any] = None) -> None:
         variant=args.variant,
         output_dir=args.output_dir,
         run_id=args.run_id,
+        seed=args.seed,
         dry_run=args.dry_run,
         cleanup=args.cleanup,
         log_level=args.log_level,

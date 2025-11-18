@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import shutil
 import json
-from collections import defaultdict
+import csv
+import math
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
@@ -105,6 +107,7 @@ class TrainingDiagnostics:
         self._initial_batch_captured = False
         self._noisy_capture_done = False
         self._phase_demo_captured = False
+        self.stability_csv_path = self.diagnostics_dir / "stability_metrics.csv"
 
     def capture_initial_batch(self, batch: torch.Tensor) -> None:
         if self._initial_batch_captured:
@@ -308,3 +311,89 @@ class TrainingDiagnostics:
                 json.dump(payload, handle, indent=2)
             for factor, factor_dir in self.aggregator.iter_factor_dirs():
                 shutil.copy(target, factor_dir / f"snr_weights_{self.run_id}.json")
+
+        stability_csv = self._export_stability_metrics()
+        if stability_csv is not None:
+            aggregate_target = (
+                self.aggregator.aggregate_dir / f"{self.run_id}_stability_metrics.csv"
+            )
+            shutil.copy(stability_csv, aggregate_target)
+
+    def _export_stability_metrics(self) -> Optional[Path]:
+        if not self.coeff_steps:
+            return None
+
+        header = [
+            "step",
+            "snr_mean",
+            "snr_max",
+            "snr_raw_max",
+            "snr_measured",
+            "overflow_count",
+            "overflow_rate_per_1k",
+            "overflow_ema",
+            "prediction_std",
+            "prediction_std_ratio",
+            "variance_ratio",
+            "variance_penalty",
+            "pred_noise_std",
+            "true_noise_std",
+            "spectral_pressure",
+        ]
+
+        def coeff_value(key: str, idx: int) -> float:
+            values = self.coeff_history.get(key, [])
+            if idx < len(values):
+                return float(values[idx])
+            return math.nan
+
+        def batch_value(key: str, idx: int) -> float:
+            values = self.batch_history.get(key, [])
+            if idx < len(values):
+                return float(values[idx])
+            return math.nan
+
+        window = deque()
+        window_sum = 0.0
+        window_size = 1000
+
+        with self.stability_csv_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(header)
+            for idx, step in enumerate(self.coeff_steps):
+                overflow_count = coeff_value("overflow_count", idx)
+                if math.isnan(overflow_count):
+                    overflow_count = 0.0
+                window.append((step, overflow_count))
+                window_sum += overflow_count
+                while window and (step - window[0][0]) >= window_size:
+                    _, count = window.popleft()
+                    window_sum -= count
+                if window:
+                    steps_span = max(1.0, float(step - window[0][0] + 1))
+                else:
+                    steps_span = 1.0
+                overflow_rate = (
+                    window_sum / steps_span * window_size if steps_span > 0 else math.nan
+                )
+
+                row = [
+                    step,
+                    coeff_value("snr_mean", idx),
+                    coeff_value("snr_max", idx),
+                    coeff_value("snr_raw_max", idx),
+                    coeff_value("snr_measured", idx),
+                    overflow_count,
+                    overflow_rate,
+                    coeff_value("overflow_ema", idx),
+                    batch_value("prediction_std", idx),
+                    batch_value("prediction_std_ratio", idx),
+                    batch_value("variance_ratio", idx),
+                    batch_value("variance_penalty", idx),
+                    batch_value("pred_noise_std_centered", idx),
+                    batch_value("true_noise_std_centered", idx),
+                    batch_value("spectral_pressure", idx),
+                ]
+                writer.writerow(row)
+
+        return self.stability_csv_path
