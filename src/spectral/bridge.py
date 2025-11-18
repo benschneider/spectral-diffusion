@@ -149,6 +149,24 @@ class SpectralBridge:
     # ---------------------------------------------------------------------
     # Public API ----------------------------------------------------------
     # ---------------------------------------------------------------------
+    def is_available(self) -> bool:
+        """Return True if the optimised Rust backend is ready."""
+
+        return bool(self._has_rust)
+
+    def available_backends(self) -> List[str]:
+        """Describe the FFT backends that can be selected at runtime."""
+
+        backends = ["torch.fft"]
+        if self._has_rust:
+            backends.insert(0, "rust-capi")
+        return backends
+
+    def is_cuda_available(self) -> bool:
+        """Expose CUDA availability for the bridge diagnostics."""
+
+        return torch.cuda.is_available()
+
     def fft2(self, x: torch.Tensor) -> torch.Tensor:
         """Compute a 2D FFT.
 

@@ -5,6 +5,27 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 export PYTHONPATH="$ROOT_DIR"
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 
+detect_rifft_threads() {
+  local guess
+  guess="$(python - <<'PY' 2>/dev/null || true
+import os
+count = os.cpu_count() or 1
+print(count)
+PY
+)"
+  if [[ -z "$guess" ]]; then
+    guess=1
+  fi
+  echo "$guess"
+}
+
+export RIFFT_PREPLAN="${RIFFT_PREPLAN:-auto}"
+if [[ -z "${RUSTFFT_THREADS:-}" ]]; then
+  export RUSTFFT_THREADS="$(detect_rifft_threads)"
+fi
+
+echo "RIFFT env: RIFFT_PREPLAN=${RIFFT_PREPLAN} RUSTFFT_THREADS=${RUSTFFT_THREADS}"
+
 TAGUCHI_ARRAY_PATH=${TAGUCHI_ARRAY_PATH:-"$ROOT_DIR/configs/taguchi/L27_extended.csv"}
 TAGUCHI_FACTOR_REGISTRY=${TAGUCHI_FACTOR_REGISTRY:-"$ROOT_DIR/configs/taguchi/factor_registry_quick.yaml"}
 TAGUCHI_BASE_CONFIG=${TAGUCHI_BASE_CONFIG:-"$ROOT_DIR/configs/taguchi_smoke_best.yaml"}
