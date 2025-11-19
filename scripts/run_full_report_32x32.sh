@@ -390,7 +390,13 @@ run_taguchi() {
   rm -rf "$TAG_DIR/runs"
   describe_run "$ROOT_DIR/configs/taguchi_smoke_base.yaml" "taguchi_32x32_sweep" "array:${array_basename}"
 
-  mapfile -t taguchi_rows < <(collect_taguchi_rows "$TAGUCHI_ARRAY_PATH")
+  local -a taguchi_rows=()
+  local row_value
+  while IFS= read -r row_value; do
+    if [[ -n "${row_value// }" ]]; then
+      taguchi_rows+=("$row_value")
+    fi
+  done < <(collect_taguchi_rows "$TAGUCHI_ARRAY_PATH")
   local total_rows="${#taguchi_rows[@]}"
   if [[ "$total_rows" -eq 0 ]]; then
     echo "No Taguchi rows discovered in $TAGUCHI_ARRAY_PATH" >&2

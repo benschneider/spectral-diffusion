@@ -79,6 +79,7 @@ class TrainingStepExecutor:
             snr_clip=self.snr_clip,
             ema_decay=self._overflow_decay,
             enable_renorm=enable_overflow_renorm,
+            log_interval=None,
         )
         self.lambda_var = float(lambda_var)
         self._step = 0

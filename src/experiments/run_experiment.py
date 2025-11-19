@@ -473,6 +473,17 @@ class TaguchiExperimentRunner:
 
             run_logger = logger or logging.getLogger(f"spectral_diffusion.taguchi.{run_id}")
             configure_run_logger(run_logger, dirs["logs_dir"] / "train.log")
+            summary_note = ", ".join(
+                f"{name}={meta.get('level_label', meta.get('level_index'))}"
+                for name, meta in sorted(factor_levels.items())
+            )
+            log.info(
+                "Running Taguchi row %d/%d (run_id=%s%s)",
+                row_number,
+                len(self.design),
+                run_id,
+                f", factors: {summary_note}" if summary_note else "",
+            )
 
             pipeline = TrainingPipeline(config=run_config, work_dir=dirs["run_dir"], logger=run_logger)
             metrics = pipeline.run()

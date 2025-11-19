@@ -345,7 +345,20 @@ class TrainingPipeline:
             if hasattr(self.model, "reset_spectral_stats"):
                 self.model.reset_spectral_stats()
 
-        self.logger.info("Training metrics: %s", metrics)
+        log_summary_keys = [
+            "status",
+            "loss_initial",
+            "loss_final",
+            "loss_drop",
+            "loss_drop_per_second",
+            "runtime_seconds",
+            "steps_per_second",
+            "images_per_second",
+            "snr_ratio",
+            "dc_scale_factor",
+        ]
+        log_summary = {key: metrics.get(key) for key in log_summary_keys if key in metrics}
+        self.logger.info("Training metrics: %s", log_summary)
         return metrics
 
     def _diffusion_params(self) -> Tuple[int, str, Dict[str, float]]:
