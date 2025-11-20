@@ -8,6 +8,9 @@ factors:
   spectral_noise_shaping_strength:
     description: Forward-process frequency corruption strength.
     levels: ["off", "mild_equalize", "strong_equalize"]
+  snr_weighting_mode:
+    description: Loss SNR weighting strategy (off/static/adaptive).
+    levels: ["off", "static", "adaptive"]
   snr_ratio:
     description: Signal-to-noise target for spectral corruption scaling.
     levels: [0.8, 1.0, 1.4]

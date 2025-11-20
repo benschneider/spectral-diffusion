@@ -4,8 +4,7 @@ Run root: `results/full_report_32x32_20251117_212900/taguchi`
 Design: `configs/taguchi/L27_extended.csv`  
 Mapping: `factor_mapping.json` in this folder (and under each `runs/<run_id>`).
 
-This L27 array maps the Taguchi columns **A, C, D, E, F, G, J, K, L** (we
-permanently dropped B, H, and I because they were fully inactive) to nine
+This L27 array maps the Taguchi columns **A, B, C, D, E, F, G, J, K, L** to ten
 hyperparameters. The notes below are tailored to this specific full‑report run
 and focus on two things:
 
@@ -18,6 +17,7 @@ and focus on two things:
 ## 1. High‑level impact summary
 
 - **Training‑time knobs that actually change behaviour**
+  - **B – snr_weighting_mode** → toggles loss SNR weighting off/static/adaptive.
   - **C – spectral_loss_weighting** → changes spectral adapter weighting (`spectral.weighting`) when adapters are enabled.
   - **E – train_steps** → sets `training.num_batches` (effective training steps per run).
   - **F – spectral_noise_shaping_strength** → toggles FFT‑domain noise injection on/off via `diffusion.uniform_corruption`.
@@ -63,6 +63,23 @@ this full‑report run.
   - The PCM is never instantiated in these runs.
   - A behaves as a **metadata‑only factor**: it appears in configs and reports,
     but it does not change the forward pass or gradients.
+
+### B – snr_weighting_mode (off · static · adaptive)
+
+- **Intent**  
+  Control whether the loss uses SNR-based weighting and whether that weighting
+  adapts during training.
+
+- **Code path**
+  - Taguchi maps levels to `loss.use_weighting` and `loss.adaptive_snr`:
+    - `off` → disable SNR weighting.
+    - `static` → enable weighting with fixed SNR scaling.
+    - `adaptive` → enable weighting with the AdaptiveSNR path in `DiffusionLoss`.
+
+- **Reality in this run**
+  - Governs loss weighting only; it does not change the forward noise schedule.
+  - Expect interactions with **J (snr_ratio)** and **F (noise path)**: adaptive
+    weighting can damp spikes when SNR targets are aggressive.
 
 ### C – spectral_loss_weighting (none · radial_highfreq · aggressive_highfreq)
 

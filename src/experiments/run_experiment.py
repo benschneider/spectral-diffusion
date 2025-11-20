@@ -176,6 +176,22 @@ def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> None:
     spectral_cfg["snr_ratio"] = value
 
 
+def _apply_snr_weighting_mode(cfg: Dict[str, Any], label: str) -> None:
+    loss_cfg = cfg.setdefault("loss", {})
+    label = label.lower()
+    if label == "off":
+        loss_cfg["use_weighting"] = False
+        loss_cfg["adaptive_snr"] = False
+    elif label == "static":
+        loss_cfg["use_weighting"] = True
+        loss_cfg["adaptive_snr"] = False
+    elif label == "adaptive":
+        loss_cfg["use_weighting"] = True
+        loss_cfg["adaptive_snr"] = True
+    else:
+        raise ValueError(f"Unknown snr_weighting_mode level '{label}'")
+
+
 def _apply_phase_capacity(cfg: Dict[str, Any], label: str) -> None:
     model_cfg = cfg.setdefault("model", {})
     if label == "off":
@@ -258,6 +274,7 @@ _FACTOR_APPLIERS = {
     "spectral_loss_weighting": _apply_loss_weighting,
     "spectral_noise_shaping_strength": _apply_noise_shaping,
     "snr_ratio": _apply_snr_ratio,
+    "snr_weighting_mode": _apply_snr_weighting_mode,
     "phase_attention_capacity": _apply_phase_capacity,
     "sampler_type": _apply_sampler,
     "sampling_steps": _apply_sampling_steps,

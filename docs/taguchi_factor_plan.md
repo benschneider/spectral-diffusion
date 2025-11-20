@@ -51,6 +51,7 @@ The default Taguchi driver now points at `configs/taguchi_smoke_best.yaml` and `
 | Column | Factor | Levels |
 |--------|--------|--------|
 | **A** | Phase attention capacity (`model.enable_phase_attention`, `model.phase_heads`) | off · tiny · full |
+| **B** | SNR weighting mode (`loss.use_weighting`, `loss.adaptive_snr`) | off · static · adaptive |
 | **C** | Spectral loss weighting (`spectral.weighting`) | none · radial_highfreq · aggressive_highfreq (band-pass) |
 | **D** | Sampler type (mapped to registry sampler) | ddim · dpm_solver_pp · spectral_guided (MASF) |
 | **E** | Training steps (`training.num_batches`) | 50 · 100 · 200 |
@@ -78,7 +79,7 @@ The recent burst of frequency-domain diffusion work (2024–2025) surfaces sever
 
 ### Next Steps
 1. ✅ Generated `configs/taguchi/L18_mixed.csv` (in production) and `configs/taguchi/L27_extended.csv` (adds train_steps + resolution) alongside the older `configs/taguchi_spectral_L16.csv` (binary backlog).
-   > **2025-11 update:** Columns B, H, and I (dc_scale_factor, curriculum_mode, lr_schedule_mode) were removed from the default L27 mapping because they were fully inactive in the 32×32 baseline. The registry now assigns only A, C, D, E, F, G, J, K, and L.
+   > **2025-11 update:** Columns H and I (curriculum_mode, lr_schedule_mode) were removed from the default L27 mapping because they were inactive. Column B now hosts `snr_weighting_mode`, restoring 10 active factors.
 2. ✅ Refactored `src/experiments/run_experiment.py` to consume the factor registry, randomise assignments, and persist per-row metrics (`run_<n>_metrics.json`).
 3. ✅ Reports ingest the new Taguchi metadata; full-report scripts include `taguchi_report.csv` automatically.
 4. ▶️ Automate aggregation for GitHub Actions by adding a follow-up job that collects all 18 artifacts and re-runs `--finalize`.

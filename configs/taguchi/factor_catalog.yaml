@@ -19,6 +19,12 @@ factors:
     doc: "Level of spectral noise shaping before FFT inversion."
     depends_on:
       spectral_adapter_placement: ["input_only", "input_and_output"]
+  snr_weighting_mode:
+    kind: enum
+    levels: ["off", "static", "adaptive"]
+    cost_weight: 1.0
+    role: loss
+    doc: "SNR loss weighting: disabled, static weighting, or adaptive SNR governor."
   snr_ratio:
     kind: float
     levels: [0.8, 1.0, 1.4]

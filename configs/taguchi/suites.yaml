@@ -5,6 +5,7 @@ suites:
       - spectral_adapter_placement
       - spectral_loss_weighting
       - spectral_noise_shaping_strength
+      - snr_weighting_mode
       - snr_ratio
       - phase_attention_capacity
       - sampler_type
