@@ -46,7 +46,7 @@ python evaluate.py \
 ### Want the full story automatically?
 Run one command and grab coffee:
 ```bash
-scripts/run_full_report.sh
+scripts/run_full_report_32x32.sh
 ```
 It will:
 1. Benchmark TinyUNet vs. SpectralUNet on synthetic data
@@ -77,7 +77,7 @@ It will:
 - `src/spectral/` – FFT adapters and complex layers.
 - `src/training/` – Training pipeline, scheduler, sampler registry.
 - `src/visualization/` – Reusable helpers for figures + summaries.
-- `scripts/run_full_report.sh` – End-to-end benchmark + report pipeline.
+- `scripts/run_full_report_32x32.sh` – End-to-end benchmark + report pipeline (legacy multi-resolution runners archived under `scripts/archive/`).
 
 See **[`docs/architecture.md`](docs/architecture.md)** for diagrams and a more detailed map.
 
@@ -93,12 +93,12 @@ Curious about the spectral weighting, FFT/iFFT flow, or why we track high-freque
 | Train & sample baseline | `python train.py ...` + `python sample.py ...` |
 | Evaluate generated images | `python evaluate.py --generated-dir ... --use-fid --use-lpips` |
 | Discover available configs | `python -m src.cli.list_configs [--include-csv --filter baseline]` |
-| Synthetic vs Spectral benchmark | `scripts/run_spectral_benchmark.sh` |
+| Synthetic vs Spectral benchmark | `scripts/run_full_report_32x32.sh` (legacy runner archived under `scripts/archive/run_spectral_benchmark.sh`) |
 | CIFAR-10 benchmark | `python train.py --config configs/benchmark_spectral_cifar.yaml ...` |
-| Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` |
-| Smoke report (fast check) | `scripts/run_smoke_report.sh` |
+| Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` (archived versions live under `scripts/archive/`) |
+| Smoke report (fast check) | `scripts/archive/run_smoke_report.sh` |
 | Make plots & summary | `python scripts/figures/generate_figures.py` |
-| Full pipeline (benchmarks + Taguchi + ablation + figures) | `scripts/run_full_report.sh` (includes spectral-feature ablation figure) |
+| Full pipeline (benchmarks + Taguchi + ablation + figures) | `scripts/run_full_report_32x32.sh` (includes spectral-feature ablation figure; older scripts archived under `scripts/archive/`) |
 | Consolidate report artefacts | `scripts/pack_report_to_hdf5.py results/<report_dir>` |
 | Render compact overview | `scripts/render_compact_report.py results/<report_dir>.h5` |
 | Spectral toggle comparison | `python scripts/run_spectral_toggle_ablation.py` |

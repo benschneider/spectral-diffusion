@@ -75,7 +75,7 @@ python evaluate.py --generated-dir results/runs/my_run/samples/sample_grid \
 | Script | What it does |
 |--------|--------------|
 | `scripts/run_smoke_report.sh` | Fast end-to-end run (synthetic + CIFAR smoke, Taguchi mini sweep, figures). Takes optional output dir (defaults to timestamped folder). |
-| `scripts/run_full_report.sh` | Longer benchmark (synthetic + CIFAR full, Taguchi) with timestamps. |
+| `scripts/run_full_report_32x32.sh` | Longer benchmark (synthetic + CIFAR full, Taguchi) with timestamps. |
 | `scripts/run_spectral_benchmark.sh` | Synthetic benchmark only (baseline script). |
 | `scripts/run_taguchi_*.sh` | Run the tagged Taguchi scenario (smoke/minimal/comparison). |
 | `python scripts/figures/generate_figures.py` | Regenerate figures and markdown from existing results. |

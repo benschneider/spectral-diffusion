@@ -98,7 +98,7 @@ folder per run.
 - Throughput (`steps_per_second`, `images_per_second`) to check whether the
   FFT masking + SNR clamps add measurable overhead.
 - Evaluation metrics (`FID`, `LPIPS`, PSNR) via `evaluate.py` or the automated
-  `scripts/run_full_report.sh` pipeline once runs finish training.
+  `scripts/run_full_report_32x32.sh` pipeline once runs finish training.
 - Sampler quality: use `TrainingPipeline.generate_samples(...)` and log per-run
   sampler configs alongside sample grids for qualitative inspection.
 
