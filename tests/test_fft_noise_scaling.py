@@ -16,6 +16,7 @@ def _run_frequency_noise(
     fft_norm: str = "ortho",
     mode: str = "magnitude",
     phase_std: float = 0.0,
+    freq_equalized_noise: bool = False,
 ):
     torch.manual_seed(0)
     b, c, (h, w) = 2, 3, shape
@@ -34,10 +35,12 @@ def _run_frequency_noise(
         strength=1.0,
         fft_norm=fft_norm,
         snr_ratio=snr_ratio,
+        freq_equalized_noise=freq_equalized_noise,
         mode=mode,
         stats=stats,
         **kwargs,
     )
+    stats["sqrt_alpha"] = float(sqrt_alpha.item())
     return x, x_t, stats
 
 
@@ -102,6 +105,37 @@ def test_parseval_consistency_signal_and_noised(fft_norm):
     rel_noised = _spatial_fft_energy(x_t, fft_norm)
     assert rel_signal < 1e-5
     assert rel_noised < 1e-5
+
+
+def test_freq_equalized_noise_increases_high_band_energy():
+    x_base, x_t_base, stats_base = _run_frequency_noise((32, 32), snr_ratio=1.0)
+    x_eq, x_t_eq, stats_eq = _run_frequency_noise(
+        (32, 32), snr_ratio=1.0, freq_equalized_noise=True
+    )
+    sqrt_alpha = stats_base["sqrt_alpha"]
+    base_noise = x_t_base - sqrt_alpha * x_base
+    eq_noise = x_t_eq - stats_eq["sqrt_alpha"] * x_eq
+    base_ratio = _band_energy_ratio(base_noise)
+    eq_ratio = _band_energy_ratio(eq_noise)
+    assert eq_ratio > base_ratio * 1.05
+
+
+def _band_energy_ratio(noise: torch.Tensor) -> float:
+    noise_centered = noise - noise.mean(dim=(-2, -1), keepdim=True)
+    fft = torch.fft.fftshift(torch.fft.fftn(noise_centered, dim=(-2, -1)), dim=(-2, -1))
+    magnitude = fft.abs().mean(dim=(0, 1))  # average across batch/channel
+    h, w = noise.shape[-2], noise.shape[-1]
+    fy = torch.fft.fftfreq(h, d=1.0)
+    fx = torch.fft.fftfreq(w, d=1.0)
+    yy = fy[:, None]
+    xx = fx[None, :]
+    radius = torch.sqrt(xx**2 + yy**2)
+    radius = torch.fft.fftshift(radius)
+    low_mask = radius < 0.15
+    high_mask = radius > 0.35
+    low_energy = magnitude[low_mask].mean().item()
+    high_energy = magnitude[high_mask].mean().item()
+    return high_energy / max(low_energy, 1e-6)
 
 
 @pytest.mark.parametrize("uniform", [False, True])

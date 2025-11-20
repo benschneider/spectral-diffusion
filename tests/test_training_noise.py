@@ -25,6 +25,7 @@ def test_noise_preparer_from_config_prefers_diffusion_over_spectral():
             "adaptive_rescale": False,
             "fft_norm": "ortho",
             "snr_ratio": 2.0,
+            "freq_equalized_noise": True,
         },
     }
 
@@ -38,6 +39,7 @@ def test_noise_preparer_from_config_prefers_diffusion_over_spectral():
     assert preparer.adaptive_rescale is True
     assert preparer.fft_norm == "backward"
     assert preparer.snr_ratio == 1.25
+    assert preparer.freq_equalized_noise is True
 
 
 def test_noise_preparer_prepare_uses_adapter(monkeypatch):

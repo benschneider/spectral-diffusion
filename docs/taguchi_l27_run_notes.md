@@ -35,9 +35,8 @@ and focus on two things:
 
 For Taguchi analysis this means:
 
-- Expect **real main effects** from **C, E, F (off vs on), G, J, K**.
-- Treat **A** (until we run spectral backbones) and the distinction between
-  **F = mild_equalize vs strong_equalize** as *design plumbing*, not meaningful signal.
+- Expect **real main effects** from **C, E, F, G, J, K**.
+- Treat **A** (until we run spectral backbones) as *design plumbing*, not meaningful signal.
 
 ---
 
@@ -138,15 +137,16 @@ this full‑report run.
     `add_uniform_frequency_noise`.
 
 - **Reality in this run**
-  - `add_uniform_frequency_noise` uses a **fixed reciprocal‑radius mask** whenever
-    `uniform_corruption=True`. It does **not** read `spectral.freq_equalized_noise`.
-  - This means:
-    - The only functional switch is **off vs on** for `uniform_corruption`
-      (spatial Gaussian vs FFT‑domain coloured noise).
-    - The difference between `mild_equalize` and `strong_equalize` is **not yet
-      implemented** in the noise path for these runs.
-  - For analysis, treat F as a binary factor (off vs on); do not over‑interpret
-    “mild vs strong” differences in the Taguchi S/N table.
+  - `add_uniform_frequency_noise` uses a reciprocal‑radius mask when
+    `uniform_corruption=True`. When `spectral.freq_equalized_noise=True`
+    (the “strong” level) the mask is **squared before normalisation**, pushing
+    substantially more energy into high-frequency bands while keeping the
+    overall RMS comparable.
+  - This makes F a **three-level** knob again:
+    - `off` → spatial Gaussian baseline.
+    - `mild_equalize` → FFT-domain noise with the base radial mask.
+    - `strong_equalize` → FFT-domain noise with the squared mask for extra
+      high-frequency emphasis.
 
 ### G – spectral_adapter_placement (none · input_only · input_and_output)
 

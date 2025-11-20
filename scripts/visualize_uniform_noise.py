@@ -84,6 +84,11 @@ def _parse_args() -> argparse.Namespace:
         default=0,
         help="Random seed for reproducibility.",
     )
+    parser.add_argument(
+        "--freq-equalized",
+        action="store_true",
+        help="Force frequency-equalised noise even when no config is provided.",
+    )
     return parser.parse_args()
 
 
@@ -148,6 +153,7 @@ def main() -> None:
     noise = torch.randn_like(x0)
 
     uniform_scale = 1.0
+    freq_equalized = bool(args.freq_equalized)
     if args.config is not None:
         with args.config.open("r", encoding="utf-8") as handle:
             cfg = yaml.safe_load(handle) or {}
@@ -163,12 +169,14 @@ def main() -> None:
             for key in ("lambda_min", "lambda_max", "delta"):
                 if key in logsnr_cfg and key not in schedule_kwargs:
                     schedule_kwargs[key] = float(logsnr_cfg[key])
+        spectral_cfg = cfg.get("spectral", {}) or {}
         uniform_scale = float(
             diffusion_cfg.get(
                 "uniform_corruption_scale",
-                cfg.get("spectral", {}).get("uniform_corruption_scale", 1.0),
+                spectral_cfg.get("uniform_corruption_scale", 1.0),
             )
         )
+        freq_equalized = bool(spectral_cfg.get("freq_equalized_noise", freq_equalized))
         coeffs = build_diffusion(num_steps, schedule, schedule_kwargs)
         effective_steps = coeffs.num_timesteps
         if args.t_index is not None:
@@ -212,6 +220,7 @@ def main() -> None:
             sqrt_one_minus_alpha_t=sqrt_one_minus_t,
             uniform_corruption=True,
             strength=uniform_scale,
+            freq_equalized_noise=freq_equalized,
             return_noise=True,
         )
         results["uniform"] = (x_uniform, noise_uniform)

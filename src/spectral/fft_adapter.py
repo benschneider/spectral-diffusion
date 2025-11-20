@@ -136,6 +136,7 @@ def add_uniform_frequency_noise(
     stats: Optional[Dict[str, float]] = None,
     fft_norm: str = "ortho",
     snr_ratio: Optional[float] = None,
+    freq_equalized_noise: bool = False,
     *,
     return_noise: bool = False,
 ) -> torch.Tensor:
@@ -177,6 +178,8 @@ def add_uniform_frequency_noise(
     height, width = x0.shape[-2], x0.shape[-1]
     base_mask = _radial_mask_base((height, width)).to(device=x0.device, dtype=x0.dtype)
     mask = base_mask.unsqueeze(0).unsqueeze(0)
+    if freq_equalized_noise:
+        mask = mask.pow(2.0)
     mask = mask / (torch.sqrt(torch.mean(mask**2)) + 1e-8)
 
     mode = mode.lower()

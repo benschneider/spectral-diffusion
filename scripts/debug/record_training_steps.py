@@ -434,6 +434,7 @@ def run_step_recorder(
             else snr_ratio_from_level
         )
     )
+    freq_equalized_noise = bool(config.get("spectral", {}).get("freq_equalized_noise", False))
     if effective_snr_ratio is not None:
         diffusion_cfg["snr_ratio"] = effective_snr_ratio
         spectral_cfg["snr_ratio"] = effective_snr_ratio
@@ -450,6 +451,7 @@ def run_step_recorder(
             ("log_interval", log_interval),
             ("device", str(device_obj)),
             ("snr_ratio", effective_snr_ratio),
+            ("freq_equalized_noise", freq_equalized_noise),
             ("enable_normalization", not recorder.normalization_disabled),
             ("lambda_var", recorder.lambda_var),
             ("lambda_var_scale", lambda_var_scale_value),
@@ -642,6 +644,7 @@ def run_step_recorder(
             stats=noise_stats,
             fft_norm=fft_norm,
             snr_ratio=current_snr_ratio,
+            freq_equalized_noise=freq_equalized_noise,
             return_noise=True,
         )
 
