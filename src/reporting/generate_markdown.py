@@ -30,7 +30,6 @@ FACTOR_YAML_KEYS = {
     "sampler_type": "sampling.sampler_type",
     "sampling_steps": "sampling.num_steps",
     "curriculum_mode": "training.curriculum",
-    "lr_schedule_mode": "optim.lr_schedule",
 }
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".svg", ".gif"}

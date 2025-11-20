@@ -64,7 +64,6 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
         output_dir=output_dir,
         dry_run=True,
         snr_ratio=0.75,
-        dc_scale_factor=1.25,
     )
 
     assert result["run_id"]
@@ -73,8 +72,6 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
     assert config["model"]["type"] == "unet_spectral"
     assert config["diffusion"]["snr_ratio"] == pytest.approx(0.75)
     assert config["spectral"]["snr_ratio"] == pytest.approx(0.75)
-    assert config["diffusion"]["dc_scale_factor"] == pytest.approx(1.25)
-    assert config["spectral"]["dc_scale_factor"] == pytest.approx(1.25)
 
 
 def test_train_from_config_writes_json_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

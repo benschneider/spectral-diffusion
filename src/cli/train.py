@@ -63,12 +63,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Override diffusion.snr_ratio (signal-to-noise ratio for spectral noise).",
     )
     parser.add_argument(
-        "--dc-scale-factor",
-        type=float,
-        default=None,
-        help="Override diffusion.dc_scale_factor (attenuation for DC noise).",
-    )
-    parser.add_argument(
         "--lambda-var",
         type=float,
         default=None,
@@ -137,7 +131,6 @@ def train_from_config(
     log_level: str = "INFO",
     json_log: bool = False,
     snr_ratio: Optional[float] = None,
-    dc_scale_factor: Optional[float] = None,
     lambda_var: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Load configuration, execute training, and log artifacts.
@@ -164,8 +157,8 @@ def train_from_config(
     json_log:
         When ``True`` an additional JSONL log file mirroring the textual log is
         produced.
-    snr_ratio / dc_scale_factor:
-        Optional overrides for spectral hyper-parameters.
+    snr_ratio:
+        Optional override for the spectral SNR target.
 
     Returns
     -------
@@ -222,11 +215,6 @@ def train_from_config(
         diffusion_cfg["snr_ratio"] = float(snr_ratio)
         spectral_cfg = config.setdefault("spectral", {})
         spectral_cfg["snr_ratio"] = float(snr_ratio)
-    if dc_scale_factor is not None:
-        diffusion_cfg = config.setdefault("diffusion", {})
-        diffusion_cfg["dc_scale_factor"] = float(dc_scale_factor)
-        spectral_cfg = config.setdefault("spectral", {})
-        spectral_cfg["dc_scale_factor"] = float(dc_scale_factor)
     if lambda_var is not None:
         diffusion_cfg = config.setdefault("diffusion", {})
         diffusion_cfg["lambda_var"] = float(lambda_var)
@@ -338,7 +326,6 @@ def main(argv: Optional[Any] = None) -> None:
         log_level=args.log_level,
         json_log=args.json_log,
         snr_ratio=args.snr_ratio,
-        dc_scale_factor=args.dc_scale_factor,
         lambda_var=args.lambda_var,
     )
     logging.getLogger("spectral_diffusion.train").info(

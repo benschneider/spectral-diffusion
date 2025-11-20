@@ -21,7 +21,6 @@ python train.py --config configs/baseline.yaml \
 | `--cleanup` | False | Delete artefacts after completion (useful for CI tests). |
 | `--log-level` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, ...). |
 | `--snr-ratio` | None | Override `diffusion.snr_ratio`/`spectral.snr_ratio` without editing YAML. |
-| `--dc-scale-factor` | None | Override `diffusion.dc_scale_factor` (DC attenuation for uniform corruption). |
 
 ### Key YAML fields
 | Section | Fields | Notes |
@@ -29,7 +28,7 @@ python train.py --config configs/baseline.yaml \
 | `model` | `type` (`baseline`, `unet_tiny`, `unet_spectral`, `unet_spectral_deep`), `base_channels`, `depth` | Spectral adapters live under `spectral.*`; the deep spectral model mirrors TinyUNet’s encoder/decoder in the frequency domain. |
 | `data` | `source` (`synthetic`, `cifar10`), `height/width`, `download`, `family` (for synthetic) | Synthetic families include `piecewise`, `texture`, `random_field`, or `noise`. |
 | `training` | `batch_size`, `epochs`, `num_batches`, `log_every` | Set `num_batches` to limit steps for smoke tests. |
-| `diffusion` | `num_timesteps`, `beta_schedule`, `schedule_kwargs`, `logsnr`, `prediction_type`, `uniform_corruption`, `uniform_corruption_scale`, `corruption_mode`, `phase_std`, `similarity_target`, `adaptive_rescale`, `fft_norm`, `snr_ratio`, `dc_scale_factor` | Standard DDPM settings plus the spectral-noise knobs consumed by `NoisePreparer`. Set `beta_schedule` to `logsnr_cosine` to adopt the SD3/Flux log-SNR schedule. Override λ bounds or δ via `schedule_kwargs` (or `logsnr` for backwards-compatible configs). |
+| `diffusion` | `num_timesteps`, `beta_schedule`, `schedule_kwargs`, `logsnr`, `prediction_type`, `uniform_corruption`, `uniform_corruption_scale`, `corruption_mode`, `phase_std`, `similarity_target`, `adaptive_rescale`, `fft_norm`, `snr_ratio` | Standard DDPM settings plus the spectral-noise knobs consumed by `NoisePreparer`. Set `beta_schedule` to `logsnr_cosine` to adopt the SD3/Flux log-SNR schedule. Override λ bounds or δ via `schedule_kwargs` (or `logsnr` for backwards-compatible configs). |
 | `sampling` | `enabled`, `sampler_type` (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`) | Controls optional sampling after training. |
 | `evaluation` | `reference_dir`, `use_fid`, `use_lpips` | Provide a folder of real images to compare against. |
 | `spectral` | `enabled`, `weighting` (`none`, `radial`, `bandpass`), `apply_to` (`input`, `output`, `per_block`), `bandpass_inner`, `bandpass_outer`, `learnable`, `condition` (`time`/`none`), `mlp_hidden_dim`, `learnable_temperature`, `learnable_gain_init` | Toggles spectral adapters and, when `learnable` is true, drives the MLP-conditioned masks used by `SpectralAdapter`. |

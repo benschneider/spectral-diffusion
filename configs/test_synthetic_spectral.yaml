@@ -30,7 +30,6 @@ diffusion:
   adaptive_rescale: true
   similarity_target: 0.7
   fft_norm: ortho
-  dc_scale_factor: 0.0
   snr_ratio: 1.0
 
 spectral:
@@ -50,7 +49,6 @@ spectral:
   adaptive_rescale: true
   similarity_target: 0.7
   fft_norm: ortho
-  dc_scale_factor: 0.0
   snr_ratio: 1.0
 
 loss:

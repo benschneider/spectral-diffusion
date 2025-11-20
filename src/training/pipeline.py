@@ -98,7 +98,6 @@ class TrainingPipeline:
                 coeffs.min_safe_sigma,
             )
         snr_ratio_value = noise_preparer.snr_ratio
-        dc_scale_factor = noise_preparer.dc_scale_factor
 
         fft_feedback_history: Dict[str, list[float]] = defaultdict(list)
         coeff_history: Dict[str, list[float]] = {}
@@ -310,7 +309,6 @@ class TrainingPipeline:
                 "loss_history": [float(v) for v in loss_history],
                 "mae_history": [float(v) for v in mae_history],
                 "snr_ratio": snr_ratio_value,
-                "dc_scale_factor": dc_scale_factor,
                 **{
                     f"fft_{key}_history": [float(v) for v in vals]
                     for key, vals in fft_feedback_history.items()
@@ -355,7 +353,6 @@ class TrainingPipeline:
             "steps_per_second",
             "images_per_second",
             "snr_ratio",
-            "dc_scale_factor",
         ]
         log_summary = {key: metrics.get(key) for key in log_summary_keys if key in metrics}
         self.logger.info("Training metrics: %s", log_summary)

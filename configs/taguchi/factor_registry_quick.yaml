@@ -11,9 +11,6 @@ factors:
   snr_ratio:
     description: Signal-to-noise target for spectral corruption scaling.
     levels: [0.8, 1.0, 1.4]
-  dc_scale_factor:
-    description: Attenuation factor for zero-frequency (DC) noise contribution.
-    levels: [0.05, 0.1, 0.2]
   phase_attention_capacity:
     description: Phase correction module capacity (attention heads).
     levels: ["off", "tiny", "full"]
@@ -23,12 +20,6 @@ factors:
   sampling_steps:
     description: Number of denoising steps during sampling.
     levels: [30]
-  curriculum_mode:
-    description: Training curriculum strategy.
-    levels: ["none", "lowres_warmup", "spectral_first"]
-  lr_schedule_mode:
-    description: Learning rate schedule policy.
-    levels: ["constant", "cosine", "cosine_warmup"]
   train_steps:
     description: Training iterations (num_batches) for Taguchi sweep.
     levels: [50]

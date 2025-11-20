@@ -135,7 +135,6 @@ class RecorderState:
         self._log_fn = log_fn
         self.normalization_disabled = True
         self.normalization_mode = "off"
-        self.dc_scale_factor = 0.0
         self.lambda_var = 7e-4
         self.adaptive_snr_enabled = False
         self.shock_handler_enabled = False
@@ -169,7 +168,6 @@ def run_step_recorder(
     device: Optional[str] = None,
     log_interval: int = 10,
     snr_ratio: Optional[float] = None,
-    dc_scale_factor: Optional[float] = None,
     enable_normalization: bool = False,
     adaptive_snr: bool = False,
     log_snr_json: bool = False,
@@ -439,14 +437,6 @@ def run_step_recorder(
     if effective_snr_ratio is not None:
         diffusion_cfg["snr_ratio"] = effective_snr_ratio
         spectral_cfg["snr_ratio"] = effective_snr_ratio
-    dc_scale_cfg = diffusion_cfg.get(
-        "dc_scale_factor",
-        config.get("spectral", {}).get("dc_scale_factor", 0.1),
-    )
-    effective_dc_scale = float(dc_scale_factor) if dc_scale_factor is not None else float(dc_scale_cfg)
-    diffusion_cfg["dc_scale_factor"] = effective_dc_scale
-    spectral_cfg["dc_scale_factor"] = effective_dc_scale
-    recorder.dc_scale_factor = effective_dc_scale
 
     lambda_var_scale_value = float(lambda_var_scale)
     scaled_lambda_var = float(lambda_var) * lambda_var_scale_value
@@ -461,7 +451,6 @@ def run_step_recorder(
             ("device", str(device_obj)),
             ("snr_ratio", effective_snr_ratio),
             ("enable_normalization", not recorder.normalization_disabled),
-            ("dc_scale_factor", recorder.dc_scale_factor),
             ("lambda_var", recorder.lambda_var),
             ("lambda_var_scale", lambda_var_scale_value),
             ("adaptive_snr", recorder.adaptive_snr_enabled),
@@ -622,7 +611,6 @@ def run_step_recorder(
                 xb_mean = xb.mean()
                 xb_std = xb.std()
             xb = (xb - xb_mean) / (xb_std + 1e-6)
-            xb = xb + recorder.dc_scale_factor
 
         B = xb.shape[0]
         if loss_aware_enabled:
@@ -654,7 +642,6 @@ def run_step_recorder(
             stats=noise_stats,
             fft_norm=fft_norm,
             snr_ratio=current_snr_ratio,
-            dc_scale_factor=effective_dc_scale,
             return_noise=True,
         )
 
@@ -1354,7 +1341,6 @@ def run_step_recorder(
         "normalization_disabled": recorder.normalization_disabled,
         "normalization_mode": recorder.normalization_mode,
         "snr_ratio": effective_snr_ratio,
-        "dc_scale_factor": recorder.dc_scale_factor,
         "adaptive_snr_enabled": recorder.adaptive_snr_enabled,
         "lambda_var": recorder.lambda_var,
         "lambda_var_scale": lambda_var_scale_value,
@@ -1423,12 +1409,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--enable-normalization",
         action="store_true",
         help="Legacy flag kept for compatibility; equivalent to --normalization-mode batch.",
-    )
-    parser.add_argument(
-        "--dc-scale-factor",
-        type=float,
-        default=0.0,
-        help="Override diffusion.dc_scale_factor (default=0.0).",
     )
     parser.add_argument(
         "--adaptive-snr",
@@ -1542,7 +1522,6 @@ def main(argv: Optional[List[str]] = None) -> None:
         device=args.device,
         log_interval=int(args.log_interval),
         snr_ratio=args.snr_ratio,
-        dc_scale_factor=args.dc_scale_factor,
         enable_normalization=bool(args.enable_normalization),
         normalization_mode=args.normalization_mode,
         shock_handler=args.shock_handler,
@@ -1580,7 +1559,6 @@ def record_training_steps(
     device: Optional[str] = None,
     log_interval: int = 10,
     snr_ratio: Optional[float] = None,
-    dc_scale_factor: Optional[float] = None,
     loader: Optional[DataLoader] = None,
     adaptive_snr: bool = False,
     snr_min: float = 0.5,
@@ -1620,7 +1598,6 @@ def record_training_steps(
         device=device,
         log_interval=log_interval,
         snr_ratio=snr_ratio,
-        dc_scale_factor=dc_scale_factor,
         loader=loader,
         adaptive_snr=adaptive_snr,
         snr_min=snr_min,

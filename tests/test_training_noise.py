@@ -15,7 +15,6 @@ def test_noise_preparer_from_config_prefers_diffusion_over_spectral():
             "adaptive_rescale": True,
             "fft_norm": "backward",
             "snr_ratio": 1.25,
-            "dc_scale_factor": 0.4,
         },
         "spectral": {
             "uniform_corruption": False,
@@ -26,7 +25,6 @@ def test_noise_preparer_from_config_prefers_diffusion_over_spectral():
             "adaptive_rescale": False,
             "fft_norm": "ortho",
             "snr_ratio": 2.0,
-            "dc_scale_factor": 0.9,
         },
     }
 
@@ -40,7 +38,6 @@ def test_noise_preparer_from_config_prefers_diffusion_over_spectral():
     assert preparer.adaptive_rescale is True
     assert preparer.fft_norm == "backward"
     assert preparer.snr_ratio == 1.25
-    assert preparer.dc_scale_factor == 0.4
 
 
 def test_noise_preparer_prepare_uses_adapter(monkeypatch):

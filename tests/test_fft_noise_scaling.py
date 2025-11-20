@@ -15,7 +15,6 @@ def _run_frequency_noise(
     snr_ratio: float = 1.0,
     fft_norm: str = "ortho",
     mode: str = "magnitude",
-    dc_scale_factor: float = 0.1,
     phase_std: float = 0.0,
 ):
     torch.manual_seed(0)
@@ -35,7 +34,6 @@ def _run_frequency_noise(
         strength=1.0,
         fft_norm=fft_norm,
         snr_ratio=snr_ratio,
-        dc_scale_factor=dc_scale_factor,
         mode=mode,
         stats=stats,
         **kwargs,

@@ -176,17 +176,6 @@ def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> None:
     spectral_cfg["snr_ratio"] = value
 
 
-def _apply_dc_scale_factor(cfg: Dict[str, Any], label: str) -> None:
-    try:
-        value = float(label)
-    except ValueError as exc:  # pragma: no cover - defensive
-        raise ValueError(f"Invalid dc_scale_factor '{label}'") from exc
-    diffusion_cfg = cfg.setdefault("diffusion", {})
-    spectral_cfg = cfg.setdefault("spectral", {})
-    diffusion_cfg["dc_scale_factor"] = value
-    spectral_cfg["dc_scale_factor"] = value
-
-
 def _apply_phase_capacity(cfg: Dict[str, Any], label: str) -> None:
     model_cfg = cfg.setdefault("model", {})
     if label == "off":
@@ -246,29 +235,6 @@ def _apply_curriculum(cfg: Dict[str, Any], label: str) -> None:
         raise ValueError(f"Unknown curriculum_mode level '{label}'")
 
 
-def _apply_lr_schedule(cfg: Dict[str, Any], label: str) -> None:
-    optim_cfg = cfg.setdefault("optim", {})
-    training_cfg = cfg.setdefault("training", {})
-    if label == "constant":
-        optim_cfg["lr_schedule"] = "constant"
-        optim_cfg.pop("scheduler", None)
-    elif label == "cosine":
-        optim_cfg["lr_schedule"] = "cosine"
-        epochs = int(training_cfg.get("epochs", 1))
-        optim_cfg["scheduler"] = {"type": "cosine", "t_max": epochs}
-    elif label == "cosine_warmup":
-        optim_cfg["lr_schedule"] = "cosine_warmup"
-        epochs = int(training_cfg.get("epochs", 1))
-        warmup = max(1, epochs // 5)
-        optim_cfg["scheduler"] = {
-            "type": "cosine",
-            "t_max": epochs,
-            "warmup_steps": warmup,
-        }
-    else:
-        raise ValueError(f"Unknown lr_schedule_mode level '{label}'")
-
-
 def _apply_train_steps(cfg: Dict[str, Any], label: str) -> None:
     training_cfg = cfg.setdefault("training", {})
     steps = int(label)
@@ -292,12 +258,10 @@ _FACTOR_APPLIERS = {
     "spectral_loss_weighting": _apply_loss_weighting,
     "spectral_noise_shaping_strength": _apply_noise_shaping,
     "snr_ratio": _apply_snr_ratio,
-    "dc_scale_factor": _apply_dc_scale_factor,
     "phase_attention_capacity": _apply_phase_capacity,
     "sampler_type": _apply_sampler,
     "sampling_steps": _apply_sampling_steps,
     "curriculum_mode": _apply_curriculum,
-    "lr_schedule_mode": _apply_lr_schedule,
     "train_steps": _apply_train_steps,
     "image_resolution": _apply_image_resolution,
 }

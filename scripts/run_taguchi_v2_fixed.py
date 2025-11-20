@@ -61,10 +61,10 @@ def _load_taguchi_rows(matrix_path: Path) -> List[Dict[str, object]]:
         if isinstance(raw, list):
             return [dict(row) for row in raw]
     return [
-        {"fft_norm": "ortho", "snr_ratio": 1.0, "dc_scale_factor": 0.1, "uniform_corruption": True},
-        {"fft_norm": "backward", "snr_ratio": 0.7, "dc_scale_factor": 0.2, "uniform_corruption": True},
-        {"fft_norm": "forward", "snr_ratio": 1.4, "dc_scale_factor": 0.1, "uniform_corruption": False},
-        {"fft_norm": "ortho", "snr_ratio": 0.5, "dc_scale_factor": 0.0, "uniform_corruption": True},
+        {"fft_norm": "ortho", "snr_ratio": 1.0, "uniform_corruption": True},
+        {"fft_norm": "backward", "snr_ratio": 0.7, "uniform_corruption": True},
+        {"fft_norm": "forward", "snr_ratio": 1.4, "uniform_corruption": False},
+        {"fft_norm": "ortho", "snr_ratio": 0.5, "uniform_corruption": True},
     ]
 
 
@@ -161,7 +161,7 @@ def _prepare_config(
 
     diffusion_cfg = config.setdefault("diffusion", {})
     spectral_cfg = config.setdefault("spectral", {})
-    for key in ("fft_norm", "uniform_corruption", "snr_ratio", "dc_scale_factor"):
+    for key in ("fft_norm", "uniform_corruption", "snr_ratio"):
         if key in overrides:
             diffusion_cfg[key] = overrides[key]
             spectral_cfg[key] = overrides[key]
@@ -294,7 +294,6 @@ def run(matrix_path: Path, base_config: Path, output_root: Path, *, seed: int) -
             steps=150,
             output_dir=run_dir,
             snr_ratio=float(row_params.get("snr_ratio", 1.0)),
-            dc_scale_factor=float(row_params.get("dc_scale_factor", 0.1)),
             loader=loader,
             log_interval=10,
         )

@@ -45,7 +45,6 @@ diffusion:
   adaptive_rescale: true
   similarity_target: 0.75
   fft_norm: ortho
-  dc_scale_factor: 0.0
   snr_ratio: 1.0
 
 spectral:
@@ -61,7 +60,6 @@ spectral:
   bandpass_outer: 0.6
   uniform_corruption_scale: 0.15
   fft_norm: ortho
-  dc_scale_factor: 0.0
   snr_ratio: 1.0
 
 loss:

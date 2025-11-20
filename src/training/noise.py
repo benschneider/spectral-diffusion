@@ -40,7 +40,6 @@ class NoisePreparer:
         adaptive_rescale: bool,
         fft_norm: str,
         snr_ratio: Optional[float],
-        dc_scale_factor: float,
     ) -> None:
         self.uniform_corruption = bool(uniform_corruption)
         self.uniform_corruption_scale = float(uniform_corruption_scale)
@@ -50,7 +49,6 @@ class NoisePreparer:
         self.adaptive_rescale = bool(adaptive_rescale)
         self.fft_norm = str(fft_norm)
         self.snr_ratio = snr_ratio
-        self.dc_scale_factor = float(dc_scale_factor)
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any]) -> "NoisePreparer":
@@ -82,10 +80,6 @@ class NoisePreparer:
         snr_ratio = diffusion_cfg.get("snr_ratio", spectral_cfg.get("snr_ratio"))
         if snr_ratio is not None:
             snr_ratio = float(snr_ratio)
-        dc_scale_factor = diffusion_cfg.get(
-            "dc_scale_factor",
-            spectral_cfg.get("dc_scale_factor", 0.1),
-        )
 
         return cls(
             uniform_corruption=bool(uniform_corruption),
@@ -96,7 +90,6 @@ class NoisePreparer:
             adaptive_rescale=bool(adaptive_rescale),
             fft_norm=str(fft_norm),
             snr_ratio=snr_ratio,
-            dc_scale_factor=float(dc_scale_factor),
         )
 
     def prepare(
@@ -137,7 +130,6 @@ class NoisePreparer:
             stats=stats,
             fft_norm=self.fft_norm,
             snr_ratio=self.snr_ratio,
-            dc_scale_factor=self.dc_scale_factor,
             return_noise=True,
         )
 

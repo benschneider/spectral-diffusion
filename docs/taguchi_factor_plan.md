@@ -1,6 +1,6 @@
 # Taguchi DOE Expansion Plan (L16 Binary + L18 Mixed Designs)
 
-Our original goal was to move from the legacy L8 (5 binary factors) to a richer L16 experiment covering up to 15 two-level toggles in a single batch. That roadmap is still valuable for purely binary toggles, but we now also operate a mixed-level **L18 (2¹ × 3⁷)** array in production. The L18 rollout (via `configs/taguchi/factor_registry.yaml` + `configs/taguchi/L18_mixed.csv`) lets us sweep eight high-impact factors with three levels each while keeping the learning-rate schedule as a binary control. The L16 notes below remain as a parking lot for future two-level variants.
+Our original goal was to move from the legacy L8 (5 binary factors) to a richer L16 experiment covering up to 15 two-level toggles in a single batch. That roadmap is still valuable for purely binary toggles, but we now also operate a mixed-level **L18 (2¹ × 3⁷)** array in production. The L18 rollout (via `configs/taguchi/factor_registry.yaml` + `configs/taguchi/L18_mixed.csv`) lets us sweep eight high-impact factors with three levels each while keeping the binary controls reserved for quick experiments. The L16 notes below remain as a parking lot for future two-level variants.
 
 ## Synthetic L23 diagnostics quickstart
 
@@ -50,16 +50,15 @@ The default Taguchi driver now points at `configs/taguchi_smoke_best.yaml` and `
 
 | Column | Factor | Levels |
 |--------|--------|--------|
-| **A** | Spectral adapter placement (`spectral.apply_to`) | none · input_only · input_and_output |
-| **B** | Spectral loss weighting (`spectral.weighting`) | none · radial_highfreq · aggressive_highfreq (band-pass) |
-| **C** | Spectral noise shaping strength (`diffusion.uniform_corruption` + `spectral.freq_equalized_noise`) | off · mild_equalize · strong_equalize |
-| **D** | Phase attention capacity (`model.enable_phase_attention`, `model.phase_heads`) | off · tiny · full |
-| **E** | Sampler type (mapped to registry sampler) | ddim · dpm_solver_pp · spectral_guided (MASF) |
-| **F** | Sampling steps (`sampling.num_steps`) | 30 · 50 · 100 |
-| **G** | Curriculum mode (`training.curriculum`) | none · lowres_warmup · spectral_first |
-| **H** | Learning-rate schedule (`optim.lr_schedule`) | constant · cosine · cosine_warmup |
-| **I** | Training steps (`training.num_batches`) | 50 · 100 · 200 |
-| **J** | Image resolution (`data.height`/`data.width`) | 32 · 64 · 128 |
+| **A** | Phase attention capacity (`model.enable_phase_attention`, `model.phase_heads`) | off · tiny · full |
+| **C** | Spectral loss weighting (`spectral.weighting`) | none · radial_highfreq · aggressive_highfreq (band-pass) |
+| **D** | Sampler type (mapped to registry sampler) | ddim · dpm_solver_pp · spectral_guided (MASF) |
+| **E** | Training steps (`training.num_batches`) | 50 · 100 · 200 |
+| **F** | Spectral noise shaping strength (`diffusion.uniform_corruption`) | off · mild_equalize · strong_equalize |
+| **G** | Spectral adapter placement (`spectral.apply_to`) | none · input_only · input_and_output |
+| **J** | SNR ratio (`diffusion.snr_ratio`) | 0.8 · 1.0 · 1.4 |
+| **K** | Image resolution (`data.height`/`data.width`) | 32 · 64 · 128 |
+| **L** | Sampling steps (`sampling.num_steps`) | 30 · 50 · 100 |
 
 These are encoded in `configs/taguchi/factor_registry.yaml` and automatically wired through `src/experiments/run_experiment.py`. The full-report scripts (`run_full_report_32x32.sh`) now execute all 18 combinations and publish `L18_summary.csv` / `taguchi_report.csv` for figure generation.
 
@@ -79,6 +78,7 @@ The recent burst of frequency-domain diffusion work (2024–2025) surfaces sever
 
 ### Next Steps
 1. ✅ Generated `configs/taguchi/L18_mixed.csv` (in production) and `configs/taguchi/L27_extended.csv` (adds train_steps + resolution) alongside the older `configs/taguchi_spectral_L16.csv` (binary backlog).
+   > **2025-11 update:** Columns B, H, and I (dc_scale_factor, curriculum_mode, lr_schedule_mode) were removed from the default L27 mapping because they were fully inactive in the 32×32 baseline. The registry now assigns only A, C, D, E, F, G, J, K, and L.
 2. ✅ Refactored `src/experiments/run_experiment.py` to consume the factor registry, randomise assignments, and persist per-row metrics (`run_<n>_metrics.json`).
 3. ✅ Reports ingest the new Taguchi metadata; full-report scripts include `taguchi_report.csv` automatically.
 4. ▶️ Automate aggregation for GitHub Actions by adding a follow-up job that collects all 18 artifacts and re-runs `--finalize`.

@@ -6,12 +6,9 @@ suites:
       - spectral_loss_weighting
       - spectral_noise_shaping_strength
       - snr_ratio
-      - dc_scale_factor
       - phase_attention_capacity
       - sampler_type
       - sampling_steps
-      - curriculum_mode
-      - lr_schedule_mode
       - train_steps
       - image_resolution
     fixed:
@@ -44,7 +41,6 @@ suites:
       - ema_beta
       - optimizer
       - learning_rate
-      - curriculum_mode
       - synthetic_profile
       - noise_color
       - spectral_slope

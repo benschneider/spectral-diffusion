@@ -18,7 +18,6 @@ diffusion:
   adaptive_rescale: true
   similarity_target: 0.7
   fft_norm: ortho
-  dc_scale_factor: 0.1
   snr_ratio: 1.0
 evaluation:
   image_size: null

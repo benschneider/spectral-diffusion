@@ -136,7 +136,6 @@ def add_uniform_frequency_noise(
     stats: Optional[Dict[str, float]] = None,
     fft_norm: str = "ortho",
     snr_ratio: Optional[float] = None,
-    dc_scale_factor: float = 0.0,
     *,
     return_noise: bool = False,
 ) -> torch.Tensor:
@@ -173,10 +172,6 @@ def add_uniform_frequency_noise(
     dims = x0.dim()
     if dims < 3:
         raise ValueError("Expected image tensor with at least 3 dimensions (C, H, W).")
-
-    # ``dc_scale_factor`` remains part of the signature for compatibility with
-    # older configs, but the corresponding DC offset manipulation has been
-    # disabled while we reassess the colouring strategy.
 
     channel_dims = tuple(range(2, x0.ndim))
     height, width = x0.shape[-2], x0.shape[-1]

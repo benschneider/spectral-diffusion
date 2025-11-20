@@ -16,11 +16,7 @@ def _design_matrix() -> pd.DataFrame:
 def test_factor_registry_loads_levels():
     registry = load_factor_registry(Path("configs/taguchi/factor_registry.yaml"))
     assert "spectral_adapter_placement" in registry
-    assert registry["lr_schedule_mode"]["levels"] == [
-        "constant",
-        "cosine",
-        "cosine_warmup",
-    ]
+    assert registry["snr_ratio"]["levels"] == [0.8, 1.0, 1.4]
 
 
 def test_build_factor_mapping_matches_cardinality():
@@ -61,8 +57,6 @@ def test_runner_builds_config_from_row():
     assert config["model"]["enable_phase_attention"] is False
     assert config["sampling"]["sampler_type"] == "ddim"
     assert config["sampling"]["num_steps"] == 30
-    assert "curriculum" not in config["training"]
-    assert config["optim"]["lr_schedule"] == "constant"
     assert config["training"]["num_batches"] == 50
     assert config["data"]["height"] == 32
     assert config["data"]["width"] == 32
@@ -70,7 +64,7 @@ def test_runner_builds_config_from_row():
     taguchi_meta = config["taguchi"]
     assert taguchi_meta["row_number"] == 1
     assert taguchi_meta["factor_levels"]["spectral_adapter_placement"]["level_label"] == "none"
-    assert "lr_schedule_mode" in taguchi_meta["factor_mapping"].values()
+    assert set(taguchi_meta["factor_mapping"].values()) == set(registry.keys())
 
 
 def test_randomised_mapping_respects_level_counts():
