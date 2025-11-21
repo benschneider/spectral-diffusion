@@ -166,6 +166,7 @@ def _build_cifar10_dataloader(
         [
             transforms.Resize((target_h, target_w)),
             transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
     )
     try:

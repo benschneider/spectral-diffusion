@@ -27,7 +27,7 @@ fi
 echo "RIFFT env: RIFFT_PREPLAN=${RIFFT_PREPLAN} RUSTFFT_THREADS=${RUSTFFT_THREADS}"
 
 TAGUCHI_ARRAY_PATH=${TAGUCHI_ARRAY_PATH:-"$ROOT_DIR/configs/taguchi/L27_extended.csv"}
-TAGUCHI_FACTOR_REGISTRY=${TAGUCHI_FACTOR_REGISTRY:-"$ROOT_DIR/configs/taguchi/factor_registry_quick.yaml"}
+TAGUCHI_FACTOR_REGISTRY=${TAGUCHI_FACTOR_REGISTRY:-"$ROOT_DIR/configs/taguchi/factor_registry.yaml"}
 TAGUCHI_BASE_CONFIG=${TAGUCHI_BASE_CONFIG:-"$ROOT_DIR/configs/taguchi_smoke_best.yaml"}
 TAGUCHI_RANDOMIZE=${TAGUCHI_RANDOMIZE:-true}
 TAGUCHI_MAPPING_SEED=${TAGUCHI_MAPPING_SEED:-$(date +%s)}
@@ -176,19 +176,23 @@ PY
 }
 
 wait_for_taguchi_jobs() {
-  local -n __pids_ref=$1
-  local -n __rows_ref=$2
+  local pids_name="$1"
+  local rows_name="$2"
+  local -a pids=()
+  local -a rows=()
+  eval "pids=(\"\${${pids_name}[@]}\")"
+  eval "rows=(\"\${${rows_name}[@]}\")"
   local i pid row
-  for i in "${!__pids_ref[@]}"; do
-    pid="${__pids_ref[$i]}"
-    row="${__rows_ref[$i]}"
+  for i in "${!pids[@]}"; do
+    pid="${pids[$i]}"
+    row="${rows[$i]}"
     if ! wait "$pid"; then
       echo "Taguchi row $row failed (PID $pid)." >&2
       exit 1
     fi
   done
-  __pids_ref=()
-  __rows_ref=()
+  eval "$pids_name=()"
+  eval "$rows_name=()"
 }
 
 finalize_taguchi_outputs() {
