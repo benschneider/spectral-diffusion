@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import os
 import argparse
 import logging
 from datetime import datetime, timezone
@@ -202,10 +203,24 @@ def main() -> None:
                     response_col,
                     taguchi_csv.name,
                 )
+                taguchi_cli = ROOT / "scripts/analyze_taguchi_cli.py"
+                if not taguchi_cli.exists():
+                    alt = ROOT / "scripts/archive/analyze_taguchi_cli.py"
+                    if alt.exists():
+                        taguchi_cli = alt
+                    else:
+                        logging.warning(
+                            "Taguchi analysis script not found at %s or %s; skipping.",
+                            taguchi_cli,
+                            alt,
+                        )
+                        return
+                env = dict(os.environ)
+                env["PYTHONPATH"] = f"{ROOT}:{env.get('PYTHONPATH','')}"
                 subprocess.run(
                     [
                         sys.executable,
-                        str(ROOT / "scripts/analyze_taguchi_cli.py"),
+                        str(taguchi_cli),
                         "--csv",
                         str(taguchi_csv),
                         "--response-col",
@@ -214,6 +229,7 @@ def main() -> None:
                         str(output_dir),
                     ],
                     check=True,
+                    env=env,
                 )
     generate_figures(
         synthetic_dir=synthetic_dir,
