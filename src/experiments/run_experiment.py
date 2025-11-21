@@ -226,10 +226,19 @@ def _apply_sampling_steps(cfg: Dict[str, Any], label: str) -> None:
         "30": 30,
         "50": 50,
         "100": 100,
+        "1": 30,
+        "2": 50,
+        "3": 100,
     }
-    if str(label) not in step_map:
-        raise ValueError(f"Unknown sampling_steps level '{label}'")
-    sampling_cfg["num_steps"] = step_map[str(label)]
+    level = str(label)
+    if level in step_map:
+        steps = step_map[level]
+    else:
+        try:
+            steps = int(label)
+        except ValueError as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Unknown sampling_steps level '{label}'") from exc
+    sampling_cfg["num_steps"] = steps
 
 
 def _apply_curriculum(cfg: Dict[str, Any], label: str) -> None:

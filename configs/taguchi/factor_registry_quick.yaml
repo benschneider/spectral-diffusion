@@ -22,7 +22,7 @@ factors:
     levels: ["ddim", "dpm_solver_pp", "spectral_guided"]
   sampling_steps:
     description: Number of denoising steps during sampling.
-    levels: [30]
+    levels: [4, 8, 12]
   train_steps:
     description: Training iterations (num_batches) for Taguchi sweep.
     levels: [50]

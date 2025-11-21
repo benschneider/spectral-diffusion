@@ -39,6 +39,7 @@ class OverflowHandler:
             self.log_interval = value if value > 0 else 1
         self._ema = 0.0
         self._log_counter = 0
+        self._emitted_once = False
 
     def renormalise(self, prediction: Tensor, overflow_mask: Tensor) -> Tensor:
         """Renormalise overflowing predictions to limit variance growth."""
@@ -68,4 +69,23 @@ class OverflowHandler:
         return OverflowStats(ratio=ratio, ema=self._ema, count=count)
 
     def log(self, snr_display: Tensor, regimes: Dict[str, Tensor]) -> None:
-        return
+        overflow = regimes.get("overflow")
+        if overflow is None or overflow.numel() == 0:
+            return
+        if not torch.any(overflow):
+            return
+        self._log_counter += 1
+        if self.log_interval is not None:
+            if self._log_counter % self.log_interval != 0:
+                return
+        elif self._emitted_once:
+            return
+        ratio = float(overflow.float().mean().item())
+        max_snr = float(snr_display.max().item()) if snr_display.numel() > 0 else 0.0
+        msg = (
+            f"[OverflowHandler] overflow_ratio={ratio:.4f} "
+            f"max_snr={max_snr:.2f} enable_renorm={self.enable_renorm}"
+        )
+        print(msg)
+        logging.warning(msg)
+        self._emitted_once = True
