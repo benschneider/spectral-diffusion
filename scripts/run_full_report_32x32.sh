@@ -46,11 +46,12 @@ CIFAR_DIR="$BASE_DIR/cifar"
 TAG_DIR="$BASE_DIR/taguchi"
 FIG_DIR="$BASE_DIR/figures"
 ABL_DIR="$BASE_DIR/ablation"
+REPORT_V2_DIR="$BASE_DIR/report_v2"
 TAGUCHI_HDF5_ENABLED=${TAGUCHI_HDF5_ENABLED:-0}
 TAGUCHI_HDF5_PATH=${TAGUCHI_HDF5_PATH:-"$TAG_DIR/taguchi_runs.h5"}
 TAGUCHI_HDF5_PRUNE=${TAGUCHI_HDF5_PRUNE:-0}
 
-mkdir -p "$SYN_DIR" "$CIFAR_DIR" "$TAG_DIR" "$FIG_DIR" "$ABL_DIR"
+mkdir -p "$SYN_DIR" "$CIFAR_DIR" "$TAG_DIR" "$FIG_DIR" "$ABL_DIR" "$REPORT_V2_DIR"
 
 echo "Full report (32x32) root: $BASE_DIR"
 
@@ -479,25 +480,22 @@ run_taguchi() {
 }
 
 generate_report() {
-  echo "[5/5] Generating figures & summary"
+  echo "[5/5] Generating report_v2 bundle"
+  mkdir -p "$REPORT_V2_DIR/appendix/noise_chains"
   python "$ROOT_DIR/scripts/visualize_uniform_noise.py" \
     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
     --t-index 500 \
     --cifar-index 0 \
-    --output-dir "$FIG_DIR" \
+    --output-dir "$REPORT_V2_DIR/appendix/noise_chains" \
     --modes gaussian uniform \
     --seed 0
   python "$ROOT_DIR/scripts/figures/clean_summaries.py" \
     "$SYN_DIR/summary.csv" \
     "$CIFAR_DIR/summary.csv"
-  python "$ROOT_DIR/scripts/figures/generate_figures.py" \
-    --synthetic-dir "$SYN_DIR" \
-    --cifar-dir "$CIFAR_DIR" \
-    --taguchi-dir "$TAG_DIR" \
-    --output-dir "$FIG_DIR" \
-    --ablation-dir "$ABL_DIR" \
-    --include-taguchi-effects
-  echo "Report written to $FIG_DIR/summary.md"
+  python "$ROOT_DIR/scripts/generate_report_v2.py" \
+    --report-root "$BASE_DIR" \
+    --output-dir "$REPORT_V2_DIR"
+  echo "Report written to $REPORT_V2_DIR/summary.md"
 }
 
 run_synthetic
@@ -506,4 +504,4 @@ run_feature_ablation
 run_taguchi
 generate_report
 
-echo "Done. Inspect $FIG_DIR for figures and summary."
+echo "Done. Inspect $REPORT_V2_DIR for figures and summary."

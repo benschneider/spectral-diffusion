@@ -97,6 +97,7 @@ CIFAR_DIR="$BASE_DIR/cifar"
 TAG_DIR="$BASE_DIR/taguchi"
 ABL_DIR="$BASE_DIR/ablation"
 FIG_DIR="$BASE_DIR/figures"
+REPORT_V2_DIR="$BASE_DIR/report_v2"
 
 for required in "$SYN_DIR" "$CIFAR_DIR" "$TAG_DIR"; do
   if [[ ! -d "$required" ]]; then
@@ -105,7 +106,7 @@ for required in "$SYN_DIR" "$CIFAR_DIR" "$TAG_DIR"; do
   fi
 done
 
-mkdir -p "$FIG_DIR"
+mkdir -p "$FIG_DIR" "$REPORT_V2_DIR"
 
 echo "Finalising 32x32 full report at $BASE_DIR"
 
@@ -177,38 +178,17 @@ if ! python "$ROOT_DIR/scripts/visualize_uniform_noise.py" \
 fi
 
 figure_args=(
-  "$ROOT_DIR/scripts/figures/generate_figures.py"
+  "$ROOT_DIR/scripts/generate_report_v2.py"
   --report-root "$BASE_DIR"
-  --output-dir "$FIG_DIR"
-  --include-taguchi-effects
+  --output-dir "$REPORT_V2_DIR"
 )
-if [[ -d "$ABL_DIR" ]]; then
-  figure_args+=(--ablation-dir "$ABL_DIR")
-fi
 
 python "${figure_args[@]}"
 
-python - "$FIG_DIR" <<'PY'
-import sys
-from pathlib import Path
-
-from src.utils.plot_style import is_duplicate
-
-fig_dir = Path(sys.argv[1])
-seen: set[str] = set()
-suffixes = {".png", ".jpg", ".jpeg", ".svg", ".gif"}
-for image in sorted(fig_dir.glob("*")):
-    if image.suffix.lower() not in suffixes or not image.is_file():
-        continue
-    if is_duplicate(image, seen):
-        print(f"[SKIP] Duplicate figure {image}")
-        image.unlink(missing_ok=True)
-PY
-
 if (( SANITIZE )); then
-  summary_md="$FIG_DIR/summary.md"
+  summary_md="$REPORT_V2_DIR/summary.md"
   if [[ -f "$summary_md" ]]; then
-    python - "$summary_md" "$FIG_DIR" <<'PY'
+    python - "$summary_md" "$REPORT_V2_DIR" <<'PY'
 import sys
 from pathlib import Path
 from src.utils.report_sanitizer import sanitize_markdown

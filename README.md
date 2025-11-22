@@ -54,12 +54,12 @@ It will:
 3. Repeat on CIFAR-10 (and emit MASF sampler grids for quick inspection)
 4. Run a Taguchi sweep over spectral settings and samplers
 5. Run a baseline vs toggled spectral ablation (ARE/PCM + uniform corruption + MASF on/off)
-6. Generate figures + a report in `docs/figures/`
+6. Generate a cleaned `report_v2/` bundle (figures + summary)
 
 ---
 
 ## Results at a Glance
-*(Full tables and publication-ready plots live in `docs/figures/`.)*
+*(Full tables and publication-ready plots live in `report_v2/` after running the report script.)*
 
 | Dataset | TinyUNet loss drop | SpectralUNet loss drop | Throughput (images/s) |
 |---------|-------------------|------------------------|------------------------|
@@ -97,8 +97,8 @@ Curious about the spectral weighting, FFT/iFFT flow, or why we track high-freque
 | CIFAR-10 benchmark | `python train.py --config configs/benchmark_spectral_cifar.yaml ...` |
 | Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` (archived versions live under `scripts/archive/`) |
 | Smoke report (fast check) | `scripts/archive/run_smoke_report.sh` |
-| Make plots & summary | `python scripts/figures/generate_figures.py` |
-| Full pipeline (benchmarks + Taguchi + ablation + figures) | `scripts/run_full_report_32x32.sh` (includes spectral-feature ablation figure; older scripts archived under `scripts/archive/`) |
+| Make plots & summary | `python scripts/generate_report_v2.py [--report-root <path>]` |
+| Full pipeline (benchmarks + Taguchi + ablation + figures) | `scripts/run_full_report_32x32.sh` (legacy figure generator lives under `scripts/figures/archive/`) |
 | Consolidate report artefacts | `scripts/pack_report_to_hdf5.py results/<report_dir>` |
 | Render compact overview | `scripts/render_compact_report.py results/<report_dir>.h5` |
 | Spectral toggle comparison | `python scripts/run_spectral_toggle_ablation.py` |
@@ -114,7 +114,7 @@ single `*.h5` archive for long-term storage.
 - **Spectral adapters:** toggle with `spectral.enabled`, choose weighting (`none`, `radial`, `bandpass`), apply to `input/output/per_block`.
 - **Diffusion forward noise:** set `diffusion.uniform_corruption: true` to equalize SNR decay across frequencies.
 - **Samplers:** `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`, `masf` (extend via `register_sampler`).
-- **Ablations:** the full report writes `ablation/summary.csv` and `figures/spectral_feature_ablation.png`, contrasting spectral configs with and without uniform corruption + ARE/PCM + MASF.
+- **Ablations:** the full report writes `ablation/summary.csv`; the legacy ablation figure is available via `scripts/figures/archive/generate_figures.py` if you still need it.
 - **Metrics:** dataset metrics include FID/LPIPS (torchmetrics-enabled), high-frequency PSNR, convergence stats (`loss_drop_per_second`), throughput, FFT timing.
 - **Diagnostics:** runs now emit structured JSONL logs (with `--json-log`), gradient norms, and spectral-noise quicklooks inside `diagnostics/`. Taguchi sweeps automatically mirror these assets under `results/<report>/factors/<factor>/<level>/` so you can compare levels without re-running scripts.
 - **Spectral noise overrides:** CLI flags `--snr-ratio` and `--dc-scale-factor` (or matching YAML fields) feed the modular noise preparer, letting you adjust uniform corruption strength/DC attenuation without editing config files.
@@ -129,7 +129,7 @@ Looking to extend the project? See **`docs/spectral_model_research.md`** for the
 - **[`docs/config_reference.md`](docs/config_reference.md)** – CLI flags, YAML fields, and automation scripts at a glance.
 - **[`docs/spectral_model_research.md`](docs/spectral_model_research.md)** – Roadmap, experiments, next hypotheses.
 - **[`docs/taguchi_tips.md`](docs/taguchi_tips.md)** – How to read the Taguchi S/N reports.
-- **[`docs/figures/summary.md`](docs/figures/summary.md)** – Latest benchmark narrative after running the full report.
+- **`report_v2/summary.md`** – Generated narrative inside each run directory after executing the full report script.
 - **`docs/notebooks/`** – Slot for interactive demos (planned): start with a notebook that trains TinyUNet vs SpectralUNet for a few epochs and plots loss/time.
 
 ---

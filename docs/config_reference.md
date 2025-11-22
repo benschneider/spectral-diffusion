@@ -77,6 +77,6 @@ python evaluate.py --generated-dir results/runs/my_run/samples/sample_grid \
 | `scripts/run_full_report_32x32.sh` | Longer benchmark (synthetic + CIFAR full, Taguchi) with timestamps. |
 | `scripts/run_spectral_benchmark.sh` | Synthetic benchmark only (baseline script). |
 | `scripts/run_taguchi_*.sh` | Run the tagged Taguchi scenario (smoke/minimal/comparison). |
-| `python scripts/figures/generate_figures.py` | Regenerate figures and markdown from existing results. |
+| `python scripts/generate_report_v2.py` | Regenerate the cleaned figure set + `summary.md` from existing results. |
 
 All scripts respect `PYTHONPATH` and will create timestamped subdirectories when none are provided, keeping your `results/` clean.

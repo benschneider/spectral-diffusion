@@ -37,29 +37,32 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 ├── ablation/
 │   └── summary.csv
 └── figures/
-    ├── loss_metrics_*.png
-    ├── runtime_metrics_*.png
-    ├── tradeoff_loss_vs_speed_*.png
-    ├── *_distribution_*.png
-    ├── spectral_feature_ablation.png
-    └── summary.md
+    ├── report_v2/
+    │   ├── images/
+    │   │   ├── loss_curve_synthetic.png
+    │   │   ├── loss_curve_cifar.png
+    │   │   ├── tradeoff_loss_vs_speed_synthetic.png
+    │   │   ├── tradeoff_loss_vs_speed_cifar.png
+    │   │   ├── taguchi_main_effects_primary.png
+    │   │   └── taguchi_contrib_primary.png
+    │   ├── appendix/
+    │   │   ├── noise_chains/
+    │   │   ├── taguchi_interactions/
+    │   │   └── distributions/
+    │   └── summary.md
 ```
 - Individual training runs still write `config.yaml`, `system.json`, `metrics/<run_id>.json`, checkpoints, and samples inside `runs/<run_id>/`.
 - Reports now live under timestamped subdirectories so multiple executions never overwrite each other.
-- `figures/summary.md` records the generation timestamp/source and embeds every plot for quick variance checks.
+- `report_v2/summary.md` records the generation timestamp/source and embeds only the figures tied to the core research questions.
 - Taguchi sweeps enrich `taguchi_report.csv` with S/N plus mean runtime/throughput/final-loss for each factor level.
-- Standalone ablations (via `run_spectral_toggle_ablation.py`) land in `results/spectral_toggle_ablation_<timestamp>/` with their own `summary.csv` and `spectral_toggle_ablation.png` for quick comparisons.
+- Standalone ablations (via `run_spectral_toggle_ablation.py`) land in `results/spectral_toggle_ablation_<timestamp>/` with their own `summary.csv` and optional `spectral_toggle_ablation.png` for quick comparisons.
 
 ## 4. Figure/report workflow
 1. Generate runs (manual CLI or `scripts/run_full_report.sh` / `run_smoke_report.sh`). The smoke script now trains TinyUNet, SpectralUNet, and the new deep spectral UNet on both synthetic and CIFAR mini-setups before running the Taguchi sweep.
 2. During training, `NoisePreparer`, `TrainingStepExecutor`, and `TrainingDiagnostics` emit `diagnostics/` artefacts (noise stats, gradient traces, FFT sanity images) and forward them to Taguchi factor folders via `TaguchiAggregator`.
 3. `src/visualization.collect.clean_summary` deduplicates and labels entries (synthetic, CIFAR, Taguchi).
-4. `src/visualization.figures.generate_figures` produces:
-   - Bar charts, scatter trade-offs, and box plots for loss/throughput metrics
-   - `taguchi_snr.png` (with contextual caption) and optional factor distributions
-   - `spectral_feature_ablation.png` when an `ablation/summary.csv` is present (compares spectral toggles on/off)
-   - Timestamped `figures/summary.md` inside the chosen report root
-4. README Showcase points to the latest generated artefacts.
+4. `scripts/generate_report_v2.py` renders the curated figure set (loss curves, trade-offs, Taguchi main effects/contributions, and up to two qualitative grids) plus a concise `summary.md` in `report_v2/`.
+5. README Showcase points to the latest generated artefacts.
 
 ## 5. How to extend
 - **Add a sampler**: subclass `Sampler` (`src/training/sampling.py`), register via `register_sampler("name", Class)`.
@@ -67,7 +70,7 @@ results/<experiment_root>/YYYYMMDD_HHMMSS/
 - **Add a spectral adapter**: follow the patterns in `src/spectral/adapter.py` or `complex_layers.py`.
 - **Add a dataset**: update `configs/` and `src/training/builders.py` for a new loader.
 - **Customise per-step logic**: derive from `TrainingStepExecutor` (`src/training/steps.py`) to insert diagnostics or gradient tricks without touching the pipeline shell.
-- **Add plots**: extend `src/visualization/figures.py`, then call from `scripts/figures/generate_figures.py`.
+- **Add plots**: extend `src/visualization/figures.py` or wire a new panel into `scripts/generate_report_v2.py` (legacy generator lives in `scripts/figures/archive/`).
 
 With this modular layout you can import the same components in notebooks, CLI scripts, or experiments without rewriting plumbing.
 

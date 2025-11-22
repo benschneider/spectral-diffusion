@@ -7,7 +7,7 @@
 
 ## Example summary
 
-- Use `scripts/figures/generate_figures.py` to produce publication-ready plots.
+- Use `scripts/generate_report_v2.py` to produce the cleaned report bundle (Taguchi plots + summary).
 - Example batch: `results/taguchi_spectral_docs/` contains both files.
 
 ## Notebook integration
