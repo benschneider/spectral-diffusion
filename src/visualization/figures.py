@@ -49,6 +49,7 @@ def _render_triptych(
     titles: Tuple[str, str, str],
     suptitle: str,
     out_path: Path,
+    footer: Optional[str] = None,
 ) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(7.5, 2.5))
     for ax, image, title in zip(axes, images, titles):
@@ -60,7 +61,13 @@ def _render_triptych(
             ax.imshow(image)
         ax.set_title(title, fontsize=8)
     fig.suptitle(suptitle, fontsize=9)
-    fig.tight_layout(rect=[0, 0, 1, 0.92])
+    if footer:
+        # Draw a simple footer bar with metadata text.
+        fig.subplots_adjust(bottom=0.18, top=0.9)
+        rect = plt.Rectangle((0, 0), 1, 0.12, transform=fig.transFigure, color="white", alpha=0.9)
+        fig.patches.append(rect)
+        fig.text(0.5, 0.06, footer, ha="center", va="center", fontsize=7)
+    fig.tight_layout(rect=[0, 0, 1, 0.9])
     fig.savefig(out_path, dpi=300)
     plt.close(fig)
 
@@ -156,11 +163,25 @@ def _create_prediction_visual(
                 _load_image_array(targets[0]) if targets else None,
             )
 
+    footer_parts = []
+    run_name = str(row.get("run_id") or row.get("display_name") or "run")
+    footer_parts.append(run_name)
+    snr_val = row.get("snr_ratio")
+    if snr_val is not None and not (isinstance(snr_val, float) and np.isnan(snr_val)):
+        footer_parts.append(f"snr_ratio={snr_val}")
+    adapter = row.get("spectral_adapter_placement")
+    if adapter is None:
+        adapter = row.get("adapter")
+    if adapter:
+        footer_parts.append(f"adapter={adapter}")
+    footer = " | ".join(footer_parts)
+
     _render_triptych(
         images,
         ("Input", "Prediction", "Target"),
         f"Representative predictions ({dataset_label})",
         out_path,
+        footer=footer,
     )
 
     if images[1] is None and images[2] is None:

@@ -19,6 +19,9 @@ diffusion:
   similarity_target: 0.7
   fft_norm: ortho
   snr_ratio: 1.0
+  # Optional clamps for spectral SNR scaling; disable by setting to null.
+  snr_scale_min: 0.05
+  snr_scale_max: 5.0
 evaluation:
   image_size: null
   reference_dir: null

@@ -278,12 +278,36 @@ def _apply_image_resolution(cfg: Dict[str, Any], label: str) -> None:
     data_cfg["width"] = res
 
 
+def _apply_snr_scale_clamp(cfg: Dict[str, Any], label: str) -> None:
+    diffusion_cfg = cfg.setdefault("diffusion", {})
+    spectral_cfg = cfg.setdefault("spectral", {})
+    label = str(label).lower()
+    if label == "off":
+        diffusion_cfg["snr_scale_min"] = None
+        diffusion_cfg["snr_scale_max"] = None
+        spectral_cfg["snr_scale_min"] = None
+        spectral_cfg["snr_scale_max"] = None
+    elif label == "default":
+        diffusion_cfg["snr_scale_min"] = 0.05
+        diffusion_cfg["snr_scale_max"] = 5.0
+        spectral_cfg["snr_scale_min"] = 0.05
+        spectral_cfg["snr_scale_max"] = 5.0
+    elif label == "wide":
+        diffusion_cfg["snr_scale_min"] = 0.01
+        diffusion_cfg["snr_scale_max"] = 8.0
+        spectral_cfg["snr_scale_min"] = 0.01
+        spectral_cfg["snr_scale_max"] = 8.0
+    else:
+        raise ValueError(f"Unknown snr_scale_clamp level '{label}'")
+
+
 _FACTOR_APPLIERS = {
     "spectral_adapter_placement": _apply_adapter_placement,
     "spectral_loss_weighting": _apply_loss_weighting,
     "spectral_noise_shaping_strength": _apply_noise_shaping,
     "snr_ratio": _apply_snr_ratio,
     "snr_weighting_mode": _apply_snr_weighting_mode,
+    "snr_scale_clamp": _apply_snr_scale_clamp,
     "phase_attention_capacity": _apply_phase_capacity,
     "sampler_type": _apply_sampler,
     "sampling_steps": _apply_sampling_steps,

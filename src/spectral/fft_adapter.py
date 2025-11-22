@@ -137,6 +137,8 @@ def add_uniform_frequency_noise(
     fft_norm: str = "ortho",
     snr_ratio: Optional[float] = None,
     freq_equalized_noise: bool = False,
+    snr_scale_min: Optional[float] = 0.005,
+    snr_scale_max: Optional[float] = 0.5, #1.5,
     *,
     return_noise: bool = False,
 ) -> torch.Tensor:
@@ -205,13 +207,23 @@ def add_uniform_frequency_noise(
     noise_component = sqrt_one_minus_alpha_t_complex * coloured_spatial
 
     snr_scale_tensor = torch.ones_like(sqrt_one_minus_alpha_t_complex)
+    base_snr: Optional[torch.Tensor] = None
     if snr_ratio is not None:
+        # Preserve the schedule SNR but clamp extreme steps; target ratio is
+        # achieved relative to the unscaled signal/noise ratio.
         signal_center = signal_component - signal_component.mean(
             dim=channel_dims, keepdim=True
         )
         signal_rms = _per_sample_rms(signal_center)
         noise_rms = _per_sample_rms(noise_component)
-        scale = (signal_rms / (noise_rms + 1e-8)) / float(snr_ratio)
+        base_snr = signal_rms / (noise_rms + 1e-8)
+        raw_scale = base_snr / float(max(snr_ratio, 1e-6))
+        if snr_scale_min is None and snr_scale_max is None:
+            scale = raw_scale
+        else:
+            lo = 0.0 if snr_scale_min is None else float(snr_scale_min)
+            hi = float("inf") if snr_scale_max is None else float(snr_scale_max)
+            scale = torch.clamp(raw_scale, min=lo, max=hi)
         noise_component = noise_component * scale
         snr_scale_tensor = scale
 
@@ -241,6 +253,9 @@ def add_uniform_frequency_noise(
         stats["fft_corr"] = fft_corr
         if snr_ratio is not None:
             stats["snr_ratio"] = snr_ratio
+            stats["snr_ratio_target"] = snr_ratio
+            if base_snr is not None:
+                stats["snr_base"] = float(base_snr.mean().item())
             signal_center = signal_component - signal_component.mean(
                 dim=channel_dims, keepdim=True
             )

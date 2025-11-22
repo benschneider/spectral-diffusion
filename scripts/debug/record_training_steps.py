@@ -614,6 +614,17 @@ def run_step_recorder(
                 xb_std = xb.std()
             xb = (xb - xb_mean) / (xb_std + 1e-6)
 
+        batch_min = float(xb.min().item())
+        batch_max = float(xb.max().item())
+        batch_mean = float(xb.mean().item())
+        batch_std = float(xb.std(unbiased=False).item())
+        _log_diag(
+            step,
+            "Debug",
+            f"[DEBUG] step={step} batch min={batch_min:.4f} max={batch_max:.4f} "
+            f"mean={batch_mean:.4f} std={batch_std:.4f}",
+        )
+
         B = xb.shape[0]
         if loss_aware_enabled:
             t = loss_aware_timesteps(
@@ -647,10 +658,17 @@ def run_step_recorder(
             freq_equalized_noise=freq_equalized_noise,
             return_noise=True,
         )
+        noise_term = x_t - (sqrt_alpha_t * xb)
+        _log_diag(
+            step,
+            "Debug",
+            f"[DEBUG] step={step} noise variance={float(noise_term.var(unbiased=False).item()):.6f} "
+            f"std={float(noise_term.std(unbiased=False).item()):.4f}",
+        )
 
         if step == 0 and effective_snr_ratio is not None:
-            noise_term = x_t - xb
-            dc_shift = float(noise_term.mean().item())
+            noise_term_shift = x_t - xb
+            dc_shift = float(noise_term_shift.mean().item())
             noisy_mean = float(x_t.mean().item())
             noisy_std = float(x_t.std().item())
             mean_ok = abs(dc_shift) < 5e-3
@@ -685,6 +703,12 @@ def run_step_recorder(
             effective_noise,
             sqrt_alpha_t,
             sqrt_one_minus_t,
+        )
+        target_var = float(target.detach().var(unbiased=False).item())
+        _log_diag(
+            step,
+            "Debug",
+            f"[DEBUG] step={step} target variance={target_var:.6f} std={float(target.detach().std(unbiased=False).item()):.4f}",
         )
         predicted_eps = predicted_noise_from_output(
             pred,
@@ -767,6 +791,7 @@ def run_step_recorder(
         optimiser.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm_value = grad_norm(model)
+        _log_diag(step, "Debug", f"[DEBUG] step={step} grad_norm={grad_norm_value:.4f}")
         if recorder.grad_clip_mode == "global":
             clip_grad_norm_(model.parameters(), recorder.clip_global_norm * clip_scale)
         elif recorder.grad_clip_mode == "ratio":
@@ -846,6 +871,12 @@ def run_step_recorder(
         snr_max_val = float(snr_vals.max().item())
         snr_mean_val = float(snr_vals.mean().item())
         snr_raw_max = float(snr_raw.max().item())
+        _log_diag(
+            step,
+            "Debug",
+            f"[DEBUG] step={step} snr_measured={snr_mean_val:.3f} "
+            f"snr_min={snr_min_val:.3f} snr_max={snr_max_val:.3f}",
+        )
         overflow = 0
         if snr_raw_max > SNR_CLIP:
             overflow = int((snr_raw > SNR_CLIP).sum().item())
@@ -1381,6 +1412,31 @@ def run_step_recorder(
             for entry in snr_summaries:
                 handle.write(json.dumps(entry))
                 handle.write("\n")
+
+    # Emit a quick loss curve for visual inspection.
+    if step_records:
+        try:
+            import matplotlib
+
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            steps_axis = [r["step"] for r in step_records]
+            loss_axis = [r["loss"] for r in step_records]
+            mae_axis = [r["mae"] for r in step_records]
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.plot(steps_axis, loss_axis, label="loss", color="tab:blue")
+            ax.plot(steps_axis, mae_axis, label="mae", color="tab:orange", alpha=0.7)
+            ax.set_xlabel("Step")
+            ax.set_ylabel("Value")
+            ax.set_title("Recorder Loss Trace")
+            ax.grid(True, alpha=0.3)
+            ax.legend()
+            fig.tight_layout()
+            fig.savefig(out_dir / "loss_curve.png", dpi=150)
+            plt.close(fig)
+        except Exception as exc:  # pragma: no cover - plotting best-effort
+            print(f"[WARN] Failed to write loss curve: {exc}")
 
     return out_dir
 

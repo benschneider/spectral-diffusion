@@ -41,6 +41,8 @@ class NoisePreparer:
         fft_norm: str,
         snr_ratio: Optional[float],
         freq_equalized_noise: bool,
+        snr_scale_min: Optional[float],
+        snr_scale_max: Optional[float],
     ) -> None:
         self.uniform_corruption = bool(uniform_corruption)
         self.uniform_corruption_scale = float(uniform_corruption_scale)
@@ -51,6 +53,8 @@ class NoisePreparer:
         self.fft_norm = str(fft_norm)
         self.snr_ratio = snr_ratio
         self.freq_equalized_noise = bool(freq_equalized_noise)
+        self.snr_scale_min = snr_scale_min
+        self.snr_scale_max = snr_scale_max
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any]) -> "NoisePreparer":
@@ -83,6 +87,10 @@ class NoisePreparer:
         if snr_ratio is not None:
             snr_ratio = float(snr_ratio)
         freq_equalized = bool(spectral_cfg.get("freq_equalized_noise", False))
+        snr_scale_min = diffusion_cfg.get("snr_scale_min", None)
+        snr_scale_max = diffusion_cfg.get("snr_scale_max", None)
+        snr_scale_min = float(snr_scale_min) if snr_scale_min is not None else None
+        snr_scale_max = float(snr_scale_max) if snr_scale_max is not None else None
 
         return cls(
             uniform_corruption=bool(uniform_corruption),
@@ -94,6 +102,8 @@ class NoisePreparer:
             fft_norm=str(fft_norm),
             snr_ratio=snr_ratio,
             freq_equalized_noise=freq_equalized,
+            snr_scale_min=snr_scale_min,
+            snr_scale_max=snr_scale_max,
         )
 
     def prepare(
@@ -135,6 +145,8 @@ class NoisePreparer:
             fft_norm=self.fft_norm,
             snr_ratio=self.snr_ratio,
             freq_equalized_noise=self.freq_equalized_noise,
+            snr_scale_min=self.snr_scale_min,
+            snr_scale_max=self.snr_scale_max,
             return_noise=True,
         )
 

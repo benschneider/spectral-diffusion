@@ -14,6 +14,9 @@ factors:
   snr_ratio:
     description: Signal-to-noise target for spectral corruption scaling.
     levels: [0.8, 1.0, 1.4]
+  snr_scale_clamp:
+    description: Whether to clamp spectral SNR scaling (None/default/wide).
+    levels: ["off", "default", "wide"]
   phase_attention_capacity:
     description: Phase correction module capacity (attention heads).
     levels: ["off", "tiny", "full"]

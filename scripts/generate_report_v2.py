@@ -9,13 +9,14 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Dict, Any, List
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import pandas as pd
+import yaml
 
 from src.analysis.taguchi_stats import _load_taguchi_factors, _resolve_config_path
 from src.analysis.analyze_taguchi import compute_factor_contributions
@@ -125,6 +126,135 @@ def _humanise_level(value: object) -> str:
     return text
 
 
+def _load_config(config_path: Optional[Path]) -> dict:
+    if config_path is None or not config_path.exists():
+        return {}
+    try:
+        return yaml.safe_load(config_path.read_text()) or {}
+    except Exception:
+        return {}
+
+
+def _derive_weighting_mode(cfg: dict) -> Optional[str]:
+    loss_cfg = cfg.get("loss", {}) if isinstance(cfg, dict) else {}
+    adaptive = loss_cfg.get("adaptive_snr")
+    use_weighting = loss_cfg.get("use_weighting", loss_cfg.get("snr_weighting", None))
+    if adaptive:
+        return "adaptive"
+    if use_weighting is False:
+        return "off"
+    if use_weighting is True:
+        return "static"
+    return None
+
+
+def _extract_run_metadata(row: pd.Series, factor_mapping: dict[str, Any]) -> dict[str, Any]:
+    cfg_path = None
+    if "config_path" in row and isinstance(row["config_path"], str):
+        try:
+            cfg_path = _resolve_config_path(Path(row["config_path"]), Path("."), row.get("run_id", ""))
+        except Exception:
+            cfg_path = Path(str(row["config_path"])) if isinstance(row["config_path"], str) else None
+    cfg = _load_config(cfg_path)
+    data_cfg = cfg.get("data", {}) if isinstance(cfg, dict) else {}
+    diffusion_cfg = cfg.get("diffusion", {}) if isinstance(cfg, dict) else {}
+    spectral_cfg = cfg.get("spectral", {}) if isinstance(cfg, dict) else {}
+    loss_cfg = cfg.get("loss", {}) if isinstance(cfg, dict) else {}
+    sampling_cfg = cfg.get("sampling", {}) if isinstance(cfg, dict) else {}
+    curriculum_cfg = data_cfg.get("curriculum", {}) if isinstance(data_cfg, dict) else {}
+
+    meta: Dict[str, Any] = {}
+    meta["run"] = row.get("run_id") or row.get("display_name") or row.get("run_axis") or "run"
+    meta["dataset"] = row.get("dataset") or data_cfg.get("source") or data_cfg.get("family") or ""
+    meta["architecture"] = (cfg.get("model", {}) or {}).get("type") if isinstance(cfg, dict) else None
+    meta["snr_ratio"] = row.get("snr_ratio", diffusion_cfg.get("snr_ratio", spectral_cfg.get("snr_ratio")))
+    meta["spectral_noise_shaping_strength"] = (
+        spectral_cfg.get("noise_shaping_strength")
+        or diffusion_cfg.get("uniform_corruption_scale")
+        or spectral_cfg.get("uniform_corruption")
+    )
+    meta["snr_weighting_mode"] = _derive_weighting_mode(cfg)
+    meta["spectral_adapter_placement"] = spectral_cfg.get("apply_to")
+    meta["initial_loss"] = row.get("loss_initial")
+    meta["final_loss"] = row.get("loss_final")
+    meta["loss_drop_per_second"] = row.get("loss_drop_per_second")
+    meta["images_per_second"] = row.get("images_per_second")
+    meta["runtime_seconds"] = row.get("runtime_seconds")
+    meta["sampler_type"] = sampling_cfg.get("sampler_type")
+    meta["sampling_steps"] = sampling_cfg.get("num_steps")
+    meta["curriculum_mode"] = curriculum_cfg.get("mode") if isinstance(curriculum_cfg, dict) else None
+
+    # Attach factor levels when available (Taguchi).
+    factors = factor_mapping.get("factors", {}) if isinstance(factor_mapping, dict) else {}
+    for key in ("snr_ratio", "spectral_noise_shaping_strength", "snr_weighting_mode", "spectral_adapter_placement"):
+        if key not in meta and key in factors:
+            meta[key] = factors[key]
+    return meta
+
+
+def _format_metadata_block(metas: List[dict[str, Any]]) -> List[str]:
+    if not metas:
+        return ["_No run metadata available._", ""]
+    lines: List[str] = ["### Runs shown in this figure:"]
+    for meta in metas:
+        lines.append(f"- **{meta.get('run','run')}**")
+        details = []
+        for key in [
+            "dataset",
+            "architecture",
+            "snr_ratio",
+            "spectral_noise_shaping_strength",
+            "snr_weighting_mode",
+            "spectral_adapter_placement",
+            "final_loss",
+            "loss_drop_per_second",
+            "images_per_second",
+            "sampler_type",
+            "curriculum_mode",
+        ]:
+            val = meta.get(key)
+            if val is None or val == "":
+                continue
+            if isinstance(val, float):
+                details.append(f"{key}: {val:.4f}")
+            else:
+                details.append(f"{key}: {val}")
+        if details:
+            lines.append("  - " + "\n  - ".join(details))
+    lines.append("")
+    return lines
+
+
+def _metadata_table(metas: List[dict[str, Any]]) -> List[str]:
+    if not metas:
+        return ["_No runs available for this section._", ""]
+    headers = [
+        "run",
+        "dataset",
+        "architecture",
+        "snr_ratio",
+        "spectral_noise_shaping_strength",
+        "snr_weighting_mode",
+        "spectral_adapter_placement",
+        "final_loss",
+        "loss_drop_per_second",
+        "images_per_second",
+    ]
+    lines = ["|" + "|".join(headers) + "|"]
+    lines.append("|" + "|".join(["---"] * len(headers)) + "|")
+    for meta in metas:
+        row_vals = []
+        for key in headers:
+            val = meta.get(key)
+            if isinstance(val, float):
+                row_vals.append(f"{val:.4f}")
+            else:
+                row_vals.append(str(val) if val is not None else "")
+        lines.append("|" + "|".join(row_vals) + "|")
+    lines.append("")
+    return lines
+
+
 def _load_dataset(summary_dir: Optional[Path]) -> DatasetBundle:
     if summary_dir is None:
         return DatasetBundle(df=None, notes={})
@@ -170,22 +300,22 @@ def _filter_tradeoff(df: Optional[pd.DataFrame], metric: str, max_points: int) -
     return trimmed
 
 
-def _generate_loss_curves(df: Optional[pd.DataFrame], label: str, out_path: Path, max_runs: int) -> bool:
+def _generate_loss_curves(df: Optional[pd.DataFrame], label: str, out_path: Path, max_runs: int) -> Optional[pd.DataFrame]:
     selected = _select_runs(df, "loss_final", max_runs, mode="min")
     if selected is None:
-        return False
+        return None
 
     histories = collect_loss_histories(selected)
     if not histories:
-        return False
+        return None
     plot_loss_curves(histories, f"{label} – Loss Curves", out_path)
-    return True
+    return selected
 
 
-def _generate_tradeoff(df: Optional[pd.DataFrame], label: str, out_path: Path, max_points: int) -> bool:
+def _generate_tradeoff(df: Optional[pd.DataFrame], label: str, out_path: Path, max_points: int) -> Optional[pd.DataFrame]:
     filtered = _filter_tradeoff(df, "loss_drop_per_second", max_points)
     if filtered is None:
-        return False
+        return None
     plot_tradeoff_scatter(
         filtered,
         "images_per_second",
@@ -195,7 +325,7 @@ def _generate_tradeoff(df: Optional[pd.DataFrame], label: str, out_path: Path, m
         "Loss Drop per Second",
         out_path=out_path,
     )
-    return True
+    return filtered
 
 
 def _load_factor_mapping(taguchi_dir: Optional[Path]) -> dict[str, object]:
@@ -322,6 +452,9 @@ def _write_summary(
     figure_flags: set[str],
     stats: dict[str, dict[str, object]],
     taguchi_factors: list[str],
+    figure_meta: dict[str, list[dict[str, Any]]],
+    section_meta: dict[str, list[dict[str, Any]]],
+    report_root: Optional[Path],
 ) -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines: list[str] = []
@@ -365,22 +498,42 @@ def _write_summary(
         bullets.append("")
         return bullets
 
+    # Experiment metadata
+    lines.append("## Experiment Metadata")
+    lines.append("")
+    lines.append(f"- Report path: {report_root or 'unknown'}")
+    datasets_used = {m.get('dataset') for metas in section_meta.values() for m in metas if m.get('dataset')}
+    arch_used = {m.get('architecture') for metas in section_meta.values() for m in metas if m.get('architecture')}
+    lines.append(f"- Datasets used: {', '.join(sorted(datasets_used)) if datasets_used else 'n/a'}")
+    lines.append(f"- Architectures included: {', '.join(sorted(arch_used)) if arch_used else 'n/a'}")
+    total_runs = sum(len(metas) for metas in section_meta.values())
+    lines.append(f"- Total runs analyzed: {total_runs}")
+    lines.append(f"- Primary factors for this profile: {', '.join(taguchi_factors) if taguchi_factors else 'n/a'}")
+    lines.append(f"- Generated at: {now}")
+    lines.append("")
+
     lines.append("## Stability & Convergence")
     lines.append("")
     lines.append("### Synthetic")
     lines.extend(_maybe_img("loss_curve_synthetic.png"))
+    lines.extend(_format_metadata_block(figure_meta.get("loss_curve_synthetic.png", [])))
     lines.extend(_stability_bullets("synthetic"))
+    lines.extend(_metadata_table(section_meta.get("synthetic", [])))
     lines.append("### CIFAR-10")
     lines.extend(_maybe_img("loss_curve_cifar.png"))
+    lines.extend(_format_metadata_block(figure_meta.get("loss_curve_cifar.png", [])))
     lines.extend(_stability_bullets("cifar"))
+    lines.extend(_metadata_table(section_meta.get("cifar", [])))
 
     lines.append("## Efficiency vs Runtime")
     lines.append("")
     lines.append("### Synthetic")
     lines.extend(_maybe_img("tradeoff_loss_vs_speed_synthetic.png"))
+    lines.extend(_format_metadata_block(figure_meta.get("tradeoff_loss_vs_speed_synthetic.png", [])))
     lines.extend(_efficiency_bullets("synthetic"))
     lines.append("### CIFAR-10")
     lines.extend(_maybe_img("tradeoff_loss_vs_speed_cifar.png"))
+    lines.extend(_format_metadata_block(figure_meta.get("tradeoff_loss_vs_speed_cifar.png", [])))
     lines.extend(_efficiency_bullets("cifar"))
 
     lines.append("## Taguchi Factor Effects")
@@ -432,19 +585,36 @@ def main() -> None:
 
     synthetic = _load_dataset(synthetic_dir)
     cifar = _load_dataset(cifar_dir)
-    figure_flags: set[str] = set()
-
-    if _generate_loss_curves(synthetic.df, "Synthetic", images_dir / "loss_curve_synthetic.png", args.max_loss_runs):
-        figure_flags.add("loss_curve_synthetic.png")
-    if _generate_loss_curves(cifar.df, "CIFAR-10", images_dir / "loss_curve_cifar.png", args.max_loss_runs):
-        figure_flags.add("loss_curve_cifar.png")
-
-    if _generate_tradeoff(synthetic.df, "Synthetic", images_dir / "tradeoff_loss_vs_speed_synthetic.png", args.max_tradeoff_points):
-        figure_flags.add("tradeoff_loss_vs_speed_synthetic.png")
-    if _generate_tradeoff(cifar.df, "CIFAR-10", images_dir / "tradeoff_loss_vs_speed_cifar.png", args.max_tradeoff_points):
-        figure_flags.add("tradeoff_loss_vs_speed_cifar.png")
-
     factor_mapping = _load_factor_mapping(taguchi_dir)
+    figure_flags: set[str] = set()
+    figure_meta: dict[str, list[dict[str, Any]]] = {}
+
+    synthetic_loss_sel = _generate_loss_curves(synthetic.df, "Synthetic", images_dir / "loss_curve_synthetic.png", args.max_loss_runs)
+    if synthetic_loss_sel is not None:
+        figure_flags.add("loss_curve_synthetic.png")
+        figure_meta["loss_curve_synthetic.png"] = [
+            _extract_run_metadata(row, factor_mapping) for _, row in synthetic_loss_sel.iterrows()
+        ]
+    cifar_loss_sel = _generate_loss_curves(cifar.df, "CIFAR-10", images_dir / "loss_curve_cifar.png", args.max_loss_runs)
+    if cifar_loss_sel is not None:
+        figure_flags.add("loss_curve_cifar.png")
+        figure_meta["loss_curve_cifar.png"] = [
+            _extract_run_metadata(row, factor_mapping) for _, row in cifar_loss_sel.iterrows()
+        ]
+
+    synthetic_tradeoff_sel = _generate_tradeoff(synthetic.df, "Synthetic", images_dir / "tradeoff_loss_vs_speed_synthetic.png", args.max_tradeoff_points)
+    if synthetic_tradeoff_sel is not None:
+        figure_flags.add("tradeoff_loss_vs_speed_synthetic.png")
+        figure_meta["tradeoff_loss_vs_speed_synthetic.png"] = [
+            _extract_run_metadata(row, factor_mapping) for _, row in synthetic_tradeoff_sel.iterrows()
+        ]
+    cifar_tradeoff_sel = _generate_tradeoff(cifar.df, "CIFAR-10", images_dir / "tradeoff_loss_vs_speed_cifar.png", args.max_tradeoff_points)
+    if cifar_tradeoff_sel is not None:
+        figure_flags.add("tradeoff_loss_vs_speed_cifar.png")
+        figure_meta["tradeoff_loss_vs_speed_cifar.png"] = [
+            _extract_run_metadata(row, factor_mapping) for _, row in cifar_tradeoff_sel.iterrows()
+        ]
+
     primary_factors = _resolve_primary_factors(args.profile, args.primary_factor, factor_mapping)
     factor_labels = {name: _humanise_name(name) for name in primary_factors}
     taguchi_flags = _render_taguchi_figures(taguchi_dir, primary_factors, factor_labels, images_dir, interactions_dir)
@@ -463,12 +633,22 @@ def main() -> None:
         "cifar": _dataset_stats(cifar.df),
     }
 
+    synthetic_meta_all = [
+        _extract_run_metadata(row, factor_mapping) for _, row in (synthetic.df.iterrows() if synthetic.df is not None else [])
+    ]
+    cifar_meta_all = [
+        _extract_run_metadata(row, factor_mapping) for _, row in (cifar.df.iterrows() if cifar.df is not None else [])
+    ]
+
     _write_summary(
         output_dir=output_dir,
         generated_at=args.generated_at,
         figure_flags=figure_flags,
         stats=stats,
         taguchi_factors=[factor_labels.get(f, f) for f in primary_factors],
+        figure_meta=figure_meta,
+        section_meta={"synthetic": synthetic_meta_all, "cifar": cifar_meta_all},
+        report_root=args.report_root or _latest_report_root(),
     )
 
 

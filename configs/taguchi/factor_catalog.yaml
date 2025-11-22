@@ -31,6 +31,13 @@ factors:
     cost_weight: 1.0
     role: noise
     doc: "Target SNR ratio scaling inside the synthetic pipeline."
+  snr_scale_clamp:
+    kind: enum
+    levels: ["off", "default", "wide"]
+    fixed_default: "default"
+    cost_weight: 1.0
+    role: noise
+    doc: "Clamp applied to spectral SNR scaling (off, default 0.05–5.0, or wide 0.01–8.0)."
   phase_attention_capacity:
     kind: enum
     levels: ["off", "tiny", "full"]
