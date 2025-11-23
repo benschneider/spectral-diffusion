@@ -138,7 +138,7 @@ def add_uniform_frequency_noise(
     snr_ratio: Optional[float] = None,
     freq_equalized_noise: bool = False,
     snr_scale_min: Optional[float] = 0.005,
-    snr_scale_max: Optional[float] = 0.5, #1.5,
+    snr_scale_max: Optional[float] = 0.2, #1.5,
     *,
     return_noise: bool = False,
 ) -> torch.Tensor:
@@ -163,6 +163,9 @@ def add_uniform_frequency_noise(
             stats["structure_corr_post"] = sim["corr"]
             stats["mse_post"] = sim["mse"]
             stats["fft_corr"] = _compute_fft_correlation(x0, x_t)
+            stats["snr_effective"] = float(
+                (_per_sample_rms(signal_component) / (_per_sample_rms(noise_component) + 1e-8)).mean().item()
+            )
             if snr_ratio is not None:
                 stats["snr_ratio"] = snr_ratio
             stats["noisy_mean"] = float(x_t.detach().mean().item())
@@ -227,6 +230,11 @@ def add_uniform_frequency_noise(
         noise_component = noise_component * scale
         snr_scale_tensor = scale
 
+    if stats is not None:
+        stats["snr_effective"] = float(
+            (_per_sample_rms(signal_component) / (_per_sample_rms(noise_component) + 1e-8)).mean().item()
+        )
+
     x_t_pre = signal_component + noise_component
     sim_pre = _compute_similarity_metrics(x0, x_t_pre)
 
@@ -234,6 +242,9 @@ def add_uniform_frequency_noise(
         scale_factor = max(0.0, min(1.0, (sim_pre["corr"] / target_corr) ** 0.5))
         noise_component = noise_component * scale_factor
         snr_scale_tensor = snr_scale_tensor * scale_factor
+        stats["snr_effective"] = float(
+            (_per_sample_rms(signal_component) / (_per_sample_rms(noise_component) + 1e-8)).mean().item()
+        )
 
     x_t = signal_component + noise_component
 

@@ -62,9 +62,9 @@ def _summarise(run_id: str, rows: List[Dict[str, float]]) -> Dict[str, float]:
 
     summary = {
         "run_id": run_id,
-        "snr_mean_avg": avg("snr_mean"),
-        "snr_mean_std": pstdev(values("snr_mean")) if len(values("snr_mean")) > 1 else 0.0,
-        "snr_measured_avg": avg("snr_measured"),
+        "snr_schedule_mean_avg": avg("snr_schedule_mean"),
+        "snr_schedule_mean_std": pstdev(values("snr_schedule_mean")) if len(values("snr_schedule_mean")) > 1 else 0.0,
+        "snr_effective_avg": avg("snr_effective"),
         "snr_raw_max_peak": peak("snr_raw_max"),
         "overflow_count_total": total("overflow_count"),
         "overflow_rate_peak": peak("overflow_rate_per_1k"),
@@ -82,9 +82,9 @@ def _write_summary(output_path: Path, rows: List[Dict[str, float]]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "run_id",
-        "snr_mean_avg",
-        "snr_mean_std",
-        "snr_measured_avg",
+        "snr_schedule_mean_avg",
+        "snr_schedule_mean_std",
+        "snr_effective_avg",
         "snr_raw_max_peak",
         "overflow_count_total",
         "overflow_rate_peak",
@@ -108,16 +108,16 @@ def _plot_run(run_id: str, rows: List[Dict[str, float]], noise_stats: Mapping[st
 
     plot_dir.mkdir(parents=True, exist_ok=True)
     steps = [row["step"] for row in rows]
-    snr_mean = [row.get("snr_mean", math.nan) for row in rows]
-    snr_measured = [row.get("snr_measured", math.nan) for row in rows]
+    snr_mean = [row.get("snr_schedule_mean", math.nan) for row in rows]
+    snr_measured = [row.get("snr_effective", math.nan) for row in rows]
     overflow_rate = [row.get("overflow_rate_per_1k", math.nan) for row in rows]
     variance_ratio = [row.get("variance_ratio", math.nan) for row in rows]
     prediction_std_ratio = [row.get("prediction_std_ratio", math.nan) for row in rows]
 
     fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
 
-    axes[0].plot(steps, snr_mean, label="snr_mean")
-    axes[0].plot(steps, snr_measured, label="snr_measured", linestyle="--")
+    axes[0].plot(steps, snr_mean, label="snr_schedule_mean")
+    axes[0].plot(steps, snr_measured, label="snr_effective", linestyle="--")
     if noise_stats:
         snr_ratio = noise_stats.get("snr_ratio")
         if isinstance(snr_ratio, Sequence):

@@ -121,6 +121,29 @@ class TrainingPipeline:
 
                 diagnostics.capture_initial_batch(xb)
 
+                if step == 0:
+                    schedule_snr = (
+                        coeffs.sqrt_alphas_cumprod.pow(2) / coeffs.sqrt_one_minus_alphas_cumprod.pow(2).clamp_min(1e-12)
+                    )
+                    snr_min = float(schedule_snr.min().item())
+                    snr_max = float(schedule_snr.max().item())
+                    sample_noise = noise_preparer.prepare(
+                        xb,
+                        coeffs,
+                        torch.zeros(xb.shape[0], device=xb.device, dtype=torch.long),
+                        base_noise=torch.randn_like(xb),
+                    )
+                    effective = sample_noise.stats.get("snr_effective") if sample_noise.stats else None
+                    self.logger.info(
+                        "[SNR-DIAG] schedule_snr_range=(%.3f, %.3f) effective_sample=%.3f snr_ratio=%s spectral_scale=(%s,%s)",
+                        snr_min,
+                        snr_max,
+                        float(effective) if effective is not None else float("nan"),
+                        noise_preparer.snr_ratio,
+                        getattr(noise_preparer, "snr_scale_min", None),
+                        getattr(noise_preparer, "snr_scale_max", None),
+                    )
+
                 B = xb.shape[0]
                 if loss_aware_enabled and warmup_repeats > 1:
                     for _ in range(warmup_repeats - 1):
@@ -221,15 +244,15 @@ class TrainingPipeline:
                 if step % log_every == 0:
                     mean_val = noise_batch.stats.get("noisy_mean") if noise_batch.stats else None
                     std_val = noise_batch.stats.get("noisy_std") if noise_batch.stats else None
-                    snr_mean = outcome.coeff_stats.get("snr_mean", float("nan"))
-                    snr_measured = outcome.coeff_stats.get("snr_measured", float("nan"))
+                    snr_schedule = outcome.coeff_stats.get("snr_schedule_mean", float("nan"))
+                    snr_effective = outcome.coeff_stats.get("snr_effective", float("nan"))
                     self.logger.debug(
-                        "epoch %d step %d loss %.5f snr %.1f/%.1f amp_mae %.5f phase_mae %.5f",
+                        "epoch %d step %d loss %.5f snr_schedule %.1f snr_effective %.1f amp_mae %.5f phase_mae %.5f",
                         epoch,
                         step,
                         outcome.loss,
-                        snr_mean,
-                        snr_measured,
+                        snr_schedule,
+                        snr_effective,
                         outcome.fft_feedback.get("amplitude_mae", float("nan")),
                         outcome.fft_feedback.get("phase_mae", float("nan")),
                     )

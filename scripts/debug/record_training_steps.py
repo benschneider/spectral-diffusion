@@ -544,13 +544,13 @@ def run_step_recorder(
         current_snr_ratio = _clamp_snr(current_snr_ratio)
 
     # --- Adaptive SNR trend state ---
-    prev_snr_mean: Optional[float] = None
+    prev_snr_schedule_mean: Optional[float] = None
     prev_snr_max: Optional[float] = None
 
     # --- Regulator persistent state & helpers ---
     snr_ema_beta = 0.6  # EWMA smoothing for SNR trends
     snr_max_slope_ema: Optional[float] = None
-    snr_mean_slope_ema: Optional[float] = None
+    snr_schedule_slope_ema: Optional[float] = None
     inc_armed = False     # hysteresis arm for increases
     dec_armed = False     # hysteresis arm for decreases
     cooldown_steps = 2    # require N quiet steps between changes
@@ -659,6 +659,9 @@ def run_step_recorder(
             return_noise=True,
         )
         noise_term = x_t - (sqrt_alpha_t * xb)
+        signal_var = float((xb - xb.mean(dim=(0, 2, 3), keepdim=True)).var(unbiased=False).item())
+        noise_var = float(noise_term.var(unbiased=False).item())
+        snr_effective_val = signal_var / max(noise_var, 1e-12)
         _log_diag(
             step,
             "Debug",
@@ -867,15 +870,18 @@ def run_step_recorder(
         snr_den = torch.clamp(sqrt_one_minus_t**2, min=SIGMA_MIN**2)
         snr_raw = (sqrt_alpha_t**2) / snr_den
         snr_vals = torch.clamp(snr_raw, max=SNR_CLIP)
-        snr_min_val = float(snr_vals.min().item())
-        snr_max_val = float(snr_vals.max().item())
-        snr_mean_val = float(snr_vals.mean().item())
+        snr_schedule_min = float(snr_vals.min().item())
+        snr_schedule_max = float(snr_vals.max().item())
+        snr_schedule_mean = float(snr_vals.mean().item())
+        snr_min_val = snr_schedule_min
+        snr_max_val = snr_schedule_max
+        snr_mean_val = snr_schedule_mean
         snr_raw_max = float(snr_raw.max().item())
         _log_diag(
             step,
             "Debug",
-            f"[DEBUG] step={step} snr_measured={snr_mean_val:.3f} "
-            f"snr_min={snr_min_val:.3f} snr_max={snr_max_val:.3f}",
+            f"[DEBUG] step={step} snr_schedule={snr_schedule_mean:.3f} "
+            f"snr_min={snr_schedule_min:.3f} snr_max={snr_schedule_max:.3f}",
         )
         overflow = 0
         if snr_raw_max > SNR_CLIP:
@@ -914,7 +920,7 @@ def run_step_recorder(
 
         headroom: Optional[float] = None
         high_snr_fraction: Optional[float] = None
-        snr_mean_trend: Optional[float] = None
+        snr_schedule_trend: Optional[float] = None
         snr_max_trend: Optional[float] = None
 
         if adaptive_snr and current_snr_ratio is not None:
@@ -923,11 +929,11 @@ def run_step_recorder(
             if snr_vals.numel() > 0:
                 high_snr_fraction = float((snr_vals > target_ratio).float().mean().item())
 
-            mean_delta = 0.0 if prev_snr_mean is None else snr_mean_val - prev_snr_mean
+            mean_delta = 0.0 if prev_snr_schedule_mean is None else snr_schedule_mean - prev_snr_schedule_mean
             max_delta = 0.0 if prev_snr_max is None else snr_max_val - prev_snr_max
-            snr_mean_slope_ema = _ewma(snr_mean_slope_ema, mean_delta, snr_ema_beta)
+            snr_schedule_slope_ema = _ewma(snr_schedule_slope_ema, mean_delta, snr_ema_beta)
             snr_max_slope_ema = _ewma(snr_max_slope_ema, max_delta, snr_ema_beta)
-            snr_mean_trend = snr_mean_slope_ema
+            snr_schedule_trend = snr_schedule_slope_ema
             snr_max_trend = snr_max_slope_ema
 
         snr_spike_summary = summarise_snr_spikes(
@@ -980,13 +986,14 @@ def run_step_recorder(
             "timestep_min": timestep_min,
             "timestep_max": timestep_max,
             "timestep_mean": timestep_mean,
-            "snr_min": snr_min_val,
-            "snr_max": snr_max_val,
-            "snr_mean": snr_mean_val,
+            "snr_schedule_min": snr_min_val,
+            "snr_schedule_max": snr_max_val,
+            "snr_schedule_mean": snr_schedule_mean,
             "snr_raw_max": snr_raw_max,
+            "snr_effective": snr_effective_val,
             "snr_headroom": headroom if adaptive_snr and current_snr_ratio is not None else None,
             "snr_high_frac": high_snr_fraction if adaptive_snr and current_snr_ratio is not None else None,
-            "snr_mean_trend": snr_mean_trend if adaptive_snr and current_snr_ratio is not None else None,
+            "snr_schedule_trend": snr_schedule_trend if adaptive_snr and current_snr_ratio is not None else None,
             "snr_max_trend": snr_max_trend if adaptive_snr and current_snr_ratio is not None else None,
             "target_mean": target_mean,
             "target_std": target_std,
@@ -1095,18 +1102,19 @@ def run_step_recorder(
         if adaptive_snr:
             record["snr_headroom"] = headroom
             record["snr_high_frac"] = high_snr_fraction
-            record["snr_mean_trend"] = snr_mean_trend
+            record["snr_schedule_trend"] = snr_schedule_trend
             record["snr_max_trend"] = snr_max_trend
 
-        prev_snr_mean = snr_mean_val
+        prev_snr_schedule_mean = snr_schedule_mean
         prev_snr_max = snr_max_val
 
         if log_snr_json:
             snr_entry = {
                 "step": step,
-                "snr_min": snr_min_val,
-                "snr_max": snr_max_val,
-                "snr_mean": snr_mean_val,
+                "snr_schedule_min": snr_min_val,
+                "snr_schedule_max": snr_max_val,
+                "snr_schedule_mean": snr_schedule_mean,
+                "snr_effective": snr_effective_val,
                 "snr_raw_max": snr_raw_max,
             }
             if adaptive_snr:
@@ -1114,7 +1122,7 @@ def run_step_recorder(
                     {
                         "snr_headroom": headroom,
                         "snr_high_frac": high_snr_fraction,
-                        "snr_mean_trend": snr_mean_trend,
+                        "snr_schedule_trend": snr_schedule_trend,
                         "snr_max_trend": snr_max_trend,
                     }
                 )
@@ -1321,13 +1329,23 @@ def run_step_recorder(
                 alpha = last_controller_metrics.get("alpha_fac")
                 if alpha is not None:
                     alpha_note = f" alpha_fac={alpha:.2f}"
+            def _fmt_snr(value: Optional[float]) -> str:
+                if value is None or (isinstance(value, float) and math.isnan(value)):
+                    return "nan"
+                mag = abs(value)
+                if mag >= 100.0 or (0 < mag < 1e-3):
+                    return f"{value:.3e}"
+                return f"{value:.3f}"
+
             print(
-                "[Summary] step={step:04d} loss={loss:.4f} mae={mae:.4f} grad_norm={grad:.4f} snr_mean={snr_mean:.3f}{ratio}{headroom}{target}{alpha}".format(
+                "[Summary] step={step:04d} loss={loss:.4f} mae={mae:.4f} grad_norm={grad:.4f} "
+                "snr_schedule={snr_schedule} snr_effective={snr_effective}{ratio}{headroom}{target}{alpha}".format(
                     step=step,
                     loss=loss_value,
                     mae=mae_value,
                     grad=grad_norm_value,
-                    snr_mean=snr_mean_val,
+                    snr_schedule=_fmt_snr(snr_schedule_mean),
+                    snr_effective=_fmt_snr(snr_effective_val),
                     ratio=ratio_note,
                     headroom=headroom_note,
                     target=target_note,
@@ -1422,13 +1440,14 @@ def run_step_recorder(
             import matplotlib.pyplot as plt
 
             steps_axis = [r["step"] for r in step_records]
-            loss_axis = [r["loss"] for r in step_records]
-            mae_axis = [r["mae"] for r in step_records]
+            loss_axis = [max(float(r["loss"]), 1e-8) for r in step_records]
+            mae_axis = [max(float(r["mae"]), 1e-8) for r in step_records]
             fig, ax = plt.subplots(figsize=(6, 4))
             ax.plot(steps_axis, loss_axis, label="loss", color="tab:blue")
             ax.plot(steps_axis, mae_axis, label="mae", color="tab:orange", alpha=0.7)
             ax.set_xlabel("Step")
-            ax.set_ylabel("Value")
+            ax.set_ylabel("Value (log scale)")
+            ax.set_yscale("log")
             ax.set_title("Recorder Loss Trace")
             ax.grid(True, alpha=0.3)
             ax.legend()

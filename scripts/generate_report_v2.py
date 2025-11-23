@@ -175,6 +175,8 @@ def _extract_run_metadata(row: pd.Series, factor_mapping: dict[str, Any]) -> dic
     )
     meta["snr_weighting_mode"] = _derive_weighting_mode(cfg)
     meta["spectral_adapter_placement"] = spectral_cfg.get("apply_to")
+    meta["snr_schedule_mean"] = row.get("snr_schedule_mean") or row.get("snr_mean")
+    meta["snr_effective"] = row.get("snr_effective")
     meta["initial_loss"] = row.get("loss_initial")
     meta["final_loss"] = row.get("loss_final")
     meta["loss_drop_per_second"] = row.get("loss_drop_per_second")
@@ -203,6 +205,8 @@ def _format_metadata_block(metas: List[dict[str, Any]]) -> List[str]:
             "dataset",
             "architecture",
             "snr_ratio",
+            "snr_schedule_mean",
+            "snr_effective",
             "spectral_noise_shaping_strength",
             "snr_weighting_mode",
             "spectral_adapter_placement",
@@ -226,33 +230,7 @@ def _format_metadata_block(metas: List[dict[str, Any]]) -> List[str]:
 
 
 def _metadata_table(metas: List[dict[str, Any]]) -> List[str]:
-    if not metas:
-        return ["_No runs available for this section._", ""]
-    headers = [
-        "run",
-        "dataset",
-        "architecture",
-        "snr_ratio",
-        "spectral_noise_shaping_strength",
-        "snr_weighting_mode",
-        "spectral_adapter_placement",
-        "final_loss",
-        "loss_drop_per_second",
-        "images_per_second",
-    ]
-    lines = ["|" + "|".join(headers) + "|"]
-    lines.append("|" + "|".join(["---"] * len(headers)) + "|")
-    for meta in metas:
-        row_vals = []
-        for key in headers:
-            val = meta.get(key)
-            if isinstance(val, float):
-                row_vals.append(f"{val:.4f}")
-            else:
-                row_vals.append(str(val) if val is not None else "")
-        lines.append("|" + "|".join(row_vals) + "|")
-    lines.append("")
-    return lines
+    return []
 
 
 def _load_dataset(summary_dir: Optional[Path]) -> DatasetBundle:
@@ -510,6 +488,22 @@ def _write_summary(
     lines.append(f"- Total runs analyzed: {total_runs}")
     lines.append(f"- Primary factors for this profile: {', '.join(taguchi_factors) if taguchi_factors else 'n/a'}")
     lines.append(f"- Generated at: {now}")
+    # SNR interpretation
+    def _agg(key: str) -> str:
+        vals = [m[key] for metas in section_meta.values() for m in metas if m.get(key) is not None]
+        if not vals:
+            return "n/a"
+        mean = float(sum(vals) / len(vals))
+        if len(vals) > 1:
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            std = var ** 0.5
+            return f"{mean:.4f} ± {std:.4f}"
+        return f"{mean:.4f}"
+    lines.append(f"- Effective SNR (measured): {_agg('snr_effective')}")
+    lines.append(f"- Schedule SNR (from noise schedule): {_agg('snr_schedule_mean')}")
+    lines.append(f"- User SNR ratio multiplier: {_agg('snr_ratio')}")
+    lines.append("")
+    lines.append("SNR definitions: snr_schedule = schedule-implied SNR; snr_effective = post-spectral scaling SNR; snr_ratio = user multiplier.")
     lines.append("")
 
     lines.append("## Stability & Convergence")
@@ -518,12 +512,16 @@ def _write_summary(
     lines.extend(_maybe_img("loss_curve_synthetic.png"))
     lines.extend(_format_metadata_block(figure_meta.get("loss_curve_synthetic.png", [])))
     lines.extend(_stability_bullets("synthetic"))
-    lines.extend(_metadata_table(section_meta.get("synthetic", [])))
+    if figure_meta.get("loss_curve_synthetic.png"):
+        appendix_runs = output_dir / "appendix" / "runs_synthetic.md"
+    lines.append("- Lowest final loss and best drop/sec listed above.")
+    lines.append("_Curves reflect schedule SNR; effective (spectral) SNR is listed in metadata._")
     lines.append("### CIFAR-10")
     lines.extend(_maybe_img("loss_curve_cifar.png"))
     lines.extend(_format_metadata_block(figure_meta.get("loss_curve_cifar.png", [])))
     lines.extend(_stability_bullets("cifar"))
-    lines.extend(_metadata_table(section_meta.get("cifar", [])))
+    lines.append("- Lowest final loss and best drop/sec listed above. Full run table available in appendix.")
+    lines.append("_Curves reflect schedule SNR; effective (spectral) SNR is listed in metadata._")
 
     lines.append("## Efficiency vs Runtime")
     lines.append("")

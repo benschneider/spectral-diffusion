@@ -224,15 +224,15 @@ class TrainingStepExecutor:
             "sqrt_one_minus_min": float(sqrt_one_minus_alpha_t.min().item()),
             "sqrt_one_minus_max": float(sqrt_one_minus_alpha_t.max().item()),
             "sqrt_one_minus_mean": float(sqrt_one_minus_alpha_t.mean().item()),
-            "snr_min": float(snr.min().item()),
-            "snr_max": float(snr.max().item()),
-            "snr_mean": float(snr.mean().item()),
+            "snr_schedule_min": float(snr.min().item()),
+            "snr_schedule_max": float(snr.max().item()),
+            "snr_schedule_mean": float(snr.mean().item()),
             "snr_raw_max": float(snr_raw.max().item()),
             "overflow_count": float(overflow_stats.count),
             "overflow_ema": float(overflow_stats.ema),
             "signal_rms": float(measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t).signal_rms.mean().item()),
             "noise_rms": float(measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t).noise_rms.mean().item()),
-            "snr_measured": float(measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t).snr_measured.mean().item()),
+            "snr_effective": float(measure_batch_snr(clean_batch, noise_batch.noisy, sqrt_alpha_t).snr_measured.mean().item()),
         }
 
         prediction_mean = float(prediction.detach().mean().item())

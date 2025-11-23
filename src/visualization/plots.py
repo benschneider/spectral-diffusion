@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import numpy as np
 
 from src.utils.plot_style import (
     autoscale_y,
@@ -460,11 +461,13 @@ def plot_loss_curves(histories, title, out_path):
         loss_history = history.get("loss_history", [])
         if loss_history:
             steps = list(range(len(loss_history)))
-            ax.plot(steps, loss_history, label=label, color=colors[i % len(colors)], linewidth=1.2)
+            loss_vals = np.clip(np.array(loss_history, dtype=float), 1e-8, None)
+            ax.plot(steps, loss_vals, label=label, color=colors[i % len(colors)], linewidth=1.2)
 
     ax.set_title(title)
     ax.set_xlabel("Step")
-    ax.set_ylabel("Loss")
+    ax.set_ylabel("Loss (log scale)")
+    ax.set_yscale("log")
     ax.legend(fontsize=7)
     ax.grid(True, linestyle="--", linewidth=0.4)
     ax.tick_params(axis="x", labelrotation=0)

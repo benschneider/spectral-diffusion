@@ -346,10 +346,10 @@ class TrainingDiagnostics:
 
         header = [
             "step",
-            "snr_mean",
+            "snr_schedule",
             "snr_max",
             "snr_raw_max",
-            "snr_measured",
+            "snr_effective",
             "overflow_count",
             "overflow_rate_per_1k",
             "overflow_ema",
@@ -400,10 +400,10 @@ class TrainingDiagnostics:
 
                 row = [
                     step,
-                    coeff_value("snr_mean", idx),
+                    coeff_value("snr_schedule_mean", idx),
                     coeff_value("snr_max", idx),
                     coeff_value("snr_raw_max", idx),
-                    coeff_value("snr_measured", idx),
+                    coeff_value("snr_effective", idx),
                     overflow_count,
                     overflow_rate,
                     coeff_value("overflow_ema", idx),
