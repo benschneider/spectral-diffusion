@@ -91,18 +91,11 @@ class TrainingPipeline:
                 delta,
             )
         total_timesteps = coeffs.num_timesteps
-        if coeffs.trim_offset > 0:
-            self.logger.info(
-                "Trimmed %d unstable diffusion steps (min_sigma=%.4f)",
-                coeffs.trim_offset,
-                coeffs.min_safe_sigma,
-            )
         snr_ratio_value = noise_preparer.snr_ratio
 
         fft_feedback_history: Dict[str, list[float]] = defaultdict(list)
         coeff_history: Dict[str, list[float]] = {}
         batch_history: Dict[str, list[float]] = {}
-        weight_history: Dict[str, list[float]] = defaultdict(list)
         diffusion_cfg = self.config.get("diffusion", {})
         loss_aware_enabled = bool(diffusion_cfg.get("loss_aware_sampling", False))
         lais_temperature = float(diffusion_cfg.get("lais_temperature", 1.2))
@@ -204,12 +197,6 @@ class TrainingPipeline:
                 diagnostics.record_fft_feedback(step, outcome.fft_feedback)
                 diagnostics.record_coeff_stats(step, outcome.coeff_stats)
                 diagnostics.record_batch_stats(step, outcome.batch_stats)
-                if outcome.weight_stats:
-                    prefixed = {
-                        f"snr_weight_{key}": float(value)
-                        for key, value in outcome.weight_stats.items()
-                    }
-                    diagnostics.record_weight_stats(step, prefixed)
 
                 for key, metric_val in outcome.fft_feedback.items():
                     fft_feedback_history[key].append(float(metric_val))
@@ -217,9 +204,6 @@ class TrainingPipeline:
                     coeff_history.setdefault(key, []).append(float(value))
                 for key, value in outcome.batch_stats.items():
                     batch_history.setdefault(key, []).append(float(value))
-                if outcome.weight_stats:
-                    for key, value in outcome.weight_stats.items():
-                        weight_history[key].append(float(value))
 
                 if (
                     loss_aware_enabled
@@ -242,25 +226,19 @@ class TrainingPipeline:
                     )
 
                 if step % log_every == 0:
-                    mean_val = noise_batch.stats.get("noisy_mean") if noise_batch.stats else None
-                    std_val = noise_batch.stats.get("noisy_std") if noise_batch.stats else None
-                    snr_schedule = outcome.coeff_stats.get("snr_schedule_mean", float("nan"))
-                    snr_effective = outcome.coeff_stats.get("snr_effective", float("nan"))
+                    snr_theory = outcome.coeff_stats.get("snr_theory", float("nan"))
+                    snr_emp = outcome.coeff_stats.get("snr_emp", float("nan"))
+                    snr_rel = outcome.coeff_stats.get("snr_rel", float("nan"))
+                    variance_sum = outcome.coeff_stats.get("variance_sum", float("nan"))
                     self.logger.debug(
-                        "epoch %d step %d loss %.5f snr_schedule %.1f snr_effective %.1f amp_mae %.5f phase_mae %.5f",
+                        "epoch %d step %d loss %.5f snr_theory %.3f snr_emp %.3f snr_rel %.3f var_sum %.4f",
                         epoch,
                         step,
                         outcome.loss,
-                        snr_schedule,
-                        snr_effective,
-                        outcome.fft_feedback.get("amplitude_mae", float("nan")),
-                        outcome.fft_feedback.get("phase_mae", float("nan")),
-                    )
-                    self.logger.debug(
-                        "spectral noise stats: snr_ratio=%.3f mean=%.3f std=%.3f",
-                        snr_ratio_value if snr_ratio_value is not None else float("nan"),
-                        mean_val if mean_val is not None else float("nan"),
-                        std_val if std_val is not None else float("nan"),
+                        snr_theory,
+                        snr_emp,
+                        snr_rel,
+                        variance_sum,
                     )
 
                 if (
@@ -307,10 +285,6 @@ class TrainingPipeline:
             f"batch_{key}_mean": (mean(vals) if vals else None)
             for key, vals in batch_history.items()
         }
-        weight_means = {
-            f"snr_weight_{key}_mean": (mean(vals) if vals else None)
-            for key, vals in weight_history.items()
-        }
         metrics = compute_basic_metrics(
             loss_history=loss_history,
             mae_history=mae_history,
@@ -350,12 +324,6 @@ class TrainingPipeline:
                     if vals
                 },
                 **batch_means,
-                **{
-                    f"snr_weight_{key}_history": [float(v) for v in vals]
-                    for key, vals in weight_history.items()
-                    if vals
-                },
-                **weight_means,
             },
         )
         diagnostics.finalise()
@@ -424,26 +392,17 @@ class TrainingPipeline:
         if self._step_executor is None:
             diffusion_cfg = self.config.get("diffusion", {}) or {}
             prediction_type = diffusion_cfg.get("prediction_type", "eps")
-            snr_weighting = diffusion_cfg.get("snr_weighting")
-            snr_transform = str(diffusion_cfg.get("snr_transform", "snr"))
             fft_norm = (
                 getattr(self._noise_preparer, "fft_norm", None)
                 or str(diffusion_cfg.get("fft_norm", "ortho"))
             )
-            lambda_var = float(diffusion_cfg.get("lambda_var", 7e-4))
             self._step_executor = TrainingStepExecutor(
                 model=self.model,
                 optimizer=self.optimizer,
                 loss_fn=self.loss_fn,
                 prediction_type=str(prediction_type),
-                snr_weighting=snr_weighting,
-                snr_transform=snr_transform,
                 fft_norm=str(fft_norm),
-                lambda_var=lambda_var,
             )
-            marker = getattr(self.loss_fn, "residual_marker", None)
-            if callable(marker):
-                self.logger.info(marker())
 
 
     def generate_samples(

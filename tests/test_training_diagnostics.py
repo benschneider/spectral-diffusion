@@ -125,13 +125,9 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
             "amplitude_low_mae": 0.15,
         },
     )
-    diagnostics.record_coeff_stats(1, {"timestep_mean": 3.0, "snr_schedule_mean": 1.5})
+    diagnostics.record_coeff_stats(1, {"timestep_mean": 3.0, "snr_theory": 1.5})
     diagnostics.record_batch_stats(1, {"prediction_mean": 0.1, "target_std": 0.05})
-    diagnostics.record_weight_stats(
-        1,
-        {"snr_weight_mean_weight": 0.2, "snr_weight_max_weight": 0.4},
-    )
-    diagnostics.record_noise_stats(1, {"snr_ratio": 1.0, "fft_corr": 0.8})
+    diagnostics.record_noise_stats(1, {"snr_theory": 1.2, "snr_emp": 1.1, "snr_rel": 0.95, "variance_sum": 1.0})
 
     diagnostics.finalise()
 
@@ -167,9 +163,6 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     assert batch_file.exists()
     assert (spectral_dir / "diffusion_coefficients_demo.json").exists()
     assert (spectral_dir / "batch_signal_stats_demo.json").exists()
-    weights_file = diagnostics.diagnostics_dir / "snr_weights.json"
-    assert weights_file.exists()
-    assert (spectral_dir / "snr_weights_demo.json").exists()
     noise_stats_file = diagnostics.diagnostics_dir / "noise_stats.json"
     assert noise_stats_file.exists()
     assert (spectral_dir / "noise_stats_demo.json").exists()

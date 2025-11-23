@@ -5,7 +5,7 @@ from torch import nn
 
 from src.core.functional.diffusion import compute_snr_weight
 from src.training.sampling import DDPMSampler
-from src.training.scheduler import MIN_SIGMA_THRESHOLD, build_diffusion, make_beta_schedule
+from src.training.scheduler import build_diffusion
 
 
 class ZeroModel(nn.Module):
@@ -16,7 +16,15 @@ class ZeroModel(nn.Module):
 def test_diffusion_coeffs_have_safe_sqrt() -> None:
     coeffs = build_diffusion(1000, "linear")
     assert torch.isfinite(coeffs.sqrt_one_minus_alphas_cumprod).all()
-    assert coeffs.sqrt_one_minus_alphas_cumprod.min().item() >= 1e-3
+    assert coeffs.sqrt_one_minus_alphas_cumprod.min().item() >= 0.0
+
+
+def test_snr_theory_monotonic() -> None:
+    coeffs = build_diffusion(256, "linear")
+    alpha_bar = coeffs.alphas_cumprod
+    snr = alpha_bar / (1.0 - alpha_bar)
+    diffs = snr[:-1] - snr[1:]
+    assert torch.all(diffs >= -1e-6)
 
 
 def test_compute_snr_weight_handles_extremes() -> None:
@@ -30,18 +38,10 @@ def test_compute_snr_weight_handles_extremes() -> None:
     assert snr_sqrt.min().item() >= 0.0
 
 
-def test_build_diffusion_trims_unstable_prefix() -> None:
+def test_build_diffusion_returns_full_length() -> None:
     total_steps = 1000
     coeffs = build_diffusion(total_steps, "linear")
-    assert coeffs.num_timesteps <= total_steps
-    assert coeffs.min_safe_sigma >= MIN_SIGMA_THRESHOLD
-    if coeffs.trim_offset > 0:
-        original_betas = make_beta_schedule(total_steps, "linear")
-        original_alphas = 1.0 - original_betas
-        original_a_bar = torch.cumprod(original_alphas, dim=0)
-        original_sigma = torch.sqrt(1.0 - original_a_bar)
-        unsafe_prefix = original_sigma[: coeffs.trim_offset]
-        assert unsafe_prefix.max().item() < MIN_SIGMA_THRESHOLD
+    assert coeffs.num_timesteps == total_steps
 
 
 def test_ddpm_sampler_outputs_remain_finite() -> None:

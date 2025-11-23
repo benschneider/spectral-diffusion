@@ -6,10 +6,7 @@ from typing import Dict, Optional
 
 import torch
 
-from src.core.numeric import safe_clamp, safe_ratio, safe_sqrt
-
-
-MIN_SIGMA_THRESHOLD = 0.03
+from src.core.numeric import safe_ratio, safe_sqrt
 
 
 @dataclass
@@ -20,9 +17,7 @@ class DiffusionCoeffs:
     alphas_cumprod_prev: torch.Tensor
     sqrt_alphas_cumprod: torch.Tensor
     sqrt_one_minus_alphas_cumprod: torch.Tensor
-    min_safe_sigma: float
     num_timesteps: int
-    trim_offset: int
 
 
 def make_beta_schedule(T: int, kind: str = "linear") -> torch.Tensor:
@@ -87,36 +82,25 @@ def build_diffusion(
             lambda_max=float(schedule_kwargs.get("lambda_max", 13.0)),
             delta=float(schedule_kwargs.get("delta", 0.008)),
         )
-        original_a_bar = schedule["alpha"].to(torch.float32)
-        original_sigma = schedule["sigma"].to(torch.float32)
-        original_betas = None
+        a_bar = schedule["alpha"].to(torch.float32)
+        betas = None
     else:
-        original_betas = make_beta_schedule(T, lower_kind)
-        original_alphas = 1.0 - original_betas
-        original_a_bar = torch.cumprod(original_alphas, dim=0)
-        original_sigma = safe_sqrt(safe_clamp(1.0 - original_a_bar, min_value=1e-8))
+        betas = make_beta_schedule(T, lower_kind)
+        alphas = 1.0 - betas
+        a_bar = torch.cumprod(alphas, dim=0)
 
-    eligible = torch.nonzero(original_sigma >= MIN_SIGMA_THRESHOLD, as_tuple=False)
-    trim_offset = int(eligible[0].item()) if eligible.numel() > 0 else 0
-
-    if trim_offset > 0:
-        a_bar = original_a_bar[trim_offset:]
-    else:
-        a_bar = original_a_bar
-
-    alphas = torch.empty_like(a_bar)
     if a_bar.numel() == 0:
         raise ValueError("Diffusion schedule produced no valid timesteps")
+    alphas = torch.empty_like(a_bar)
     alphas[0] = a_bar[0]
     if a_bar.numel() > 1:
         alphas[1:] = safe_ratio(a_bar[1:], a_bar[:-1])
 
-    betas = 1.0 - alphas
+    if betas is None:
+        betas = 1.0 - alphas
     a_bar_prev = torch.cat([torch.tensor([1.0], dtype=a_bar.dtype), a_bar[:-1]], dim=0)
-    sqrt_alphas = safe_sqrt(safe_clamp(a_bar, min_value=1e-12, max_value=1.0))
-    sqrt_one_minus = safe_sqrt(safe_clamp(1.0 - a_bar, min_value=1e-6))
-
-    min_safe_sigma = float(sqrt_one_minus.min().item())
+    sqrt_alphas = safe_sqrt(a_bar.clamp(min=0.0, max=1.0))
+    sqrt_one_minus = safe_sqrt((1.0 - a_bar).clamp(min=0.0, max=1.0))
 
     return DiffusionCoeffs(
         betas=betas,
@@ -125,9 +109,7 @@ def build_diffusion(
         alphas_cumprod_prev=a_bar_prev,
         sqrt_alphas_cumprod=sqrt_alphas,
         sqrt_one_minus_alphas_cumprod=sqrt_one_minus,
-        min_safe_sigma=min_safe_sigma,
         num_timesteps=int(betas.shape[0]),
-        trim_offset=trim_offset,
     )
 
 

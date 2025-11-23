@@ -5,13 +5,13 @@ from typing import Any, Dict, Mapping, Optional
 
 import torch
 
-from src.core.numeric import safe_clamp
 from src.spectral.fft_adapter import add_uniform_frequency_noise
 
 
-ALPHA_MIN = 0.01
-ALPHA_MAX = 0.999
-SIGMA_MIN = 1e-4
+def _per_sample_variance(tensor: torch.Tensor) -> torch.Tensor:
+    dims = tuple(range(1, tensor.ndim)) if tensor.ndim > 1 else ()
+    centered = tensor - tensor.mean(dim=dims, keepdim=True)
+    return centered.pow(2).mean(dim=dims, keepdim=True)
 
 
 @dataclass
@@ -24,6 +24,9 @@ class NoiseBatch:
     sqrt_one_minus_alpha_t: torch.Tensor
     stats: Dict[str, float]
     eps_norm: float
+    snr_theory: Optional[torch.Tensor] = None
+    snr_emp: Optional[torch.Tensor] = None
+    snr_rel: Optional[torch.Tensor] = None
 
 
 class NoisePreparer:
@@ -32,78 +35,32 @@ class NoisePreparer:
     def __init__(
         self,
         *,
-        uniform_corruption: bool,
-        uniform_corruption_scale: float,
-        corruption_mode: str,
-        phase_std: float,
-        target_corr: Optional[float],
-        adaptive_rescale: bool,
-        fft_norm: str,
-        snr_ratio: Optional[float],
-        freq_equalized_noise: bool,
-        snr_scale_min: Optional[float],
-        snr_scale_max: Optional[float],
+        operator_mode: str,
+        snr_ratio: float,
+        mask_params: Optional[Mapping[str, Any]] = None,
     ) -> None:
-        self.uniform_corruption = bool(uniform_corruption)
-        self.uniform_corruption_scale = float(uniform_corruption_scale)
-        self.corruption_mode = str(corruption_mode)
-        self.phase_std = float(phase_std)
-        self.target_corr = target_corr
-        self.adaptive_rescale = bool(adaptive_rescale)
-        self.fft_norm = str(fft_norm)
-        self.snr_ratio = snr_ratio
-        self.freq_equalized_noise = bool(freq_equalized_noise)
-        self.snr_scale_min = snr_scale_min
-        self.snr_scale_max = snr_scale_max
+        self.operator_mode = str(operator_mode or "none")
+        self.snr_ratio = float(snr_ratio) if snr_ratio else 1.0
+        self.mask_params = dict(mask_params or {})
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any]) -> "NoisePreparer":
         diffusion_cfg: Mapping[str, Any] = config.get("diffusion", {}) or {}
         spectral_cfg: Mapping[str, Any] = config.get("spectral", {}) or {}
-
-        uniform_corruption = diffusion_cfg.get(
-            "uniform_corruption",
-            spectral_cfg.get("uniform_corruption", False),
+        operator_mode = diffusion_cfg.get(
+            "spectral_operator_mode",
+            spectral_cfg.get("operator_mode", "none"),
         )
-        strength = diffusion_cfg.get(
-            "uniform_corruption_scale",
-            spectral_cfg.get("uniform_corruption_scale", 1.0),
+        snr_ratio = diffusion_cfg.get(
+            "snr_ratio",
+            spectral_cfg.get("snr_ratio", 1.0),
         )
-        corruption_mode = diffusion_cfg.get(
-            "corruption_mode",
-            spectral_cfg.get("corruption_mode", "magnitude"),
-        )
-        phase_std = diffusion_cfg.get("phase_std", spectral_cfg.get("phase_std", 0.0))
-        target_corr = diffusion_cfg.get(
-            "similarity_target",
-            spectral_cfg.get("similarity_target"),
-        )
-        adaptive_rescale = diffusion_cfg.get(
-            "adaptive_rescale",
-            spectral_cfg.get("adaptive_rescale", False),
-        )
-        fft_norm = diffusion_cfg.get("fft_norm", spectral_cfg.get("fft_norm", "ortho"))
-        snr_ratio = diffusion_cfg.get("snr_ratio", spectral_cfg.get("snr_ratio"))
-        if snr_ratio is not None:
-            snr_ratio = float(snr_ratio)
-        freq_equalized = bool(spectral_cfg.get("freq_equalized_noise", False))
-        snr_scale_min = diffusion_cfg.get("snr_scale_min", None)
-        snr_scale_max = diffusion_cfg.get("snr_scale_max", None)
-        snr_scale_min = float(snr_scale_min) if snr_scale_min is not None else None
-        snr_scale_max = float(snr_scale_max) if snr_scale_max is not None else None
+        mask_params = spectral_cfg.get("operator_mask_params")
 
         return cls(
-            uniform_corruption=bool(uniform_corruption),
-            uniform_corruption_scale=float(strength),
-            corruption_mode=str(corruption_mode),
-            phase_std=float(phase_std),
-            target_corr=float(target_corr) if target_corr is not None else None,
-            adaptive_rescale=bool(adaptive_rescale),
-            fft_norm=str(fft_norm),
-            snr_ratio=snr_ratio,
-            freq_equalized_noise=freq_equalized,
-            snr_scale_min=snr_scale_min,
-            snr_scale_max=snr_scale_max,
+            operator_mode=str(operator_mode or "none"),
+            snr_ratio=float(snr_ratio),
+            mask_params=mask_params,
         )
 
     def prepare(
@@ -118,36 +75,30 @@ class NoisePreparer:
         sqrt_alpha_t = (
             coeffs.sqrt_alphas_cumprod[timesteps].view(batch_size, 1, 1, 1).to(device)
         )
-        sqrt_alpha_t = safe_clamp(sqrt_alpha_t, min_value=ALPHA_MIN, max_value=ALPHA_MAX)
         sqrt_one_minus_alpha_t = (
             coeffs.sqrt_one_minus_alphas_cumprod[timesteps]
             .view(batch_size, 1, 1, 1)
             .to(device)
         )
-        sqrt_one_minus_alpha_t = safe_clamp(
-            sqrt_one_minus_alpha_t, min_value=SIGMA_MIN
-        )
 
         noise = base_noise if base_noise is not None else torch.randn_like(clean_batch)
-        stats: Dict[str, float] = {}
         noisy, eps = add_uniform_frequency_noise(
             clean_batch,
             noise,
             sqrt_alpha_t=sqrt_alpha_t,
             sqrt_one_minus_alpha_t=sqrt_one_minus_alpha_t,
-            uniform_corruption=self.uniform_corruption,
-            strength=self.uniform_corruption_scale,
-            mode=self.corruption_mode,
-            phase_std=self.phase_std,
-            target_corr=self.target_corr,
-            adaptive_rescale=self.adaptive_rescale,
-            stats=stats,
-            fft_norm=self.fft_norm,
+            operator_mode=self.operator_mode,
+            mask_params=self.mask_params,
             snr_ratio=self.snr_ratio,
-            freq_equalized_noise=self.freq_equalized_noise,
-            snr_scale_min=self.snr_scale_min,
-            snr_scale_max=self.snr_scale_max,
             return_noise=True,
+        )
+
+        stats, snr_theory_tensor, snr_emp_tensor, snr_rel_tensor = self._compute_stats(
+            clean_batch,
+            sqrt_alpha_t,
+            sqrt_one_minus_alpha_t,
+            eps,
+            noisy,
         )
 
         eps_norm = float(
@@ -163,4 +114,45 @@ class NoisePreparer:
             sqrt_one_minus_alpha_t=sqrt_one_minus_alpha_t,
             stats=stats,
             eps_norm=eps_norm,
+            snr_theory=snr_theory_tensor,
+            snr_emp=snr_emp_tensor,
+            snr_rel=snr_rel_tensor,
         )
+
+    def _compute_stats(
+        self,
+        clean_batch: torch.Tensor,
+        sqrt_alpha_t: torch.Tensor,
+        sqrt_one_minus_alpha_t: torch.Tensor,
+        eps: torch.Tensor,
+        noisy: torch.Tensor,
+    ) -> tuple[Dict[str, float], torch.Tensor, torch.Tensor, torch.Tensor]:
+        alpha_bar = sqrt_alpha_t.pow(2)
+        sigma_sq = (1.0 - alpha_bar).clamp_min(1e-8)
+        snr_theory = alpha_bar / sigma_sq
+
+        signal_component = sqrt_alpha_t * clean_batch
+        noise_component = noisy - signal_component
+
+        signal_var = _per_sample_variance(signal_component)
+        noise_var = _per_sample_variance(noise_component)
+
+        snr_emp = signal_var / (noise_var + 1e-8)
+        snr_rel = snr_emp / (snr_theory + 1e-8)
+        variance_sum = signal_var + noise_var
+
+        channel_dims = tuple(range(2, noise_component.ndim))
+        if channel_dims:
+            channel_std = noise_component.std(dim=channel_dims, unbiased=False)
+        else:
+            channel_std = noise_component
+
+        stats = {
+            "snr_theory": float(snr_theory.mean().item()),
+            "snr_emp": float(snr_emp.mean().item()),
+            "snr_rel": float(snr_rel.mean().item()),
+            "variance_sum": float(variance_sum.mean().item()),
+            "noise_channel_std_min": float(channel_std.min().item()),
+            "noise_channel_std_max": float(channel_std.max().item()),
+        }
+        return stats, snr_theory, snr_emp, snr_rel

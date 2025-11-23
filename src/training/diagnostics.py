@@ -4,7 +4,8 @@ import shutil
 import json
 import csv
 import math
-from collections import defaultdict, deque
+import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
@@ -103,8 +104,6 @@ class TrainingDiagnostics:
         self.coeff_history: Dict[str, list[float]] = defaultdict(list)
         self.batch_steps: list[int] = []
         self.batch_history: Dict[str, list[float]] = defaultdict(list)
-        self.weight_steps: list[int] = []
-        self.weight_history: Dict[str, list[float]] = defaultdict(list)
 
         self._initial_batch_captured = False
         self._noisy_capture_done = False
@@ -205,6 +204,20 @@ class TrainingDiagnostics:
         for key, value in stats.items():
             if isinstance(value, (int, float)):
                 self.noise_stats_history[key].append(float(value))
+        variance_sum = stats.get("variance_sum")
+        if isinstance(variance_sum, (int, float)) and abs(float(variance_sum) - 1.0) > 1e-3:
+            logging.warning(
+                "[Diagnostics] variance_sum drift detected: step=%d variance_sum=%.6f",
+                step,
+                float(variance_sum),
+            )
+        snr_rel = stats.get("snr_rel")
+        if isinstance(snr_rel, (int, float)) and not 0.3 <= float(snr_rel) <= 3.0:
+            logging.warning(
+                "[Diagnostics] snr_rel out of range: step=%d snr_rel=%.6f",
+                step,
+                float(snr_rel),
+            )
 
     def record_fft_feedback(self, step: int, feedback: Mapping[str, float]) -> None:
         self.fft_feedback_steps.append(step)
@@ -220,11 +233,6 @@ class TrainingDiagnostics:
         self.batch_steps.append(step)
         for key, value in stats.items():
             self.batch_history[key].append(float(value))
-
-    def record_weight_stats(self, step: int, stats: Mapping[str, float]) -> None:
-        self.weight_steps.append(step)
-        for key, value in stats.items():
-            self.weight_history[key].append(float(value))
 
     def record_gradients(self, model: nn.Module, step: int) -> Optional[float]:
         total_norm_sq = 0.0
@@ -311,17 +319,6 @@ class TrainingDiagnostics:
                     factor_dir / f"batch_signal_stats_{self.run_id}.json",
                 )
 
-        if self.weight_history:
-            payload = {"steps": self.weight_steps}
-            for key, values in self.weight_history.items():
-                payload[key] = values
-                payload[f"{key}_mean"] = mean(values) if values else None
-            target = self.diagnostics_dir / "snr_weights.json"
-            with target.open("w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2)
-            for factor, factor_dir in self.aggregator.iter_factor_dirs():
-                shutil.copy(target, factor_dir / f"snr_weights_{self.run_id}.json")
-
         if self.noise_stats_history:
             payload = {"steps": self.noise_stats_steps}
             for key, values in self.noise_stats_history.items():
@@ -341,80 +338,41 @@ class TrainingDiagnostics:
             shutil.copy(stability_csv, aggregate_target)
 
     def _export_stability_metrics(self) -> Optional[Path]:
-        if not self.coeff_steps:
+        if not self.noise_stats_steps:
             return None
 
         header = [
             "step",
-            "snr_schedule",
-            "snr_max",
-            "snr_raw_max",
-            "snr_effective",
-            "overflow_count",
-            "overflow_rate_per_1k",
-            "overflow_ema",
-            "prediction_std",
-            "prediction_std_ratio",
-            "variance_ratio",
-            "variance_penalty",
-            "pred_noise_std",
-            "true_noise_std",
-            "spectral_pressure",
+            "snr_theory",
+            "snr_emp",
+            "snr_rel",
+            "variance_sum",
+            "grad_norm",
+            "noise_channel_std_min",
+            "noise_channel_std_max",
         ]
-
-        def coeff_value(key: str, idx: int) -> float:
-            values = self.coeff_history.get(key, [])
-            if idx < len(values):
-                return float(values[idx])
-            return math.nan
-
-        def batch_value(key: str, idx: int) -> float:
-            values = self.batch_history.get(key, [])
-            if idx < len(values):
-                return float(values[idx])
-            return math.nan
-
-        window = deque()
-        window_sum = 0.0
-        window_size = 1000
+        grad_lookup = {
+            step: value for step, value in zip(self.grad_norm_steps, self.grad_norm_history)
+        }
+        keys = (
+            "snr_theory",
+            "snr_emp",
+            "snr_rel",
+            "variance_sum",
+            "noise_channel_std_min",
+            "noise_channel_std_max",
+        )
 
         with self.stability_csv_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(header)
-            for idx, step in enumerate(self.coeff_steps):
-                overflow_count = coeff_value("overflow_count", idx)
-                if math.isnan(overflow_count):
-                    overflow_count = 0.0
-                window.append((step, overflow_count))
-                window_sum += overflow_count
-                while window and (step - window[0][0]) >= window_size:
-                    _, count = window.popleft()
-                    window_sum -= count
-                if window:
-                    steps_span = max(1.0, float(step - window[0][0] + 1))
-                else:
-                    steps_span = 1.0
-                overflow_rate = (
-                    window_sum / steps_span * window_size if steps_span > 0 else math.nan
-                )
-
-                row = [
-                    step,
-                    coeff_value("snr_schedule_mean", idx),
-                    coeff_value("snr_max", idx),
-                    coeff_value("snr_raw_max", idx),
-                    coeff_value("snr_effective", idx),
-                    overflow_count,
-                    overflow_rate,
-                    coeff_value("overflow_ema", idx),
-                    batch_value("prediction_std", idx),
-                    batch_value("prediction_std_ratio", idx),
-                    batch_value("variance_ratio", idx),
-                    batch_value("variance_penalty", idx),
-                    batch_value("pred_noise_std_centered", idx),
-                    batch_value("true_noise_std_centered", idx),
-                    batch_value("spectral_pressure", idx),
-                ]
+            for idx, step in enumerate(self.noise_stats_steps):
+                row = [step]
+                for key in keys:
+                    values = self.noise_stats_history.get(key, [])
+                    row.append(values[idx] if idx < len(values) else math.nan)
+                grad_value = grad_lookup.get(step, math.nan)
+                row.insert(5, grad_value)
                 writer.writerow(row)
 
         return self.stability_csv_path

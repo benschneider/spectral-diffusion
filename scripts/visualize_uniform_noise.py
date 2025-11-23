@@ -61,6 +61,19 @@ def _parse_args() -> argparse.Namespace:
         help="Noise modes to visualise (default: gaussian uniform).",
     )
     parser.add_argument(
+        "--operator-mode",
+        type=str,
+        default="radial",
+        choices=["none", "radial", "radial_squared"],
+        help="Spectral operator mode to apply when rendering uniform noise.",
+    )
+    parser.add_argument(
+        "--snr-ratio",
+        type=float,
+        default=1.0,
+        help="Scaling ratio applied after shaping (default: 1.0).",
+    )
+    parser.add_argument(
         "--beta",
         type=float,
         default=None,
@@ -83,11 +96,6 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Random seed for reproducibility.",
-    )
-    parser.add_argument(
-        "--freq-equalized",
-        action="store_true",
-        help="Force frequency-equalised noise even when no config is provided.",
     )
     return parser.parse_args()
 
@@ -152,8 +160,8 @@ def main() -> None:
 
     noise = torch.randn_like(x0)
 
-    uniform_scale = 1.0
-    freq_equalized = bool(args.freq_equalized)
+    operator_mode = args.operator_mode
+    snr_ratio = float(args.snr_ratio)
     if args.config is not None:
         with args.config.open("r", encoding="utf-8") as handle:
             cfg = yaml.safe_load(handle) or {}
@@ -170,13 +178,16 @@ def main() -> None:
                 if key in logsnr_cfg and key not in schedule_kwargs:
                     schedule_kwargs[key] = float(logsnr_cfg[key])
         spectral_cfg = cfg.get("spectral", {}) or {}
-        uniform_scale = float(
+        operator_mode = diffusion_cfg.get(
+            "spectral_operator_mode",
+            spectral_cfg.get("operator_mode", operator_mode),
+        )
+        snr_ratio = float(
             diffusion_cfg.get(
-                "uniform_corruption_scale",
-                spectral_cfg.get("uniform_corruption_scale", 1.0),
+                "snr_ratio",
+                spectral_cfg.get("snr_ratio", snr_ratio),
             )
         )
-        freq_equalized = bool(spectral_cfg.get("freq_equalized_noise", freq_equalized))
         coeffs = build_diffusion(num_steps, schedule, schedule_kwargs)
         effective_steps = coeffs.num_timesteps
         if args.t_index is not None:
@@ -218,9 +229,8 @@ def main() -> None:
             noise,
             sqrt_alpha_t=sqrt_alpha_t,
             sqrt_one_minus_alpha_t=sqrt_one_minus_t,
-            uniform_corruption=True,
-            strength=uniform_scale,
-            freq_equalized_noise=freq_equalized,
+            operator_mode=operator_mode,
+            snr_ratio=snr_ratio,
             return_noise=True,
         )
         results["uniform"] = (x_uniform, noise_uniform)
@@ -234,13 +244,11 @@ def main() -> None:
         save_image(_to_image(corr_diff), output_dir / "corrupted_difference_uniform_minus_gaussian.png")
 
     height, width = x0.shape[-2], x0.shape[-1]
-    fy = torch.fft.fftfreq(height, d=1.0)
-    fx = torch.fft.fftfreq(width, d=1.0)
-    yy = fy[:, None]
-    xx = fx[None, :]
-    radius = torch.sqrt(xx**2 + yy**2)
-    nonzero = radius[radius > 0]
-    base_radius = float(nonzero.min().item()) if nonzero.numel() > 0 else 0.0
+    mask_power = 0
+    if operator_mode == "radial":
+        mask_power = 1
+    elif operator_mode == "radial_squared":
+        mask_power = 2
 
     md_lines = [
         "## Noise Definitions",
@@ -250,22 +258,30 @@ def main() -> None:
         f"- sqrt_one_minus_alpha = {sqrt_one_minus:.6f}",
         "",
         "### Gaussian (baseline) noise",
-        "- Formulation: $x_t = \\sqrt{\\alpha_t} \\, x_0 + \\sqrt{1-\\alpha_t} \\, \\varepsilon$, "
+        "- Formulation: $x_t = \\sqrt{\\alpha_t} \\, x_0 + \\sqrt{1-\\alpha_t} \\, \\varepsilon$, ",
         "with $\\varepsilon \\sim \\mathcal{N}(0, I)$ sampled i.i.d. per pixel.",
         "",
-        "### Uniform spectral noise",
-        "- For FFT frequency indices $(k, \\ell)$, define $r(k, \\ell) = \\sqrt{(k/H)^2 + (\\ell/W)^2}$.",
-        f"- Let $r_\\text{{min}} = \\min_{{r>0}} r(k, \\ell) = {base_radius:.6e}$. The mask is ",
-        "  $m(k, \\ell) = \\sqrt{\\left(\\frac{r(k, \\ell)}{r_\\text{min}}\\right)^2 + 1}$ with the DC bin "
-        "  $m(0,0)$ set to $1.0$.",
-        "- The noise FFT is scaled by this mask prior to the inverse FFT so that higher frequencies receive "
-        "  proportionally more energy while the DC component remains bounded.",
-        "",
-        "### Saved figures",
-        "- `noise_gaussian.png`, `corrupted_gaussian.png`",
-        "- `noise_uniform.png`, `corrupted_uniform.png`",
-        "- `noise_difference_uniform_minus_gaussian.png`, `corrupted_difference_uniform_minus_gaussian.png`",
+        "### Spectral operator noise",
+        f"- Mode: `{operator_mode}` with snr_ratio={snr_ratio:.6f}.",
     ]
+    if mask_power > 0:
+        md_lines.extend(
+            [
+                f"- Reciprocal-radius mask with exponent $p={mask_power}$ and DC bin reset to 1.0.",
+                "- Shaped noise is renormalised to unit RMS in the spatial domain before mixing.",
+            ]
+        )
+    else:
+        md_lines.append("- Operator mode 'none' preserves Gaussian noise after RMS normalisation.")
+    md_lines.extend(
+        [
+            "",
+            "### Saved figures",
+            "- `noise_gaussian.png`, `corrupted_gaussian.png`",
+            "- `noise_uniform.png`, `corrupted_uniform.png`",
+            "- `noise_difference_uniform_minus_gaussian.png`, `corrupted_difference_uniform_minus_gaussian.png`",
+        ]
+    )
     (output_dir / "noise_definitions.md").write_text("\n".join(md_lines), encoding="utf-8")
 
     print(f"Saved visualisations to {output_dir}")
