@@ -15,7 +15,7 @@ def _design_matrix() -> pd.DataFrame:
 
 def test_factor_registry_loads_levels():
     registry = load_factor_registry(Path("configs/taguchi/factor_registry.yaml"))
-    assert "spectral_adapter_placement" in registry
+    assert "spectral_operator_mode" in registry
     assert registry["snr_ratio"]["levels"] == [0.8, 1.0, 1.4]
 
 
@@ -51,10 +51,8 @@ def test_runner_builds_config_from_row():
     row = runner.design.iloc[0]
     config = runner._build_config_from_row(row=row, row_number=int(row["run"]))
 
-    assert config["spectral"]["apply_to"] == []
-    assert config["spectral"]["weighting"] == "none"
-    assert config["diffusion"]["uniform_corruption"] is False
-    assert config["model"]["enable_phase_attention"] is False
+    assert config["spectral"]["operator_mode"] in {"none", "radial", "radial_squared"}
+    assert config["diffusion"]["spectral_operator_mode"] == config["spectral"]["operator_mode"]
     assert config["sampling"]["sampler_type"] == "ddim"
     assert config["sampling"]["num_steps"] == 30
     assert config["training"]["num_batches"] == 50
@@ -63,7 +61,7 @@ def test_runner_builds_config_from_row():
 
     taguchi_meta = config["taguchi"]
     assert taguchi_meta["row_number"] == 1
-    assert taguchi_meta["factor_levels"]["spectral_adapter_placement"]["level_label"] == "none"
+    assert taguchi_meta["factor_levels"]["spectral_operator_mode"]["level_label"] is not None
     assert set(taguchi_meta["factor_mapping"].values()) == set(registry.keys())
 
 

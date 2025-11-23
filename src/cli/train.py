@@ -190,14 +190,8 @@ def train_from_config(
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # allow all levels
 
-    # Console handler at WARNING level, but filter out AdaptiveSNR and OverflowHandler
-    class ConsoleFilter(logging.Filter):
-        def filter(self, record):
-            return record.name not in ('AdaptiveSNR', 'OverflowHandler')
-
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.WARNING)
-    console_handler.addFilter(ConsoleFilter())
     console_formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
@@ -222,15 +216,7 @@ def train_from_config(
     run_identifier = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     dirs = ensure_directories(output_dir=output_dir, run_id=run_identifier)
 
-    # Dual-channel logging for detailed diagnostics
     log_dir = dirs["logs_dir"]
-    adaptive_handler = logging.FileHandler(log_dir / "adaptive_snr.log")
-    adaptive_handler.setLevel(logging.WARNING)
-    logging.getLogger("AdaptiveSNR").addHandler(adaptive_handler)
-
-    overflow_handler = logging.FileHandler(log_dir / "overflow_handler.log")
-    overflow_handler.setLevel(logging.ERROR)
-    logging.getLogger("OverflowHandler").addHandler(overflow_handler)
     summary_path = output_dir / "summary.csv"
 
     config_copy_path = dirs["run_dir"] / "config.yaml"

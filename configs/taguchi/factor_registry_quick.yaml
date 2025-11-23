@@ -1,34 +1,13 @@
 factors:
-  spectral_adapter_placement:
-    description: Toggle spectral adapter insertion points in the UNet.
-    levels: ["none", "input_only", "input_and_output"]
-  spectral_loss_weighting:
-    description: Loss weighting emphasis for high-frequency reconstruction.
-    levels: ["none", "radial_highfreq", "aggressive_highfreq"]
-  spectral_noise_shaping_strength:
-    description: Forward-process frequency corruption strength.
-    levels: ["off", "mild_equalize", "strong_equalize"]
-  snr_weighting_mode:
-    description: Loss SNR weighting strategy (off/static/adaptive).
-    levels: ["off", "static", "adaptive"]
   snr_ratio:
     description: Signal-to-noise target for spectral corruption scaling.
     levels: [0.8, 1.0, 1.4]
-  snr_scale_clamp:
-    description: Whether to clamp spectral SNR scaling (None/default/wide).
-    levels: ["off", "default", "wide"]
-  phase_attention_capacity:
-    description: Phase correction module capacity (attention heads).
-    levels: ["off", "tiny", "full"]
+  spectral_operator_mode:
+    description: Spectral shaping operator applied to noise.
+    levels: ["none", "radial", "radial_squared"]
   sampler_type:
     description: Reverse sampler choice.
-    levels: ["ddim", "dpm_solver_pp", "spectral_guided"]
+    levels: ["ddim", "dpm_solver_pp"]
   sampling_steps:
     description: Number of denoising steps during sampling.
     levels: [4, 16, 36]
-  train_steps:
-    description: Training iterations (num_batches) for Taguchi sweep.
-    levels: [50]
-  image_resolution:
-    description: Input spatial resolution applied via resize.
-    levels: [32]

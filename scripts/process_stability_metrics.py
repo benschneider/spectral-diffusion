@@ -108,33 +108,29 @@ def _plot_run(run_id: str, rows: List[Dict[str, float]], noise_stats: Mapping[st
 
     plot_dir.mkdir(parents=True, exist_ok=True)
     steps = [row["step"] for row in rows]
-    snr_mean = [row.get("snr_schedule_mean", math.nan) for row in rows]
-    snr_measured = [row.get("snr_effective", math.nan) for row in rows]
-    overflow_rate = [row.get("overflow_rate_per_1k", math.nan) for row in rows]
-    variance_ratio = [row.get("variance_ratio", math.nan) for row in rows]
-    prediction_std_ratio = [row.get("prediction_std_ratio", math.nan) for row in rows]
+    snr_theory = [row.get("snr_theory", math.nan) for row in rows]
+    snr_emp = [row.get("snr_emp", math.nan) for row in rows]
+    snr_rel = [row.get("snr_rel", math.nan) for row in rows]
+    variance_sum = [row.get("variance_sum", math.nan) for row in rows]
+    grad_norm = [row.get("grad_norm", math.nan) for row in rows]
 
     fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
 
-    axes[0].plot(steps, snr_mean, label="snr_schedule_mean")
-    axes[0].plot(steps, snr_measured, label="snr_effective", linestyle="--")
-    if noise_stats:
-        snr_ratio = noise_stats.get("snr_ratio")
-        if isinstance(snr_ratio, Sequence):
-            axes[0].plot(noise_stats.get("steps", steps), snr_ratio, label="snr_ratio (input)", alpha=0.7)
+    axes[0].plot(steps, snr_theory, label="snr_theory")
+    axes[0].plot(steps, snr_emp, label="snr_emp", linestyle="--")
+    axes[0].plot(steps, snr_rel, label="snr_rel", linestyle=":")
     axes[0].set_ylabel("SNR")
     axes[0].set_title(f"{run_id}: SNR statistics")
     axes[0].legend()
 
-    axes[1].plot(steps, overflow_rate, color="tomato")
-    axes[1].set_ylabel("Overflow / 1k steps")
-    axes[1].set_title("Overflow incidence")
+    axes[1].plot(steps, variance_sum, color="tomato")
+    axes[1].set_ylabel("Variance sum")
+    axes[1].set_title("Variance (signal+noise)")
 
-    axes[2].plot(steps, variance_ratio, label="variance_ratio")
-    axes[2].plot(steps, prediction_std_ratio, label="prediction_std_ratio", linestyle="--")
+    axes[2].plot(steps, grad_norm, label="grad_norm")
     axes[2].set_xlabel("Step")
-    axes[2].set_ylabel("Ratio")
-    axes[2].set_title("Variance diagnostics")
+    axes[2].set_ylabel("Grad norm")
+    axes[2].set_title("Gradient diagnostics")
     axes[2].legend()
 
     fig.tight_layout()

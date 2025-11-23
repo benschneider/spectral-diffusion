@@ -119,50 +119,14 @@ def build_factor_column_mapping(
     return mapping
 
 
-def _apply_adapter_placement(cfg: Dict[str, Any], label: str) -> None:
-    spectral_cfg = cfg.setdefault("spectral", {})
-    placement_map = {
-        "none": [],
-        "input_only": ["input"],
-        "input_and_output": ["input", "output"],
-    }
-    apply_to = placement_map.get(label)
-    if apply_to is None:
-        raise ValueError(f"Unknown spectral_adapter_placement level '{label}'")
-    spectral_cfg["apply_to"] = apply_to
-    spectral_cfg["enabled"] = bool(apply_to)
-
-
-def _apply_loss_weighting(cfg: Dict[str, Any], label: str) -> None:
-    spectral_cfg = cfg.setdefault("spectral", {})
-    spectral_cfg.pop("bandpass_inner", None)
-    spectral_cfg.pop("bandpass_outer", None)
-    if label == "none":
-        spectral_cfg["weighting"] = "none"
-    elif label == "radial_highfreq":
-        spectral_cfg["weighting"] = "radial"
-    elif label == "aggressive_highfreq":
-        spectral_cfg["weighting"] = "bandpass"
-        spectral_cfg.setdefault("bandpass_inner", 0.25)
-        spectral_cfg.setdefault("bandpass_outer", 0.75)
-    else:
-        raise ValueError(f"Unknown spectral_loss_weighting level '{label}'")
-
-
-def _apply_noise_shaping(cfg: Dict[str, Any], label: str) -> None:
+def _apply_spectral_operator_mode(cfg: Dict[str, Any], label: str) -> None:
     diffusion_cfg = cfg.setdefault("diffusion", {})
     spectral_cfg = cfg.setdefault("spectral", {})
-    if label == "off":
-        diffusion_cfg["uniform_corruption"] = False
-        spectral_cfg["freq_equalized_noise"] = False
-    elif label == "mild_equalize":
-        diffusion_cfg["uniform_corruption"] = True
-        spectral_cfg["freq_equalized_noise"] = False
-    elif label == "strong_equalize":
-        diffusion_cfg["uniform_corruption"] = True
-        spectral_cfg["freq_equalized_noise"] = True
-    else:
-        raise ValueError(f"Unknown spectral_noise_shaping_strength level '{label}'")
+    mode = str(label)
+    if mode not in {"none", "radial", "radial_squared"}:
+        raise ValueError(f"Unknown spectral_operator_mode level '{label}'")
+    diffusion_cfg["spectral_operator_mode"] = mode
+    spectral_cfg["operator_mode"] = mode
 
 
 def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> None:
@@ -174,37 +138,6 @@ def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> None:
         raise ValueError(f"snr_ratio level '{label}' is not numeric") from exc
     diffusion_cfg["snr_ratio"] = value
     spectral_cfg["snr_ratio"] = value
-
-
-def _apply_snr_weighting_mode(cfg: Dict[str, Any], label: str) -> None:
-    loss_cfg = cfg.setdefault("loss", {})
-    label = label.lower()
-    if label == "off":
-        loss_cfg["use_weighting"] = False
-        loss_cfg["adaptive_snr"] = False
-    elif label == "static":
-        loss_cfg["use_weighting"] = True
-        loss_cfg["adaptive_snr"] = False
-    elif label == "adaptive":
-        loss_cfg["use_weighting"] = True
-        loss_cfg["adaptive_snr"] = True
-    else:
-        raise ValueError(f"Unknown snr_weighting_mode level '{label}'")
-
-
-def _apply_phase_capacity(cfg: Dict[str, Any], label: str) -> None:
-    model_cfg = cfg.setdefault("model", {})
-    if label == "off":
-        model_cfg["enable_phase_attention"] = False
-        model_cfg["phase_heads"] = 0
-    elif label == "tiny":
-        model_cfg["enable_phase_attention"] = True
-        model_cfg["phase_heads"] = 1
-    elif label == "full":
-        model_cfg["enable_phase_attention"] = True
-        model_cfg["phase_heads"] = 4
-    else:
-        raise ValueError(f"Unknown phase_attention_capacity level '{label}'")
 
 
 def _apply_sampler(cfg: Dict[str, Any], label: str) -> None:
@@ -278,37 +211,9 @@ def _apply_image_resolution(cfg: Dict[str, Any], label: str) -> None:
     data_cfg["width"] = res
 
 
-def _apply_snr_scale_clamp(cfg: Dict[str, Any], label: str) -> None:
-    diffusion_cfg = cfg.setdefault("diffusion", {})
-    spectral_cfg = cfg.setdefault("spectral", {})
-    label = str(label).lower()
-    if label == "off":
-        diffusion_cfg["snr_scale_min"] = None
-        diffusion_cfg["snr_scale_max"] = None
-        spectral_cfg["snr_scale_min"] = None
-        spectral_cfg["snr_scale_max"] = None
-    elif label == "default":
-        diffusion_cfg["snr_scale_min"] = 0.05
-        diffusion_cfg["snr_scale_max"] = 5.0
-        spectral_cfg["snr_scale_min"] = 0.05
-        spectral_cfg["snr_scale_max"] = 5.0
-    elif label == "wide":
-        diffusion_cfg["snr_scale_min"] = 0.01
-        diffusion_cfg["snr_scale_max"] = 8.0
-        spectral_cfg["snr_scale_min"] = 0.01
-        spectral_cfg["snr_scale_max"] = 8.0
-    else:
-        raise ValueError(f"Unknown snr_scale_clamp level '{label}'")
-
-
 _FACTOR_APPLIERS = {
-    "spectral_adapter_placement": _apply_adapter_placement,
-    "spectral_loss_weighting": _apply_loss_weighting,
-    "spectral_noise_shaping_strength": _apply_noise_shaping,
+    "spectral_operator_mode": _apply_spectral_operator_mode,
     "snr_ratio": _apply_snr_ratio,
-    "snr_weighting_mode": _apply_snr_weighting_mode,
-    "snr_scale_clamp": _apply_snr_scale_clamp,
-    "phase_attention_capacity": _apply_phase_capacity,
     "sampler_type": _apply_sampler,
     "sampling_steps": _apply_sampling_steps,
     "curriculum_mode": _apply_curriculum,

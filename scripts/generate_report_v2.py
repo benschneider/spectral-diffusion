@@ -35,7 +35,7 @@ from src.visualization.plots import (
 
 
 PRIMARY_FACTORS_BY_PROFILE = {
-    "snr": ["snr_ratio", "spectral_noise_shaping_strength", "snr_weighting_mode", "spectral_adapter_placement"],
+    "snr": ["snr_ratio", "spectral_operator_mode"],
     "sampler": ["sampler_type", "sampling_steps", "snr_ratio"],
     "curriculum": ["curriculum_mode", "train_steps"],
 }
@@ -135,19 +135,6 @@ def _load_config(config_path: Optional[Path]) -> dict:
         return {}
 
 
-def _derive_weighting_mode(cfg: dict) -> Optional[str]:
-    loss_cfg = cfg.get("loss", {}) if isinstance(cfg, dict) else {}
-    adaptive = loss_cfg.get("adaptive_snr")
-    use_weighting = loss_cfg.get("use_weighting", loss_cfg.get("snr_weighting", None))
-    if adaptive:
-        return "adaptive"
-    if use_weighting is False:
-        return "off"
-    if use_weighting is True:
-        return "static"
-    return None
-
-
 def _extract_run_metadata(row: pd.Series, factor_mapping: dict[str, Any]) -> dict[str, Any]:
     cfg_path = None
     if "config_path" in row and isinstance(row["config_path"], str):
@@ -168,15 +155,14 @@ def _extract_run_metadata(row: pd.Series, factor_mapping: dict[str, Any]) -> dic
     meta["dataset"] = row.get("dataset") or data_cfg.get("source") or data_cfg.get("family") or ""
     meta["architecture"] = (cfg.get("model", {}) or {}).get("type") if isinstance(cfg, dict) else None
     meta["snr_ratio"] = row.get("snr_ratio", diffusion_cfg.get("snr_ratio", spectral_cfg.get("snr_ratio")))
-    meta["spectral_noise_shaping_strength"] = (
-        spectral_cfg.get("noise_shaping_strength")
-        or diffusion_cfg.get("uniform_corruption_scale")
-        or spectral_cfg.get("uniform_corruption")
+    meta["spectral_operator_mode"] = row.get(
+        "spectral_operator_mode",
+        diffusion_cfg.get("spectral_operator_mode", spectral_cfg.get("operator_mode")),
     )
-    meta["snr_weighting_mode"] = _derive_weighting_mode(cfg)
-    meta["spectral_adapter_placement"] = spectral_cfg.get("apply_to")
-    meta["snr_schedule_mean"] = row.get("snr_schedule_mean") or row.get("snr_mean")
-    meta["snr_effective"] = row.get("snr_effective")
+    meta["snr_theory_avg"] = row.get("snr_theory_avg") or row.get("snr_theory")
+    meta["snr_emp_avg"] = row.get("snr_emp_avg") or row.get("snr_emp")
+    meta["snr_rel_avg"] = row.get("snr_rel_avg") or row.get("snr_rel")
+    meta["variance_sum_avg"] = row.get("variance_sum_avg") or row.get("variance_sum")
     meta["initial_loss"] = row.get("loss_initial")
     meta["final_loss"] = row.get("loss_final")
     meta["loss_drop_per_second"] = row.get("loss_drop_per_second")
@@ -188,7 +174,7 @@ def _extract_run_metadata(row: pd.Series, factor_mapping: dict[str, Any]) -> dic
 
     # Attach factor levels when available (Taguchi).
     factors = factor_mapping.get("factors", {}) if isinstance(factor_mapping, dict) else {}
-    for key in ("snr_ratio", "spectral_noise_shaping_strength", "snr_weighting_mode", "spectral_adapter_placement"):
+    for key in ("snr_ratio", "spectral_operator_mode"):
         if key not in meta and key in factors:
             meta[key] = factors[key]
     return meta
@@ -205,11 +191,11 @@ def _format_metadata_block(metas: List[dict[str, Any]]) -> List[str]:
             "dataset",
             "architecture",
             "snr_ratio",
-            "snr_schedule_mean",
-            "snr_effective",
-            "spectral_noise_shaping_strength",
-            "snr_weighting_mode",
-            "spectral_adapter_placement",
+            "spectral_operator_mode",
+            "snr_theory_avg",
+            "snr_emp_avg",
+            "snr_rel_avg",
+            "variance_sum_avg",
             "final_loss",
             "loss_drop_per_second",
             "images_per_second",
@@ -499,11 +485,13 @@ def _write_summary(
             std = var ** 0.5
             return f"{mean:.4f} ± {std:.4f}"
         return f"{mean:.4f}"
-    lines.append(f"- Effective SNR (measured): {_agg('snr_effective')}")
-    lines.append(f"- Schedule SNR (from noise schedule): {_agg('snr_schedule_mean')}")
+    lines.append(f"- Theoretical SNR (schedule): {_agg('snr_theory_avg')}")
+    lines.append(f"- Empirical SNR (measured): {_agg('snr_emp_avg')}")
+    lines.append(f"- Relative SNR (emp/theory): {_agg('snr_rel_avg')}")
+    lines.append(f"- Variance sum (signal+noise): {_agg('variance_sum_avg')}")
     lines.append(f"- User SNR ratio multiplier: {_agg('snr_ratio')}")
     lines.append("")
-    lines.append("SNR definitions: snr_schedule = schedule-implied SNR; snr_effective = post-spectral scaling SNR; snr_ratio = user multiplier.")
+    lines.append("SNR definitions: snr_theory = ᾱ/(1-ᾱ); snr_emp = Var(signal)/Var(noise); snr_rel = snr_emp/snr_theory.")
     lines.append("")
 
     lines.append("## Stability & Convergence")

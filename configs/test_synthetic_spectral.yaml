@@ -23,39 +23,17 @@ diffusion:
   beta_schedule: cosine
   num_timesteps: 1000
   prediction_type: eps
-  snr_transform: snr
-  snr_weighting: true
-  uniform_corruption: true
-  uniform_corruption_scale: 0.15
-  adaptive_rescale: true
-  similarity_target: 0.7
   fft_norm: ortho
+  spectral_operator_mode: radial
   snr_ratio: 1.0
 
 spectral:
-  apply_to:
-    - input
-    - output
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
-  enabled: false
-  freq_equalized_noise: true
-  normalize: true
-  per_block: false
-  weighting: none
-  noise_shaping_strength: off
-  loss_weighting: none
-  uniform_corruption_scale: 0.15
-  adaptive_rescale: true
-  similarity_target: 0.7
-  fft_norm: ortho
+  operator_mode: radial
   snr_ratio: 1.0
 
 loss:
   reduction: mean
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
-  spectral_weighting: none
+  mode: mse
 
 model:
   type: unet_tiny
