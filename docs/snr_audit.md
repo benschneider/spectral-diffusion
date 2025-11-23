@@ -8,18 +8,13 @@
   - Metrics needed: stability (loss curves, grad_norm, SNR_theory vs SNR_emp vs SNR_rel), sample efficiency (loss_drop_per_second, images_per_second), qualitative samples at matched loss.
 - All invariants and refactors should make this comparison clean and interpretable.
 
-## Fresh scan – implementation notes
-- Forward noise: `NoisePreparer.prepare` clamps `sqrt_alpha_t` to [0.01,0.999] and `sqrt_one_minus_alpha_t` to >=1e-4 before calling `add_uniform_frequency_noise`; baseline path multiplies noise by clamped sigma (src/training/noise.py:90-166).
-- Scheduler: `build_diffusion` trims early steps where sigma < 0.03 and recomputes alphas; uses safe_clamp on sigma in construction (src/training/scheduler.py:12-120).
-- Spectral branch: `add_uniform_frequency_noise` applies reciprocal-radius FFT mask (optionally squared), normalizes FFT noise, scales by `strength`, snr_ratio, snr_scale_min/max, and adaptive rescale toward target_corr; phase mode perturbs x0 FFT (src/spectral/fft_adapter.py:125-290).
-- SNR metrics: schedule SNR via `compute_snr_stats` (snr_raw, snr_clamped, snr_weight, log_snr) and effective SNR via `measure_batch_snr` (`snr_effective`) in steps/diagnostics; additional snr_effective/snr_measured/snr_base/snr_ratio_target logged in fft_adapter; snr_schedule trends in debug script.
-- Loss weighting: `DiffusionLoss` uses `compute_snr_stats` with snr_clip, optional spectral adapter on residuals, adaptive weighting via `AdaptiveSNRWeight`; `TrainingStepExecutor` may fallback to `compute_snr_weight` (tanh(log SNR)) when loss_fn lacks weighting signature.
-- Penalties: `TrainingStepExecutor` adds spectral_pressure (ratio of high/low FFT bands) and variance_penalty (lambda_var*(std_pred-std_true)^2); debug script mirrors these.
-- Gradients: main pipeline logs grad_norm only; no clipping. Debug script supports global/ratio clipping and shock handler heuristics.
-- Diagnostics: `TrainingDiagnostics` stability CSV logs snr_schedule_mean/max/raw_max, snr_effective, overflow stats, variance_ratio/penalty, spectral_pressure—no unified snr_emp/snr_rel. Noise stats capture snr_effective/noisy_mean/std, etc.
-- Taguchi factors: registry includes snr_ratio, spectral_noise_shaping_strength, snr_weighting_mode, spectral_adapter_placement, and others; primary profile "snr" in report_v2 relies on these legacy fields.
-- Reporting: generate_report_v2 surfaces snr_ratio, snr_schedule_mean, snr_effective in metadata; no snr_emp/rel. Primary factors include legacy spectral knobs and weighting mode.
-- Spectral adapter: residual FFT weighting with normalization; re-scales outputs to match input std if drift exceeds 3x (src/spectral/adapter.py).
+## Fresh scan – implementation notes (post-unification)
+- Forward noise: `x_t = sqrt(alpha_bar_t) * x0 + sqrt(1-alpha_bar_t) * eps_shaped * (1/snr_ratio)`, where `eps_shaped = spectral_operator(eps_raw, mode)` and RMS(eps_shaped)=1. No per-batch clamping of sqrt_alpha_t or sigma; no trimming of the schedule.
+- Scheduler: `build_diffusion` returns raw `alpha_bar_t` from beta/logSNR schedules without clamping/trimming.
+- Spectral branch: the only shaping entry point is `src/spectral/operator.py` (modes: none, radial, radial_squared). All noise paths call it.
+- SNR metrics: unified to `snr_theory = alpha_bar/(1-alpha_bar)`, `snr_emp = Var(signal)/Var(noise)`, `snr_rel = snr_emp/snr_theory`. Diagnostics also log `variance_sum = Var(signal)+Var(noise)` and channel-wise noise std bounds.
+- Loss weighting: minimal MSE/MAE with optional `log(snr_rel)` weighting; no adaptive weighting, overflow bridges, or spectral penalties.
+- Diagnostics/reporting: stability CSVs and report_v2 summarize only snr_theory/sn_emp/sn_rel, variance_sum, loss, and grad_norm. Taguchi factors reduced to real knobs: snr_ratio, spectral_operator_mode, sampler_type, sampling_steps, train_steps, image_resolution.
 
 ## 1. BASELINE: First-Principles Diffusion Math (DDPM)
 | Concept | Definition / Notes |

@@ -28,39 +28,17 @@ diffusion:
   num_timesteps: 1000
   beta_schedule: cosine
   prediction_type: eps
-  snr_weighting: false
-  snr_transform: snr
-  loss_threshold: null
-  time_embed_dim: 128
-  uniform_corruption: false
-  uniform_corruption_scale: 0.15
-  adaptive_rescale: true
-  similarity_target: 0.7
   fft_norm: ortho
   snr_ratio: 1.0
-  lambda_var: 7e-4
+  spectral_operator_mode: none
 
 loss:
   reduction: mean
-  spectral_weighting: none
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
+  mode: mse
 
 spectral:
-  enabled: false
-  normalize: true
-  weighting: none
-  freq_equalized_noise: false
-  freq_attention: false
-  apply_to: [input, output]
-  per_block: false
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
-  learnable: true
-  condition: time
-  mlp_hidden_dim: 32
-  learnable_temperature: 40.0
-  learnable_gain_init: 1.0
+  operator_mode: none
+  snr_ratio: 1.0
 
 sampling:
   enabled: true

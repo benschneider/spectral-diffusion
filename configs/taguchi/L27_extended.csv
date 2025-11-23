@@ -1,4 +1,4 @@
-run,row,snr_ratio,spectral_operator_mode,sampler_type,sampling_steps
-1,1,0.8,none,ddim,10
-2,2,1.0,radial,ddim,20
-3,3,1.4,radial_squared,dpm_solver_pp,30
+run,row,snr_ratio,spectral_operator_mode,sampler_type,sampling_steps,train_steps,image_resolution
+1,1,0.8,none,ddim,10,50,32
+2,2,1.0,radial,ddim,20,50,32
+3,3,1.4,radial_squared,dpm_solver_pp,30,50,32

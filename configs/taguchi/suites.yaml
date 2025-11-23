@@ -7,7 +7,8 @@ suites:
       - sampler_type
       - sampling_steps
     fixed:
-      sampling_steps: 30
+      train_steps: 50
+      image_resolution: 32
     oa: L27
     oa_path: configs/taguchi/L27_extended.csv
     randomize: false

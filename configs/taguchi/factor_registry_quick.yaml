@@ -11,3 +11,9 @@ factors:
   sampling_steps:
     description: Number of denoising steps during sampling.
     levels: [4, 16, 36]
+  train_steps:
+    description: Training iterations (num_batches) for Taguchi sweep.
+    levels: [50]
+  image_resolution:
+    description: Input spatial resolution applied via resize.
+    levels: [32]
