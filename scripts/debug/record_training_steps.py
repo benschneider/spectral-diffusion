@@ -111,8 +111,6 @@ def main() -> None:
             "snr_rel": noise_batch.stats.get("snr_rel"),
             "variance_sum": noise_batch.stats.get("variance_sum"),
             "grad_norm": outcome.grad_norm,
-            "noise_channel_std_min": noise_batch.stats.get("noise_channel_std_min"),
-            "noise_channel_std_max": noise_batch.stats.get("noise_channel_std_max"),
         }
         records.append(record)
         with log_path.open("a", encoding="utf-8") as handle:

@@ -24,25 +24,18 @@ diffusion:
   num_timesteps: 100
   beta_schedule: linear
   prediction_type: eps
-  snr_weighting: false
-  snr_transform: snr
   loss_threshold: null
   time_embed_dim: 64
+  snr_ratio: 1.0
+  spectral_operator_mode: none
+  fft_norm: ortho
 
 loss:
   reduction: mean
 
 spectral:
-  enabled: true
-  normalize: true
-  weighting: bandpass
-  apply_to: [output]
-  per_block: true
-  learnable: true
-  condition: time
-  mlp_hidden_dim: 32
-  learnable_temperature: 40.0
-  learnable_gain_init: 1.0
+  operator_mode: none
+  snr_ratio: 1.0
 
 sampling:
   enabled: false

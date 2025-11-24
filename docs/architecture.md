@@ -1,129 +1,34 @@
-# Spectral Diffusion – Architecture Overview
+# Architecture Overview (Unified)
 
-This document explains how the components fit together so you can navigate the codebase quickly.
+The active pipeline keeps a small, composable surface:
 
-## 1. High-level flow
-```
-configs/ ─► TrainingPipeline ─► results/ ─► visualization/
-             (samplers, data)     (metrics, samples)
-```
+- `src/core/`: baseline conv model + `TinyUNet`, initialisation, losses.
+- `src/spectral/`: `spectral_operator` (unit RMS noise shaping) and FFT helpers.
+- `src/training/`: dataloaders, diffusion scheduler, noise preparer, samplers, diagnostics, and the training pipeline.
+- `src/experiments/`: Taguchi runner wiring factors to configs.
+- `scripts/debug/record_training_steps.py`: minimal recorder using the unified noise path.
 
-1. **Configs** describe model, data, spectral options, optimisation.
-2. **TrainingPipeline** (in `src/training/`) builds models/samplers, orchestrates modular noise/step/diagnostics helpers, and logs metrics + checkpoints.
-3. **Automation scripts** (e.g. `scripts/run_full_report.sh`, `scripts/run_spectral_toggle_ablation.py`) chain benchmarks, Taguchi sweeps, and focused ablations.
-4. **Visualization library** (`src/visualization/`) cleans summary CSVs and draws figures/markdown reports.
+## Data & Dataloaders
+- **Synthetic**: `SyntheticSpectralDataset` (square images) with optional text overlays; controlled via `data.*` and `data.synthetic.*`.
+- **CIFAR-10**: standard torchvision loader.
 
-## 2. Directory map
-- `src/core/` – TinyUNet, SpectralUNet, losses, registry.
-- `src/spectral/` – FFT adapters, complex spectral layers, utilities.
-- `src/training/` – pipeline, schedulers, sampler registry, plus dedicated helpers for noise preparation, per-step execution, and diagnostics aggregation.
-- `src/evaluation/` – dataset metrics (MSE/MAE/PSNR, optional FID/LPIPS).
-- `src/experiments/` – Taguchi runner (`run_experiment.py`).
-- `src/visualization/` – `collect.clean_summary`, `figures.generate_figures`.
-- `scripts/` – CLI wrappers for training, sampling, reporting.
-- `docs/` – theory notes, architecture overview, generated figures, Taguchi tips.
-- `results/` – per-run artefacts (configs, logs, metrics, checkpoints, samples).
+## Diffusion Forward Process
+- Coefficients from `src/training/scheduler.py` (`build_diffusion`).
+- Noise via `src/training/noise.py`: sample `eps_raw ~ N(0, I)`, apply `spectral_operator(mode)`, scale by `k = 1 / snr_ratio`, then mix with `sqrt_alpha_t` / `sqrt_one_minus_alpha_t`.
+- Stats exposed per batch: `snr_theory`, `snr_emp`, `snr_rel`, `variance_sum`, `noise_channel_std_min/max`, `eps_norm`.
 
-## 3. Artefacts per run
-```
-results/<experiment_root>/YYYYMMDD_HHMMSS/
-├── synthetic/
-│   └── runs/<run_id>/...
-├── cifar/
-│   └── runs/<run_id>/...
-├── taguchi/
-│   ├── summary.csv
-│   └── taguchi_report.csv
-├── ablation/
-│   └── summary.csv
-└── figures/
-    ├── report_v2/
-    │   ├── images/
-    │   │   ├── loss_curve_synthetic.png
-    │   │   ├── loss_curve_cifar.png
-    │   │   ├── tradeoff_loss_vs_speed_synthetic.png
-    │   │   ├── tradeoff_loss_vs_speed_cifar.png
-    │   │   ├── taguchi_main_effects_primary.png
-    │   │   └── taguchi_contrib_primary.png
-    │   ├── appendix/
-    │   │   ├── noise_chains/
-    │   │   ├── taguchi_interactions/
-    │   │   └── distributions/
-    │   └── summary.md
-```
-- Individual training runs still write `config.yaml`, `system.json`, `metrics/<run_id>.json`, checkpoints, and samples inside `runs/<run_id>/`.
-- Reports now live under timestamped subdirectories so multiple executions never overwrite each other.
-- `report_v2/summary.md` records the generation timestamp/source and embeds only the figures tied to the core research questions.
-- Taguchi sweeps enrich `taguchi_report.csv` with S/N plus mean runtime/throughput/final-loss for each factor level.
-- Standalone ablations (via `run_spectral_toggle_ablation.py`) land in `results/spectral_toggle_ablation_<timestamp>/` with their own `summary.csv` and optional `spectral_toggle_ablation.png` for quick comparisons.
+## Training Loop
+- `TrainingStepExecutor` builds targets (`eps`, `x0`, or `v`), computes loss/MAE, steps the optimiser, and records FFT feedback.
+- `TrainingDiagnostics` mirrors loss/grad/noise/coeff/batch stats into `diagnostics/` and factor-specific folders during Taguchi sweeps.
+- `TrainingPipeline` orchestrates dataloaders, scheduler, noise preparer, diagnostics, and optional sampling.
 
-## 4. Figure/report workflow
-1. Generate runs (manual CLI or `scripts/run_full_report.sh` / `run_smoke_report.sh`). The smoke script now trains TinyUNet, SpectralUNet, and the new deep spectral UNet on both synthetic and CIFAR mini-setups before running the Taguchi sweep.
-2. During training, `NoisePreparer`, `TrainingStepExecutor`, and `TrainingDiagnostics` emit `diagnostics/` artefacts (noise stats, gradient traces, FFT sanity images) and forward them to Taguchi factor folders via `TaguchiAggregator`.
-3. `src/visualization.collect.clean_summary` deduplicates and labels entries (synthetic, CIFAR, Taguchi).
-4. `scripts/generate_report_v2.py` renders the curated figure set (loss curves, trade-offs, Taguchi main effects/contributions, and up to two qualitative grids) plus a concise `summary.md` in `report_v2/`.
-5. README Showcase points to the latest generated artefacts.
+## Taguchi System
+- Factors: `snr_ratio`, `spectral_operator_mode`, `sampler_type`, `sampling_steps`, `train_steps`, `image_resolution`.
+- Registry: `configs/taguchi/factor_registry.yaml` (+ quick variant).
+- Designs: `configs/taguchi/L27_extended.csv` (only active OA).
+- Runner: `src/experiments/run_experiment.py` + helpers in `taguchi_suite/oa.py`.
 
-## 5. How to extend
-- **Add a sampler**: subclass `Sampler` (`src/training/sampling.py`), register via `register_sampler("name", Class)`.
-- **Adjust noise preparation**: extend `NoisePreparer` (`src/training/noise.py`) or swap it in via `TrainingPipeline(..., noise_preparer=...)` to prototype new corruption schemes.
-- **Add a spectral adapter**: follow the patterns in `src/spectral/adapter.py` or `complex_layers.py`.
-- **Add a dataset**: update `configs/` and `src/training/builders.py` for a new loader.
-- **Customise per-step logic**: derive from `TrainingStepExecutor` (`src/training/steps.py`) to insert diagnostics or gradient tricks without touching the pipeline shell.
-- **Add plots**: extend `src/visualization/figures.py` or wire a new panel into `scripts/generate_report_v2.py` (legacy generator lives in `scripts/figures/archive/`).
-
-With this modular layout you can import the same components in notebooks, CLI scripts, or experiments without rewriting plumbing.
-
-## 6. Automation scripts (highlights)
-- `run_full_report_32x32.sh` / `run_full_report_1024x.sh` – full benchmark suites (synthetic, CIFAR, Taguchi, spectral-feature ablation, Taguchi insights).
-- `run_smoke_report.sh` – minimal end-to-end check used in CI.
-- `run_spectral_toggle_ablation.py` – quick comparison of TinyUNet baseline vs SpectralUNet with and without uniform corruption + ARE/PCM + MASF. Produces `summary.csv` and `spectral_toggle_ablation.png` in `results/spectral_toggle_ablation_<timestamp>/`.
-- `visualize_uniform_noise.py` – generate a triplet of images (original, noise component, corrupted result) to inspect the uniform frequency corruption step.
-  (Full-report scripts call this automatically so the figure gallery always contains `noise_gaussian.png`, `noise_uniform.png`, and their difference.)
-- `scripts/analyze_taguchi_cli.py` – converts Taguchi CSVs into main-effects/contribution tables, interaction heatmaps, and markdown snippets for the report.
-
-## 7. Roadmap (next wave)
-- **Learnable spectral adapters** – replace fixed FFT masks with small MLPs conditioned on timestep embeddings so the model can shift focus across frequency bands automatically.
-- **Deep spectral UNet** – extend the current shallow spectral model into a full encoder/decoder with complex down/upsampling and skip connections to test a frequency-first hierarchy.
-- **Pretrained/cross-domain initialization sweeps** – new Taguchi factor (`E`) already toggles GPT-2 vs random seeding; future work includes curating additional sources and analysing their impact with the richer runtime/throughput metrics now captured.
-
-## 8. Core Model Architectures
-
-The project's central experiment is a comparison between two different architectural philosophies for diffusion models, embodied by `TinyUNet` and `SpectralUNet`.
-
-*   **`TinyUNet` (The Hybrid Model):** This is a traditional, spatial-domain U-Net. It can be optionally "enhanced" by `SpectralAdapter` modules, which wrap convolutional blocks to perform targeted processing (like band-pass filtering) in the frequency domain before returning to the spatial domain. It tests whether injecting spectral information can improve a conventional architecture.
-
-    ```text
-    Input -> [ConvBlock] ----------------------> [ConvBlock] -> Output
-                | (Downsample)                        ^ (Upsample)
-                v                                     |
-             [ConvBlock] --------> [ConvBlock]          |
-                |                      ^                |
-                v                      | (Skip)         |
-             [Bottleneck] -------------+----------------+
-    ```
-
-*   **`SpectralUNet` (The Purist Model):** This model operates *entirely* in the frequency domain. It immediately converts the input image with an FFT, processes it using custom complex-valued layers, and only converts it back to the spatial domain with an IFFT at the very end. It tests a more radical, frequency-first approach.
-
-    ```text
-    Input -> [FFT] -> [ComplexConv] -> [ComplexBlock] -> [ComplexConv] -> [iFFT] -> Output
-    ```
-
-*   **`SpectralUNetDeep` (Frequency Hierarchy):** Extends the purist model into a full encoder/decoder with complex strided downsampling, transposed convolutions for upsampling, and skip connections mirroring TinyUNet—but every operation stays in the frequency domain. This is our “next-wave” architecture for probing whether spectral processing benefits compound across scales.
-
-    ```text
-    FFT -> [Encoder (ComplexResidual + Downsample)xL] -> Bottleneck -> [Decoder (Upsample + Skip)xL] -> iFFT
-    ```
-
-## 9. Diffusion schedule stability
-
-Recent runs use a **log-SNR cosine schedule** popularised by Karras et al. (2022) and the SD3/Flux reports. Instead of hand-crafted β sequences we parameterise the cumulative signal-to-noise ratio via
-
-```
-λ(t) = λ_min + (λ_max − λ_min) · f(t)
-f(t) = cos^2\left(\frac{π}{2}·\frac{t + δ}{1 + δ}\right) / cos^2\left(\frac{π}{2}·\frac{δ}{1 + δ}\right)
-ᾱ(t) = sigmoid(λ(t))
-σ(t) = sqrt(1 − ᾱ(t))
-```
-
-The default bounds (λ_min = −13, λ_max = 13, δ = 0.008) keep `ᾱ(t)` strictly within (0, 1), preventing the denormal divisions and SNR spikes that plagued the trimmed linear/cosine schedules. Every training or sampling component now queries `build_diffusion(..., beta_schedule="logsnr_cosine")`, which materialises these tensors once and reuses them across the loop.
+## Automation & Reporting
+- Smoke/comparison Taguchi scripts live under `scripts/` (`run_taguchi_smoke.sh`, `run_taguchi_minimal.sh`, `run_taguchi_comparison.sh`).
+- Reports: `scripts/generate_report_v2.py` collates diagnostics and produces summaries.
+- Archived runners (full reports, spectral ablations) reside under `archive/legacy/`.

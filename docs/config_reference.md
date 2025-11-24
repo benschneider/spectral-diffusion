@@ -4,21 +4,19 @@ This page explains the core knobs you can tweak when running Spectral Diffusion.
 
 > **Scope reminder:** The supported knobs in the main pipeline are limited to
 > `snr_ratio`, `spectral_operator_mode`, sampler choice/steps, training steps,
-> and image resolution. Legacy adaptive/phase/adapter options remain documented
-> here only for archival purposes.
+> and image resolution. Legacy adaptive/phase/adapter options have been archived.
 
 ## 1. Training CLI (`train.py`)
 ```
 python train.py --config configs/baseline.yaml \
                 --run-id my_run \
-                --variant spectral \
                 --output-dir results/my_runs \
                 --dry-run
 ```
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--config PATH` | `configs/baseline.yaml` | YAML file describing model/data/training settings. |
-| `--variant {baseline,spectral}` | None | Overrides `model.type` quickly (e.g., `spectral` → `unet_spectral`). |
+| `--variant {baseline,unet_tiny}` | None | Overrides `model.type` quickly. |
 | `--output-dir PATH` | `results/` | Root directory where run artefacts are stored. Run IDs create subfolders. |
 | `--run-id NAME` | timestamp | Optional run name. If omitted a timestamp is used. |
 | `--dry-run` | False | Skip the training loop (just create log/config scaffolding). |
@@ -30,14 +28,14 @@ python train.py --config configs/baseline.yaml \
 ### Key YAML fields
 | Section | Fields | Notes |
 |---------|--------|-------|
-| `model` | `type` (`baseline`, `unet_tiny`, `unet_spectral`, `unet_spectral_deep`), `base_channels`, `depth` | Spectral adapters live under `spectral.*`; the deep spectral model mirrors TinyUNet’s encoder/decoder in the frequency domain. |
+| `model` | `type` (`baseline`, `unet_tiny`), `base_channels`, `depth` | Baseline conv stack or TinyUNet backbone. |
 | `data` | `source` (`synthetic`, `cifar10`), `height/width`, `download`, `family` (for synthetic) | Synthetic families include `piecewise`, `texture`, `random_field`, or `noise`. |
 | `training` | `batch_size`, `epochs`, `num_batches`, `log_every` | Set `num_batches` to limit steps for smoke tests. |
-| `diffusion` | `num_timesteps`, `beta_schedule`, `schedule_kwargs`, `logsnr`, `prediction_type`, `uniform_corruption`, `uniform_corruption_scale`, `corruption_mode`, `phase_std`, `similarity_target`, `adaptive_rescale`, `fft_norm`, `snr_ratio` | Standard DDPM settings plus the spectral-noise knobs consumed by `NoisePreparer`. Set `beta_schedule` to `logsnr_cosine` to adopt the SD3/Flux log-SNR schedule. Override λ bounds or δ via `schedule_kwargs` (or `logsnr` for backwards-compatible configs). |
+| `diffusion` | `num_timesteps`, `beta_schedule`, `schedule_kwargs`, `logsnr`, `prediction_type`, `fft_norm`, `snr_ratio`, `spectral_operator_mode` | Standard DDPM settings plus the two unified spectral knobs consumed by `NoisePreparer`. |
 | `sampling` | `enabled`, `sampler_type` (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`) | Controls optional sampling after training. |
 | `evaluation` | `reference_dir`, `use_fid`, `use_lpips` | Provide a folder of real images to compare against. |
-| `spectral` | `enabled`, `weighting` (`none`, `radial`, `bandpass`), `apply_to` (`input`, `output`, `per_block`), `bandpass_inner`, `bandpass_outer`, `learnable`, `condition` (`time`/`none`), `mlp_hidden_dim`, `learnable_temperature`, `learnable_gain_init` | Toggles spectral adapters and, when `learnable` is true, drives the MLP-conditioned masks used by `SpectralAdapter`. |
-| `initialization` | `strategy` (`default`, `zeros`, `cross_domain_flat`), `scale`, `recycle`, `source` (`type: constant/random_normal/file/gpt2`, plus `values`/`length`/`mean`/`std`/`path`), | Controls optional preset weights; `cross_domain_flat` flattens source vectors and tiles them across parameters. |
+| `spectral` | `operator_mode` (`none`, `radial`, `radial_squared`), `snr_ratio`, `operator_mask_params` | Mirrors the diffusion-level knobs if you prefer scoping them under `spectral.*`. |
+| `initialization` | `strategy` (`default`, `zeros`), `scale`, `source` (`type: constant/random_normal/file`, plus `values`/`length`/`mean`/`std`/`path`) | Controls optional preset weights. |
 
 ## 2. Sampling CLI (`sample.py`)
 ```
@@ -79,9 +77,8 @@ python evaluate.py --generated-dir results/runs/my_run/samples/sample_grid \
 | Script | What it does |
 |--------|--------------|
 | `scripts/run_smoke_report.sh` | Fast end-to-end run (synthetic + CIFAR smoke, Taguchi mini sweep, figures). Takes optional output dir (defaults to timestamped folder). |
-| `scripts/run_full_report_32x32.sh` | Longer benchmark (synthetic + CIFAR full, Taguchi) with timestamps. |
-| `scripts/run_spectral_benchmark.sh` | Synthetic benchmark only (baseline script). |
 | `scripts/run_taguchi_*.sh` | Run the tagged Taguchi scenario (smoke/minimal/comparison). |
 | `python scripts/generate_report_v2.py` | Regenerate the cleaned figure set + `summary.md` from existing results. |
+| `archive/legacy/scripts/run_full_report_32x32.sh` | Archived full benchmark runner (kept for reference only). |
 
 All scripts respect `PYTHONPATH` and will create timestamped subdirectories when none are provided, keeping your `results/` clean.

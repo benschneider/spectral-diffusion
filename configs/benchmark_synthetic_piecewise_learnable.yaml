@@ -2,9 +2,5 @@
 data:
   family: piecewise
 spectral:
-  enabled: true
-  learnable: true
-  condition: time
-  weighting: bandpass
-  apply_to: [output]
-  per_block: true
+  operator_mode: none
+  snr_ratio: 1.0

@@ -61,10 +61,10 @@ def _load_taguchi_rows(matrix_path: Path) -> List[Dict[str, object]]:
         if isinstance(raw, list):
             return [dict(row) for row in raw]
     return [
-        {"fft_norm": "ortho", "snr_ratio": 1.0, "uniform_corruption": True},
-        {"fft_norm": "backward", "snr_ratio": 0.7, "uniform_corruption": True},
-        {"fft_norm": "forward", "snr_ratio": 1.4, "uniform_corruption": False},
-        {"fft_norm": "ortho", "snr_ratio": 0.5, "uniform_corruption": True},
+        {"fft_norm": "ortho", "snr_ratio": 1.0, "spectral_operator_mode": "none"},
+        {"fft_norm": "backward", "snr_ratio": 0.7, "spectral_operator_mode": "radial"},
+        {"fft_norm": "forward", "snr_ratio": 1.4, "spectral_operator_mode": "radial_squared"},
+        {"fft_norm": "ortho", "snr_ratio": 0.5, "spectral_operator_mode": "none"},
     ]
 
 
@@ -161,10 +161,14 @@ def _prepare_config(
 
     diffusion_cfg = config.setdefault("diffusion", {})
     spectral_cfg = config.setdefault("spectral", {})
-    for key in ("fft_norm", "uniform_corruption", "snr_ratio"):
+    for key in ("fft_norm", "snr_ratio"):
         if key in overrides:
             diffusion_cfg[key] = overrides[key]
             spectral_cfg[key] = overrides[key]
+    if "spectral_operator_mode" in overrides:
+        mode = overrides["spectral_operator_mode"]
+        diffusion_cfg["spectral_operator_mode"] = mode
+        spectral_cfg["operator_mode"] = mode
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("w", encoding="utf-8") as handle:

@@ -1,146 +1,36 @@
-# Frequency-Domain SNR Control Study
+# Frequency-Domain SNR Study (Unified)
 
-This note collects the knobs, metrics, and experiment plans needed for the
-question:
-
-> **Current scope:** The live pipeline only supports DDPM-style forward noise
-> with a single spectral operator and `snr_ratio`. Legacy knobs such as phase
-> corruption, adaptive SNR governors, and variance penalties are retired or
-> archived.
-
-> **How does explicit control of signal-to-noise ratio (SNR) in the frequency
-> domain affect diffusion training stability and sample efficiency compared to
-> standard spatial Gaussian noise?**
+This note tracks the live experiment surface after pruning legacy knobs. Every forward pass uses the single spectral operator and `k = 1 / snr_ratio`. The goal is to measure how `spectral_operator_mode` and `snr_ratio` interact with samplers and step counts without extra scaling, clamping, or adaptive governors.
 
 ## 1. Building Blocks
-
-- **Noise preparation (`src/training/noise.py`)** exposes `diffusion` and
-  `spectral` config fields for `uniform_corruption`, `uniform_corruption_scale`,
-  `corruption_mode`, `fft_norm`, `snr_ratio`, `phase_std`, and
-  `adaptive_rescale`. These ultimately call
-  `add_uniform_frequency_noise` (`src/spectral/fft_adapter.py`) where
-  reciprocal-radius masking, Parseval checks, `snr_ratio`-based scaling, and
-  optional adaptive correlation clamps live.
-- **Training instrumentation (`src/training/pipeline.py`)** already records the
-  injected-noise stats (`noise_batch.stats`), per-step SNR summaries
-  (`coeff_stats`), FFT band feedback, gradient norms, and runtime-derived
-  figures such as `loss_drop_per_second`, `loss_threshold_steps`, and
-  throughput.
-- **Adaptive SNR governor (`src/utils/adaptive_snr.py`)** plus the shared
-  helpers in `src/training/regulators/adaptive_regulator.py` supply the dynamic
-  `snr_target`, overflow handling, micro-reset policy, and variance regulariser
-  described in `docs/training_flow.md` / `docs/training_pipeline.md`.
-- **Diagnostics + recorder tooling**
-  (`src/training/diagnostics.py`, `scripts/debug/record_training_steps.py`) dump
-  band means, stability CSVs, and JSONL telemetry with per-step SNR,
-  overflow, κ, EMA, and noise RMS.
-- **Tests** (`tests/test_training_noise.py`, `tests/test_fft_noise_scaling.py`,
-  `tests/test_training_pipeline.py`) already assert that the `snr_ratio`
-  parameter survives config parsing, enforces the requested ratio in the
-  frequency domain, matches spatial reconstructions, and keeps Parseval energy
-  within tolerance. These provide guardrails for refactors.
+- **Noise path**: `src/spectral/operator.py` (unit RMS, centered) and `src/spectral/fft_adapter.py` (applies `k = 1 / snr_ratio`). No uniform_corruption flags or adaptive rescale.
+- **Preparation**: `src/training/noise.py` consumes `spectral_operator_mode` and `snr_ratio` from the config and emits `snr_theory`, `snr_emp`, `snr_rel`, and `variance_sum`.
+- **Recorder/diagnostics**: `scripts/debug/record_training_steps.py` plus `src/training/diagnostics.py` log the unified metrics only.
+- **Design of experiments**: Taguchi factors live in `configs/taguchi/factor_registry.yaml` with OA `configs/taguchi/L27_extended.csv` for six ternary knobs.
 
 ## 2. Experiment Matrix
+Use four baseline conditions for comparisons:
 
-| ID | Noise path | SNR control | Notes |
-|----|------------|-------------|-------|
-| A | **Spatial Gaussian baseline** (`uniform_corruption: false`) | None | Classic DDPM corruption in the spatial domain—control group. |
-| B | **Frequency equalised** (`uniform_corruption: true`, `snr_ratio: null`) | None | FFT-domain mask redistributes noise energy without explicit RMS clamp. |
-| C | **Frequency + fixed SNR** (`uniform_corruption: true`, `snr_ratio ∈ {0.7, 1.0, 1.3}`) | Static target | Tests whether explicit ratio control stabilises gradients / convergence. |
-| D | **Frequency + adaptive governor** (`uniform_corruption: true`, `snr_ratio: null`, `AdaptiveSNRGovernor` enabled) | Dynamic (`snr_target`) | Lets the regulator adjust ratios based on overflow, variance, and κ trends. |
+| ID | operator_mode | snr_ratio | Notes |
+|----|---------------|-----------|-------|
+| A  | none          | 1.0       | Spatial baseline (no shaping) |
+| B  | radial        | 1.0       | Radial shaping, unit scale |
+| C  | radial        | 0.7 / 1.4 | SNR sweep with shaping |
+| D  | radial_squared| 1.0       | Stronger high-frequency boost |
 
-*Optional extensions*:
+Pair each condition with samplers (`ddim`, `dpm_solver++`) and step counts (10/20/30) drawn from the Taguchi registry as needed.
 
-- Evaluate both TinyUNet (spatial backbone) and SpectralUNet to see whether
-  the gains depend on the model operating in frequency space.
-- Add `corruption_mode: phase` with small `phase_std` to isolate phase-only
-  perturbations.
+## 3. Datasets & Seeds
+- **Synthetic 8×8 loop**: fast validation of invariants and monotone `snr_theory`.
+- **CIFAR-10 32×32**: main training target; reuse `configs/baseline.yaml` overrides for Taguchi rows.
+- **Taguchi sweep**: `scripts/run_taguchi_smoke.sh` or `scripts/run_taguchi_minimal.sh` to execute curated subsets.
 
-## 3. Datasets & Config Seeds
+## 4. Metrics to Track
+- Unified noise stats: `snr_theory`, `snr_emp`, `snr_rel`, `variance_sum`, `noise_channel_std_min/max`.
+- Stability: loss/MAE traces, grad norms, `loss_drop_per_second`, throughput.
+- Sampler quality: FID/LPIPS via `evaluate.py` (optional).
 
-1. **Synthetic 8×8 diagnostic loop** – `configs/test_synthetic_spectral.yaml`
-   (fast turn-around, ensures frequency corruption behaves). Pair with
-   `scripts/debug/record_training_steps.py` for per-step telemetry.
-2. **CIFAR-10 32×32 benchmark** – `configs/benchmark_spectral_cifar.yaml`
-   (mirrors README workflows). Capture both TinyUNet and SpectralUNet variants.
-3. **Taguchi sweep (optional)** – Use `scripts/run_taguchi_synthetic_l23.py`
-   with `configs/taguchi/factor_catalog.yaml` to treat `spectral.freq_equalized_noise`
-   and `diffusion.snr_ratio` as explicit factors across the DOE array. Enables
-   high-level S/N (Taguchi) scoring.
-
-For each dataset, define YAML overlays (or CLI overrides) for the four matrix
-rows above. Example CLI snippet:
-
-```bash
-python train.py \
-  --config configs/benchmark_spectral_cifar.yaml \
-  --config-overrides 'diffusion.uniform_corruption=true,
-  diffusion.snr_ratio=0.7,
-  diffusion.uniform_corruption_scale=0.15,
-  diffusion.adaptive_rescale=false'
-```
-
-Record the resulting `results/runs/<run_id>/metrics.json` plus the diagnostics
-folder per run.
-
-## 4. Stability Metrics to Track
-
-- `diagnostics/stability_metrics.csv` (loss variance, gradient spikes, noise
-  RMS trends) via `TrainingDiagnostics`.
-- Per-step governor telemetry (`step_metrics.jsonl` when running the recorder),
-  focusing on `overflow`, `overflow_ema`, `snr_target`, `variance_ratio`, and
-  `micro_reset` events.
-- FFT band ratios and spectral pressure penalties (already logged through
-  `fft_feedback`). Plot high/low band means vs. training steps to confirm the
-  noise path keeps high frequencies energised.
-- Gradient norm histories (`grad_norm_history`) and MAE traces for early-step
-  oscillations.
-
-## 5. Sample-Efficiency Metrics
-
-- `loss_drop`, `loss_drop_per_second`, and `loss_threshold_steps/time` emitted
-  from `TrainingPipeline`.
-- Throughput (`steps_per_second`, `images_per_second`) to check whether the
-  FFT masking + SNR clamps add measurable overhead.
-- Evaluation metrics (`FID`, `LPIPS`, PSNR) via `evaluate.py` or the automated
-  `scripts/run_full_report_32x32.sh` pipeline once runs finish training.
-- Sampler quality: use `TrainingPipeline.generate_samples(...)` and log per-run
-  sampler configs alongside sample grids for qualitative inspection.
-
-## 6. Analysis & Figures
-
-1. **Noise-path sanity** – run `scripts/visualize_uniform_noise.py` with each
-   config to produce spatial/FFT snapshots verifying SNR equalisation.
-2. **Recorder overlays** – `scripts/debug/record_training_steps.py` already
-   writes JSONL/PNG outputs; extend plots to overlay `snr_ratio` vs.
-   `snr_measured` for conditions B/C/D.
-3. **Aggregated comparisons** – feed run folders into
-   `src/reporting/generate_markdown.py` to produce tables showing stability and
-   efficiency metrics per condition. `src/utils/report_sanitizer.py` can redact
-   noisy keys if needed.
-4. **Stability batch processor** – run `python scripts/process_stability_metrics.py --root results/runs --plot-dir docs/figures/stability`
-   to emit `results/stability_summary.csv` plus per-run SNR/overflow/variance
-   plots. These feed directly into Figure 2 panels.
-5. **Taguchi S/N scores** – when using the DOE flow, combine per-factor CSVs
-   (under `results/<suite>/factors/...`) to report delta S/N caused by toggling
-   the SNR controls.
-
-## 7. Pending TODOs Before Writing
-
-- [ ] Create YAML snippets (or config templates) for each condition so CI /
-  automation can call them directly.
-- [x] Ensure `TrainingDiagnostics` copies `noise_batch.stats` (SNR ratios,
-  FFT correlation, mean/std) into the diagnostics bundle (`noise_stats.json`)
-  so plotting scripts can consume them.
-- [ ] Extend `generate_markdown.py` to highlight `snr_ratio`, `snr_scale_factor`,
-  and FFT variance metrics in the report summary table.
-- [ ] Add recorder plots comparing `loss_drop_per_second` vs. `snr_ratio`
-  across runs (likely a small helper in `scripts/figures/` or a notebook).
-- [ ] Double-check that `AdaptiveSNRGovernor` is toggled on/off via CLI flags
-  in configs used for rows C vs. D so the comparison isolates noise-path
-  effects.
-
-With these pieces in place we can collect paired runs, compare the stability
-diagnostics (loss variance, overflow rate, FFT band balance), and report the
-sample-efficiency deltas when explicitly targeting frequency-domain SNR versus
-standard spatial Gaussian noise.
+## 5. Analysis Tips
+- Validate invariants via `tests/test_training_noise.py` (RMS=1, variance_sum≈1, snr_rel≈1 for `mode=none`, monotone `snr_theory`).
+- Compare Taguchi rows with `taguchi_suite/oa.py` and `src/experiments/run_experiment.py`; mapping integrity is enforced by tests.
+- Archive any runs that require legacy knobs under `archive/legacy/` to keep the active pipeline clean.

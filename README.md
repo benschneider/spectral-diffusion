@@ -1,147 +1,53 @@
-# 🌀 Spectral Diffusion
+# Spectral Diffusion (Unified Forward Process)
 
-*How well can a diffusion model learn if it “thinks” in frequency space instead of pixels?*
+Spectral Diffusion now ships a single, unified noise path: every forward step shapes Gaussian noise with `spectral_operator(mode)` (centered, unit RMS) and scales it by `k = 1 / snr_ratio`. Models are limited to `baseline` and `unet_tiny`; all legacy adapters, phase hooks, and bespoke schedulers live under `archive/legacy/`.
 
-Spectral Diffusion is a sandbox for answering that question. It lets you run classic diffusion training, swap in spectral adapters or fully spectral models, and compare quality vs. speed with reproducible scripts and reports.
-
----
-
-## Why frequency space?
-Diffusion models usually operate on raw pixels. Yet many signals (images, audio) have structure that is easier to see in the frequency domain. By wrapping or replacing the UNet with FFT-aware components we can:
-
-| Potential gain | What to look for in this repo |
-|----------------|--------------------------------|
-| Faster convergence | Instrumentation for `loss_drop_per_second`, throughput, and time-to-threshold metrics |
-| More efficient sampling | Extended sampler registry (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`, `masf`) |
-| Better high-frequency detail | Uniform frequency corruption in the forward process, amplitude residual + phase correction modules, high-frequency PSNR metrics in reports |
-| Controlled ablations | Full-report pipeline now trains spectral variants with and without the new toggles and plots the comparison (`spectral_feature_ablation.png`) |
-
-If you just want the bottom line, jump to **[Results at a Glance](#results-at-a-glance)**.
-
----
-
-## Getting Started (no jargon required)
+## Quickstart
 ```bash
 git clone https://github.com/benschneider/spectral-diffusion.git
 cd spectral-diffusion
 pip install -r requirements.txt
 
-# Optional: download CIFAR-10 once
-mkdir -p data
-curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz -o data/cifar-10-python.tar.gz
-tar -xzf data/cifar-10-python.tar.gz -C data
+# Train TinyUNet on CIFAR-10 with default knobs
+python train.py --config configs/baseline.yaml --run-id quickstart
 
-# Train the baseline TinyUNet and sample a few images
-RUN_ID=quickstart
-python train.py --config configs/baseline.yaml --run-id "$RUN_ID"
-python sample.py --run-dir results/runs/"$RUN_ID" --sampler-type dpm_solver++ --num-samples 8 --num-steps 50
+# Sample a few images from the run
+python sample.py --run-dir results/runs/quickstart --sampler-type dpm_solver++ --num-samples 8 --num-steps 50
 
-# Evaluate vs. a folder of reference images (optional FID/LPIPS)
-python evaluate.py \
-  --generated-dir results/runs/"$RUN_ID"/samples/quickstart_solver \
-  --reference-dir path/to/reference \
-  --use-lpips
+# Evaluate against a reference folder (FID/LPIPS optional)
+python evaluate.py --generated-dir results/runs/quickstart/samples/quickstart_solver --reference-dir path/to/reference --use-lpips
 ```
 
-### Want the full story automatically?
-Run one command and grab coffee:
-```bash
-scripts/run_full_report_32x32.sh
-```
-It will:
-1. Benchmark TinyUNet vs. SpectralUNet on synthetic data
-2. Train spectral variants with uniform frequency corruption and ARE/PCM modules enabled
-3. Repeat on CIFAR-10 (and emit MASF sampler grids for quick inspection)
-4. Run a Taguchi sweep over spectral settings and samplers
-5. Run a baseline vs toggled spectral ablation (ARE/PCM + uniform corruption + MASF on/off)
-6. Generate a cleaned `report_v2/` bundle (figures + summary)
+## Active Knobs (Taguchi + CLI)
+- `snr_ratio` (k = 1 / snr_ratio)
+- `spectral_operator_mode` (`none`, `radial`, `radial_squared`)
+- `sampler_type` (`ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`)
+- `sampling_steps`
+- `train_steps` (num_batches)
+- `image_resolution`
 
----
-
-## Results at a Glance
-*(Full tables and publication-ready plots live in `report_v2/` after running the report script.)*
-
-| Dataset | TinyUNet loss drop | SpectralUNet loss drop | Throughput (images/s) |
-|---------|-------------------|------------------------|------------------------|
-| Synthetic (3 epochs) | ~0.20 | ~1.75 | 800 → 300 |
-| CIFAR-10 (1 epoch)   | ~0.94 | ~2.94 | 103 → 48 |
-
-**Interpretation:** SpectralUNet is more aggressive at reducing loss but costs extra compute today. The Taguchi report (`results/taguchi_spectral_docs/taguchi_report.csv`) shows which spectral settings and samplers matter most.
-
----
-
-## How things fit together
-
-### Key components
-- `src/core/` – TinyUNet (spatial) and SpectralUNet (complex convolutions).
-- `src/spectral/` – FFT adapters and complex layers.
-- `src/training/` – Training pipeline, scheduler, sampler registry.
-- `src/visualization/` – Reusable helpers for figures + summaries.
-- `scripts/run_full_report_32x32.sh` – End-to-end benchmark + report pipeline (legacy multi-resolution runners archived under `scripts/archive/`).
-
-See **[`docs/architecture.md`](docs/architecture.md)** for diagrams and a more detailed map.
-
-### Theory primer
-Curious about the spectral weighting, FFT/iFFT flow, or why we track high-frequency energy? Read the short note in **[`docs/theory.md`](docs/theory.md)** for a gentle walkthrough.
-
----
+Taguchi factors mirror these knobs exactly. The canonical OA is `configs/taguchi/L27_extended.csv`; `configs/taguchi/factor_registry.yaml` enumerates the levels.
 
 ## Workflows
+- Train & sample: `python train.py ...` then `python sample.py ...`
+- Discover configs: `python -m src.cli.list_configs [--include-csv --filter baseline]`
+- Taguchi sweeps: `scripts/run_taguchi_smoke.sh`, `scripts/run_taguchi_minimal.sh`, `scripts/run_taguchi_comparison.sh`
+- Diagnostics only: `python scripts/debug/record_training_steps.py --config <yaml> --steps 20`
+- Reporting: `python scripts/generate_report_v2.py [--report-root <path>]`
+- Archived full pipeline: `archive/legacy/scripts/run_full_report_32x32.sh`
 
-| Task | Command(s) |
-|------|------------|
-| Train & sample baseline | `python train.py ...` + `python sample.py ...` |
-| Evaluate generated images | `python evaluate.py --generated-dir ... --use-fid --use-lpips` |
-| Discover available configs | `python -m src.cli.list_configs [--include-csv --filter baseline]` |
-| Synthetic vs Spectral benchmark | `scripts/run_full_report_32x32.sh` (legacy runner archived under `scripts/archive/run_spectral_benchmark.sh`) |
-| CIFAR-10 benchmark | `python train.py --config configs/benchmark_spectral_cifar.yaml ...` |
-| Taguchi sweeps | `scripts/run_taguchi_smoke.sh` / `run_taguchi_minimal.sh` / `run_taguchi_comparison.sh` (archived versions live under `scripts/archive/`) |
-| Smoke report (fast check) | `scripts/archive/run_smoke_report.sh` |
-| Make plots & summary | `python scripts/generate_report_v2.py [--report-root <path>]` |
-| Full pipeline (benchmarks + Taguchi + ablation + figures) | `scripts/run_full_report_32x32.sh` (legacy figure generator lives under `scripts/figures/archive/`) |
-| Consolidate report artefacts | `scripts/pack_report_to_hdf5.py results/<report_dir>` |
-| Render compact overview | `scripts/render_compact_report.py results/<report_dir>.h5` |
-| Spectral toggle comparison | `python scripts/run_spectral_toggle_ablation.py` |
-| Visualise uniform corruption | `python scripts/visualize_uniform_noise.py --input path/to/image.png` |
+## Forward/Noise Invariants
+- `spectral_operator` enforces centered, unit-RMS noise.
+- Noise injection uses a single scale `k = 1 / snr_ratio`; no extra clamps or adaptive governors.
+- Logged noise stats: `snr_theory`, `snr_emp`, `snr_rel`, `variance_sum`, `noise_channel_std_min/max`, `grad_norm`.
+- Tests cover RMS(eps_shaped) = 1, `Var(signal)+Var(noise)=1`, snr_rel≈1 for `mode=none`, monotone `snr_theory`, and Taguchi mapping integrity.
 
-All generated metrics land under `results/…` and can now be collapsed into a
-single `*.h5` archive for long-term storage.
+## Documentation
+- docs/snr_audit.md
+- docs/frequency_snr_study.md
+- docs/config_reference.md
+- docs/refactor_todolist.md
+- Legacy material: docs/legacy/*
 
----
-
-## Usage notes for explorers
-- **Models:** `baseline`, `unet_tiny`, `unet_spectral` (set `model.type` in YAML). Enable amplitude residuals + phase correction via `model.enable_amp_residual` / `model.enable_phase_attention`.
-- **Spectral adapters:** toggle with `spectral.enabled`, choose weighting (`none`, `radial`, `bandpass`), apply to `input/output/per_block`.
-- **Diffusion forward noise:** set `diffusion.uniform_corruption: true` to equalize SNR decay across frequencies.
-- **Samplers:** `ddpm`, `ddim`, `dpm_solver++`, `ancestral`, `dpm_solver2`, `masf` (extend via `register_sampler`).
-- **Ablations:** the full report writes `ablation/summary.csv`; the legacy ablation figure is available via `scripts/figures/archive/generate_figures.py` if you still need it.
-- **Metrics:** dataset metrics include FID/LPIPS (torchmetrics-enabled), high-frequency PSNR, convergence stats (`loss_drop_per_second`), throughput, FFT timing.
-- **Diagnostics:** runs now emit structured JSONL logs (with `--json-log`), gradient norms, and spectral-noise quicklooks inside `diagnostics/`. Taguchi sweeps automatically mirror these assets under `results/<report>/factors/<factor>/<level>/` so you can compare levels without re-running scripts.
-- **Spectral noise overrides:** CLI flags `--snr-ratio` and `--dc-scale-factor` (or matching YAML fields) feed the modular noise preparer, letting you adjust uniform corruption strength/DC attenuation without editing config files.
-
-Looking to extend the project? See **`docs/spectral_model_research.md`** for the ongoing research plan and ideas for new ablations.
-
----
-
-## Documentation bundle
-- **[`docs/theory.md`](docs/theory.md)** – Layperson-friendly explanation of spectral diffusion concepts.
-- **[`docs/architecture.md`](docs/architecture.md)** – How configs, pipelines, samplers, and reports connect.
-- **[`docs/config_reference.md`](docs/config_reference.md)** – CLI flags, YAML fields, and automation scripts at a glance.
-- **[`docs/spectral_model_research.md`](docs/spectral_model_research.md)** – Roadmap, experiments, next hypotheses.
-- **[`docs/taguchi_tips.md`](docs/taguchi_tips.md)** – How to read the Taguchi S/N reports.
-- **`report_v2/summary.md`** – Generated narrative inside each run directory after executing the full report script.
-- **`docs/notebooks/`** – Slot for interactive demos (planned): start with a notebook that trains TinyUNet vs SpectralUNet for a few epochs and plots loss/time.
-
----
-
-## License & citation
+## License
 MIT License © 2025 Ben Schneider
-
-```
-@software{spectral_diffusion_2025,
-  author = {Ben Schneider},
-  title  = {Spectral Diffusion: Frequency-Space Diffusion Experiments},
-  year   = {2025},
-  url    = {https://github.com/benschneider/spectral-diffusion}
-}
-```

@@ -10,27 +10,16 @@ diffusion:
   loss_threshold: null
   num_timesteps: 1000
   prediction_type: eps
-  snr_transform: snr
-  snr_weighting: false
   time_embed_dim: 128
-  uniform_corruption: true
-  uniform_corruption_scale: 0.15
-  adaptive_rescale: true
-  similarity_target: 0.7
   fft_norm: ortho
   snr_ratio: 1.0
-  # Optional clamps for spectral SNR scaling; disable by setting to null.
-  snr_scale_min: 0.05
-  snr_scale_max: 5.0
+  spectral_operator_mode: none
 evaluation:
   image_size: null
   reference_dir: null
   use_fid: false
 loss:
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
   reduction: mean
-  spectral_weighting: none
 model:
   base_channels: 32
   channels: 3
@@ -45,19 +34,8 @@ sampling:
   num_steps: 1000
   sampler_type: ddim
 spectral:
-  apply_to:
-  - input
-  - output
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
-  enabled: false
-  freq_attention: false
-  freq_equalized_noise: true
-  normalize: true
-  per_block: false
-  weighting: none
-  noise_shaping_strength: off   # disable over-aggressive shaping
-  loss_weighting: none
+  operator_mode: none
+  snr_ratio: 1.0
 training:
   batch_size: 32
   epochs: 1

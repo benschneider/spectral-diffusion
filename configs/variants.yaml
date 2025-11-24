@@ -10,27 +10,20 @@ diffusion:
   loss_threshold: null
   num_timesteps: 1000
   prediction_type: eps
-  uniform_corruption: false
-  snr_transform: snr
-  snr_weighting: false
   time_embed_dim: 128
+  snr_ratio: 1.0
+  spectral_operator_mode: none
+  fft_norm: ortho
 evaluation:
   image_size: null
   reference_dir: null
   use_fid: false
 loss:
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
   reduction: mean
-  spectral_weighting: none
 model:
   base_channels: 32
   channels: 3
   depth: 2
-  enable_amp_residual: false
-  amp_hidden_dim: 64
-  enable_phase_attention: false
-  phase_heads: 4
   type: unet_tiny
 optim:
   lr: 0.0001
@@ -41,17 +34,8 @@ sampling:
   num_steps: 1000
   sampler_type: dpm_solver++
 spectral:
-  apply_to:
-  - input
-  - output
-  bandpass_inner: 0.1
-  bandpass_outer: 0.6
-  enabled: true
-  freq_attention: true
-  freq_equalized_noise: true
-  normalize: true
-  per_block: false
-  weighting: radial
+  operator_mode: none
+  snr_ratio: 1.0
 training:
   batch_size: 32
   epochs: 1
