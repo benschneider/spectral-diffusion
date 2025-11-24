@@ -1,0 +1,101 @@
+factors:
+  spectral_adapter_placement:
+    kind: enum
+    levels:
+    - none
+    - input_only
+    - input_and_output
+    doc: Toggle whether spectral adapters see only input or both input/output in the
+      UNet.
+
+    kind: enum
+    levels:
+    - none
+    - radial_highfreq
+    - aggressive_highfreq
+    doc: Differential loss weighting for high-frequency reconstruction.
+
+    kind: float
+    levels:
+    - 0.0
+    - 0.5
+    - 1.0
+    doc: Level of spectral noise shaping before FFT inversion.
+  snr_ratio:
+    kind: float
+    levels:
+    - 0.8
+    - 1.0
+    - 1.4
+    doc: Target SNR ratio scaling inside the synthetic pipeline.
+  dc_scale_factor:
+    kind: float
+    levels:
+    - 0.05
+    - 0.1
+    - 0.2
+    doc: Additional scaling for low-frequency (DC) components during corruption.
+
+    kind: enum
+    levels:
+    - 'off'
+    - tiny
+    - full
+    doc: Phase correction module head count (0 disables PCM).
+  sampler_type:
+    kind: enum
+    levels:
+    - ddim
+    - dpm_solver_pp
+    - spectral_guided
+    doc: Reverse diffusion sampler choice for this taguchi run.
+  sampling_steps:
+    kind: int
+    levels:
+    - 30
+    - 50
+    - 100
+    doc: Number of denoising steps executed during sampling.
+  curriculum_mode:
+    kind: enum
+    levels:
+    - none
+    - lowres_warmup
+    - spectral_first
+    doc: Curriculum smoothing strategy for synthetic batches.
+  lr_schedule_mode:
+    kind: enum
+    levels:
+    - constant
+    - cosine
+    - cosine_warmup
+    doc: Learning rate schedule policy applied to the optimizer.
+  train_steps:
+    kind: int
+    levels:
+    - 50
+    - 100
+    - 200
+    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
+  image_resolution:
+    kind: int
+    levels:
+    - 32
+    - 64
+    - 128
+    doc: Spatial resolution applied via data height/width.
+fixed_values:
+  sampling_steps: 30
+  train_steps: 50
+  image_resolution: 32
+  normalization_mode: per_batch_std
+  lambda_var: 0.0007
+  learning_rate: 0.003
+  grad_clipping: global_1.0
+  synthetic_profile: randomfield
+  noise_color: patterned
+  spectral_slope: flat
+  optimizer: adafactor
+  ema_beta: 0.99
+  shock_handler: false
+  snr_level: nominal

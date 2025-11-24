@@ -1,0 +1,3002 @@
+diff --git a/configs/benchmark_spectral_cifar_deep_smoke.yaml b/archive/legacy/configs/benchmark_spectral_cifar_deep_smoke.yaml
+similarity index 100%
+rename from configs/benchmark_spectral_cifar_deep_smoke.yaml
+rename to archive/legacy/configs/benchmark_spectral_cifar_deep_smoke.yaml
+diff --git a/configs/benchmark_spectral_cifar_spectral.yaml b/archive/legacy/configs/benchmark_spectral_cifar_spectral.yaml
+similarity index 100%
+rename from configs/benchmark_spectral_cifar_spectral.yaml
+rename to archive/legacy/configs/benchmark_spectral_cifar_spectral.yaml
+diff --git a/configs/benchmark_spectral_deep_smoke.yaml b/archive/legacy/configs/benchmark_spectral_deep_smoke.yaml
+similarity index 100%
+rename from configs/benchmark_spectral_deep_smoke.yaml
+rename to archive/legacy/configs/benchmark_spectral_deep_smoke.yaml
+diff --git a/configs/deep_spectral_smoke.yaml b/archive/legacy/configs/deep_spectral_smoke.yaml
+similarity index 100%
+rename from configs/deep_spectral_smoke.yaml
+rename to archive/legacy/configs/deep_spectral_smoke.yaml
+diff --git a/configs/taguchi/L23_synthetic.csv b/archive/legacy/configs/taguchi/L23_synthetic.csv
+similarity index 100%
+rename from configs/taguchi/L23_synthetic.csv
+rename to archive/legacy/configs/taguchi/L23_synthetic.csv
+diff --git a/configs/taguchi/L23_synthetic.yaml b/archive/legacy/configs/taguchi/L23_synthetic.yaml
+similarity index 100%
+rename from configs/taguchi/L23_synthetic.yaml
+rename to archive/legacy/configs/taguchi/L23_synthetic.yaml
+diff --git a/configs/taguchi/L23_synthetic_levels.json b/archive/legacy/configs/taguchi/L23_synthetic_levels.json
+similarity index 100%
+rename from configs/taguchi/L23_synthetic_levels.json
+rename to archive/legacy/configs/taguchi/L23_synthetic_levels.json
+diff --git a/configs/taguchi/fine_tune_l23.yaml b/archive/legacy/configs/taguchi/fine_tune_l23.yaml
+similarity index 100%
+rename from configs/taguchi/fine_tune_l23.yaml
+rename to archive/legacy/configs/taguchi/fine_tune_l23.yaml
+diff --git a/configs/taguchi/generated/.gitkeep b/archive/legacy/configs/taguchi/generated/.gitkeep
+similarity index 100%
+rename from configs/taguchi/generated/.gitkeep
+rename to archive/legacy/configs/taguchi/generated/.gitkeep
+diff --git a/archive/legacy/configs/taguchi/generated/README.md b/archive/legacy/configs/taguchi/generated/README.md
+new file mode 100644
+index 0000000..0367205
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/README.md
+@@ -0,0 +1,5 @@
++Legacy auto-generated Taguchi artifacts live here. These captures reference
++retired factors (e.g., spectral_adapter_placement, spectral_loss_weighting) and
++are not used by the current minimal factor set
++(`snr_ratio`, `spectral_operator_mode`, `sampler_type`, `sampling_steps`,
++`train_steps`, `image_resolution`). Keep them only as historical snapshots.
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..1090a17
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204628Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T204628Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T204628Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T20:46:28.225453+00:00",
++  "git_commit": "f478acd89a10d911ec1a6e96353a046ae3b490ab",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T204628Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..47e51b2
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204649Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T204649Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T204649Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T20:46:49.824913+00:00",
++  "git_commit": "f478acd89a10d911ec1a6e96353a046ae3b490ab",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T204649Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..a92be89
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T204743Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T204743Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T204743Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T20:47:43.884938+00:00",
++  "git_commit": "f478acd89a10d911ec1a6e96353a046ae3b490ab",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T204743Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..68964dc
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T205944Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T205944Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T205944Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T20:59:44.646276+00:00",
++  "git_commit": "38c4603934126a2e0fd97515506b5bdc20a127dc",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T205944Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..026e326
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210455Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T210455Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T210455Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T21:04:55.594858+00:00",
++  "git_commit": "38c4603934126a2e0fd97515506b5bdc20a127dc",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T210455Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..ff461b4
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210609Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T210609Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T210609Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T21:06:09.231903+00:00",
++  "git_commit": "38c4603934126a2e0fd97515506b5bdc20a127dc",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T210609Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..0ea0548
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T210832Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T210832Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T210832Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T21:08:32.197402+00:00",
++  "git_commit": "38c4603934126a2e0fd97515506b5bdc20a127dc",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T210832Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..18e9ec6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211015Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T211015Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T211015Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T21:10:15.010224+00:00",
++  "git_commit": "38c4603934126a2e0fd97515506b5bdc20a127dc",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T211015Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..17afa04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211640Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T211640Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T211640Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T21:16:40.960256+00:00",
++  "git_commit": "38c4603934126a2e0fd97515506b5bdc20a127dc",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T211640Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..fde4d49
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211721Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T211721Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T211721Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T21:17:21.761529+00:00",
++  "git_commit": "a17a3788d45f7a3931cdab28509a7e1d33154823",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T211721Z"
++}
+\ No newline at end of file
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/design_L27_fast_synthetic.csv b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/design_L27_fast_synthetic.csv
+new file mode 100644
+index 0000000..de41f04
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/design_L27_fast_synthetic.csv
+@@ -0,0 +1,28 @@
++run,A,B,C,D,E,F,G,H,I,J,K,L
++1,1,1,1,1,1,1,1,1,1,1,1,1
++2,2,1,1,2,2,2,2,1,1,2,1,2
++3,3,1,1,3,3,3,3,1,1,3,1,3
++4,1,2,1,2,3,1,1,2,2,2,1,1
++5,2,2,1,3,1,2,2,2,2,3,1,2
++6,3,2,1,1,2,3,3,2,2,1,1,3
++7,1,3,1,3,2,1,1,3,3,3,1,1
++8,2,3,1,1,3,2,2,3,3,1,1,2
++9,3,3,1,2,1,3,3,3,3,2,1,3
++10,1,1,2,1,1,2,3,2,3,2,3,1
++11,2,1,2,2,2,3,1,2,3,3,3,2
++12,3,1,2,3,3,1,2,2,3,1,3,3
++13,1,2,2,2,3,2,3,3,1,3,3,1
++14,2,2,2,3,1,3,1,3,1,1,3,2
++15,3,2,2,1,2,1,2,3,1,2,3,3
++16,1,3,2,3,2,2,3,1,2,1,3,1
++17,2,3,2,1,3,3,1,1,2,2,3,2
++18,3,3,2,2,1,1,2,1,2,3,3,3
++19,1,1,3,1,1,3,2,3,2,3,2,1
++20,2,1,3,2,2,1,3,3,2,1,2,2
++21,3,1,3,3,3,2,1,3,2,2,2,3
++22,1,2,3,2,3,3,2,1,3,1,2,1
++23,2,2,3,3,1,1,3,1,3,2,2,2
++24,3,2,3,1,2,2,1,1,3,3,2,3
++25,1,3,3,3,2,3,2,2,1,2,2,1
++26,2,3,3,1,3,1,3,2,1,3,2,2
++27,3,3,3,2,1,2,1,2,1,1,2,3
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/factor_registry_fast_synthetic.yaml b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/factor_registry_fast_synthetic.yaml
+new file mode 100644
+index 0000000..43148f6
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/factor_registry_fast_synthetic.yaml
+@@ -0,0 +1,101 @@
++factors:
++  spectral_adapter_placement:
++    kind: enum
++    levels:
++    - none
++    - input_only
++    - input_and_output
++    doc: Toggle whether spectral adapters see only input or both input/output in the
++      UNet.
++
++    kind: enum
++    levels:
++    - none
++    - radial_highfreq
++    - aggressive_highfreq
++    doc: Differential loss weighting for high-frequency reconstruction.
++
++    kind: float
++    levels:
++    - 0.0
++    - 0.5
++    - 1.0
++    doc: Level of spectral noise shaping before FFT inversion.
++  snr_ratio:
++    kind: float
++    levels:
++    - 0.8
++    - 1.0
++    - 1.4
++    doc: Target SNR ratio scaling inside the synthetic pipeline.
++  dc_scale_factor:
++    kind: float
++    levels:
++    - 0.05
++    - 0.1
++    - 0.2
++    doc: Additional scaling for low-frequency (DC) components during corruption.
++
++    kind: enum
++    levels:
++    - 'off'
++    - tiny
++    - full
++    doc: Phase correction module head count (0 disables PCM).
++  sampler_type:
++    kind: enum
++    levels:
++    - ddim
++    - dpm_solver_pp
++    - spectral_guided
++    doc: Reverse diffusion sampler choice for this taguchi run.
++  sampling_steps:
++    kind: int
++    levels:
++    - 30
++    - 50
++    - 100
++    doc: Number of denoising steps executed during sampling.
++  curriculum_mode:
++    kind: enum
++    levels:
++    - none
++    - lowres_warmup
++    - spectral_first
++    doc: Curriculum smoothing strategy for synthetic batches.
++  lr_schedule_mode:
++    kind: enum
++    levels:
++    - constant
++    - cosine
++    - cosine_warmup
++    doc: Learning rate schedule policy applied to the optimizer.
++  train_steps:
++    kind: int
++    levels:
++    - 50
++    - 100
++    - 200
++    doc: Number of training iterations (`training.num_batches`) per diagnostic run.
++  image_resolution:
++    kind: int
++    levels:
++    - 32
++    - 64
++    - 128
++    doc: Spatial resolution applied via data height/width.
++fixed_values:
++  sampling_steps: 30
++  train_steps: 50
++  image_resolution: 32
++  normalization_mode: per_batch_std
++  lambda_var: 0.0007
++  learning_rate: 0.003
++  grad_clipping: global_1.0
++  synthetic_profile: randomfield
++  noise_color: patterned
++  spectral_slope: flat
++  optimizer: adafactor
++  ema_beta: 0.99
++  shock_handler: false
++  snr_level: nominal
+diff --git a/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/manifest_fast_synthetic.json b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/manifest_fast_synthetic.json
+new file mode 100644
+index 0000000..e1939bf
+--- /dev/null
++++ b/archive/legacy/configs/taguchi/generated/fast_synthetic/20251111T211747Z/manifest_fast_synthetic.json
+@@ -0,0 +1,47 @@
++{
++  "suite": "fast_synthetic",
++  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
++  "oa": "L27",
++  "oa_path": "configs/taguchi/L27_extended.csv",
++  "base_config": "configs/taguchi_smoke_best.yaml",
++  "registry": "configs/taguchi/generated/fast_synthetic/20251111T211747Z/factor_registry_fast_synthetic.yaml",
++  "design": "configs/taguchi/generated/fast_synthetic/20251111T211747Z/design_L27_fast_synthetic.csv",
++  "randomize": false,
++  "seeds": [
++    42
++  ],
++  "estimate": {
++    "runs": 27,
++    "seconds_per_run": 120.0,
++    "total_seconds": 3240.0
++  },
++  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
++  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
++  "runtime_estimate_sec": 3240.0,
++  "generated_at": "2025-11-11T21:17:47.826549+00:00",
++  "git_commit": "a17a3788d45f7a3931cdab28509a7e1d33154823",
++  "constraints": [
++    {
++      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
++      "status": "OK",
++      "severity": "block",
++      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
++      "triggered": false
++    },
++    {
++      "expr": "image_resolution == 128 and sampling_steps == 100",
++      "status": "OK",
++      "severity": "block",
++      "reason": "High resolution with max steps exceeds the runtime budget.",
++      "triggered": false
++    },
++    {
++      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
++      "status": "OK",
++      "severity": "warn",
++      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
++      "triggered": false
++    }
++  ],
++  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T211747Z"
++}
+\ No newline at end of file
+diff --git a/scripts/archive/run_fine_tune_l23.py b/archive/legacy/scripts/archive/run_fine_tune_l23.py
+similarity index 100%
+rename from scripts/archive/run_fine_tune_l23.py
+rename to archive/legacy/scripts/archive/run_fine_tune_l23.py
+diff --git a/scripts/archive/run_full_report.sh b/archive/legacy/scripts/archive/run_full_report.sh
+similarity index 100%
+rename from scripts/archive/run_full_report.sh
+rename to archive/legacy/scripts/archive/run_full_report.sh
+diff --git a/scripts/archive/run_full_report_1024x.sh b/archive/legacy/scripts/archive/run_full_report_1024x.sh
+similarity index 100%
+rename from scripts/archive/run_full_report_1024x.sh
+rename to archive/legacy/scripts/archive/run_full_report_1024x.sh
+diff --git a/scripts/run_taguchi_synthetic_l23.py b/archive/legacy/scripts/run_taguchi_synthetic_l23.py
+similarity index 100%
+rename from scripts/run_taguchi_synthetic_l23.py
+rename to archive/legacy/scripts/run_taguchi_synthetic_l23.py
+diff --git a/scripts/run_taguchi_synthetic_l23.sh b/archive/legacy/scripts/run_taguchi_synthetic_l23.sh
+similarity index 100%
+rename from scripts/run_taguchi_synthetic_l23.sh
+rename to archive/legacy/scripts/run_taguchi_synthetic_l23.sh
+diff --git a/src/core/model_unet_spectral.py b/archive/legacy/src/core/model_unet_spectral.py
+similarity index 100%
+rename from src/core/model_unet_spectral.py
+rename to archive/legacy/src/core/model_unet_spectral.py
+diff --git a/src/core/overflow_handler.py b/archive/legacy/src/core/overflow_handler.py
+similarity index 100%
+rename from src/core/overflow_handler.py
+rename to archive/legacy/src/core/overflow_handler.py
+diff --git a/src/core/snr_scheduler.py b/archive/legacy/src/core/snr_scheduler.py
+similarity index 100%
+rename from src/core/snr_scheduler.py
+rename to archive/legacy/src/core/snr_scheduler.py
+diff --git a/src/spectral/adapter.py b/archive/legacy/src/spectral/adapter.py
+similarity index 100%
+rename from src/spectral/adapter.py
+rename to archive/legacy/src/spectral/adapter.py
+diff --git a/src/utils/adaptive_snr.py b/archive/legacy/src/utils/adaptive_snr.py
+similarity index 100%
+rename from src/utils/adaptive_snr.py
+rename to archive/legacy/src/utils/adaptive_snr.py
+diff --git a/tests/test_spectral_adapter.py b/archive/legacy/tests/test_spectral_adapter.py
+similarity index 100%
+rename from tests/test_spectral_adapter.py
+rename to archive/legacy/tests/test_spectral_adapter.py
+diff --git a/tests/test_spectral_unet_model.py b/archive/legacy/tests/test_spectral_unet_model.py
+similarity index 100%
+rename from tests/test_spectral_unet_model.py
+rename to archive/legacy/tests/test_spectral_unet_model.py
+diff --git a/tests/test_tiny_unet_spectral.py b/archive/legacy/tests/test_tiny_unet_spectral.py
+similarity index 100%
+rename from tests/test_tiny_unet_spectral.py
+rename to archive/legacy/tests/test_tiny_unet_spectral.py
+diff --git a/docs/legacy/snr_weighting_notes.md b/docs/legacy/snr_weighting_notes.md
+new file mode 100644
+index 0000000..2102c8c
+--- /dev/null
++++ b/docs/legacy/snr_weighting_notes.md
+@@ -0,0 +1,29 @@
++# Legacy SNR Weighting Notes (Archived)
++
++These notes capture the pre-unification diagnostics around schedule-driven SNR
++weighting, overflow handling, and variance penalties. They are preserved for
++historical context and should not influence the current unified forward process.
++
++## Fragmented SNR Metrics
++
++- `snr_schedule` (from clamped coefficients; used for weighting).
++- `snr_effective` / `snr_measured` (empirical RMS ratio; not used for weighting).
++- `snr_ratio` knob (RMS amplitude scaling).
++- `snr_scale_factor`, `snr_base`, `snr_ratio_target` (diagnostic).
++- Missing unified structure: no `snr_emp` or `snr_rel`.
++
++## Variance Paths
++
++- `_normalize_fft_noise` guarantees unit RMS before subsequent scaling.
++- Post-scaling variance no longer tied to `(1 - alpha_bar_t)`.
++- `variance_penalty` attempts to compensate but does not enforce invariants.
++
++## Loss Path and Weighting
++
++- `AdaptiveSNRWeight` uses log-SNR derived from schedule, not the actual injected noise.
++- Additional FFT spectral-pressure penalty and variance penalty modify gradients.
++
++## Diagnostics
++
++- Logs `snr_schedule_mean`, `snr_effective`, overflow, `variance_ratio`, `spectral_pressure`.
++- No unified SNR triad.
+diff --git a/docs/taguchi_factor_plan.md b/docs/legacy/taguchi_factor_plan.md
+similarity index 100%
+rename from docs/taguchi_factor_plan.md
+rename to docs/legacy/taguchi_factor_plan.md
+diff --git a/docs/taguchi_l27_run_notes.md b/docs/legacy/taguchi_l27_run_notes.md
+similarity index 100%
+rename from docs/taguchi_l27_run_notes.md
+rename to docs/legacy/taguchi_l27_run_notes.md
+diff --git a/docs/training_flow.md b/docs/legacy/training_flow.md
+similarity index 100%
+rename from docs/training_flow.md
+rename to docs/legacy/training_flow.md
+diff --git a/docs/snr_audit.md b/docs/snr_audit.md
+index be9fe28..56e7a45 100644
+--- a/docs/snr_audit.md
++++ b/docs/snr_audit.md
+@@ -218,24 +218,20 @@ Metrics:
+ - Multiple variance modifications break the DDPM invariant `Var(signal)+Var(noise)=1`.
+ 
+ ### 4.3 SNR metrics (fragmented)
+-- `snr_schedule` (from clamped coefficients; used for weighting).
+-- `snr_effective` / `snr_measured` (empirical RMS ratio; not used for weighting).
+-- `snr_ratio` knob (RMS amplitude scaling).
+-- `snr_scale_factor`, `snr_base`, `snr_ratio_target` (diagnostic).
+-- Missing unified structure: no `snr_emp` or `snr_rel`.
++Legacy details on schedule-driven metrics are archived in
++`docs/legacy/snr_weighting_notes.md`.
+ 
+ ### 4.4 Variance paths
+-- `_normalize_fft_noise` guarantees unit RMS before subsequent scaling.
+-- Post-scaling variance no longer tied to `(1 - alpha_bar_t)`.
+-- Variance_penalty attempts to compensate but does not enforce invariants.
++Legacy variance-penalty behaviour is archived in
++`docs/legacy/snr_weighting_notes.md`.
+ 
+ ### 4.5 Loss path and weighting
+-- AdaptiveSNRWeight uses log-SNR derived from schedule, not the actual injected noise.
+-- Additional FFT spectral‑pressure penalty and variance penalty modify gradients.
++Legacy adaptive weighting and spectral-pressure notes are archived in
++`docs/legacy/snr_weighting_notes.md`.
+ 
+ ### 4.6 Diagnostics
+-- Logs snr_schedule_mean, snr_effective, overflow, variance_ratio, spectral_pressure.
+-- No unified SNR triad.
++Legacy SNR logging fields are archived in
++`docs/legacy/snr_weighting_notes.md`.
+ 
+ ---
+ 
+diff --git a/scripts/run_full_report_32x32.sh b/scripts/run_full_report_32x32.sh
+index fae7584..fb431c4 100755
+--- a/scripts/run_full_report_32x32.sh
++++ b/scripts/run_full_report_32x32.sh
+@@ -101,36 +101,6 @@ print(f"  • Run {run_id}: {config_path} (source={data_source}, size={data_size
+ PY
+ }
+ 
+-augment_config() {
+-  local source_cfg="$1"
+-  local dest_cfg="$2"
+-  python - "$source_cfg" "$dest_cfg" <<'PY'
+-import sys
+-import yaml
+-
+-src, dst = sys.argv[1:3]
+-with open(src, "r", encoding="utf-8") as handle:
+-    cfg = yaml.safe_load(handle) or {}
+-
+-diffusion = cfg.setdefault("diffusion", {})
+-diffusion["uniform_corruption"] = True
+-
+-model = cfg.setdefault("model", {})
+-model["enable_amp_residual"] = True
+-model["enable_phase_attention"] = True
+-model.setdefault("amp_hidden_dim", max(int(model.get("base_channels", 32)), 16))
+-model.setdefault("phase_heads", 1)
+-
+-sampling = cfg.setdefault("sampling", {})
+-sampling.setdefault("sampler_type", "masf")
+-sampling.setdefault("num_steps", 50)
+-sampling.setdefault("num_samples", 8)
+-
+-with open(dst, "w", encoding="utf-8") as handle:
+-    yaml.safe_dump(cfg, handle, sort_keys=False)
+-PY
+-}
+-
+ default_parallelism() {
+   python - <<'PY'
+ import os
+@@ -230,21 +200,6 @@ print(f"Generated Taguchi report with {len(report)} rows -> {report_path}")
+ PY
+ }
+ 
+-sample_with_masf() {
+-  local run_root="$1"
+-  local tag="${2:-masf}"
+-  if [[ ! -d "$run_root" ]]; then
+-    echo "Skipping MASF sampling; run directory not found: $run_root"
+-    return
+-  fi
+-  python "$ROOT_DIR/sample.py" \
+-    --run-dir "$run_root" \
+-    --sampler-type masf \
+-    --tag "$tag" \
+-    --num-steps 50 \
+-    --num-samples 8
+-}
+-
+ sample_with_ddim() {
+   local run_root="$1"
+   local tag="${2:-ddim}"
+@@ -261,7 +216,7 @@ sample_with_ddim() {
+ }
+ 
+ run_synthetic() {
+-  echo "[1/5] Synthetic benchmarks (32x32 images)"
++  echo "[1/4] Synthetic benchmarks (32x32 images)"
+   rm -f "$SYN_DIR/summary.csv"
+   rm -rf "$SYN_DIR/runs"
+   mkdir -p "$SYN_DIR"
+@@ -274,7 +229,6 @@ run_synthetic() {
+ 
+   for config_file in "${SYNTHETIC_CONFIGS[@]}"; do
+     family_name=$(basename "$config_file" .yaml | sed 's/benchmark_synthetic_//')
+-    learnable_config_file="benchmark_synthetic_${family_name}_learnable.yaml"
+ 
+     # Run TinyUNet (default)
+     describe_run "$ROOT_DIR/configs/$config_file" "${family_name}_32x32_tiny" "config-default"
+@@ -283,51 +237,11 @@ run_synthetic() {
+       --output-dir "$SYN_DIR" \
+       --run-id "${family_name}_32x32_tiny"
+     sample_with_ddim "$SYN_DIR/runs/${family_name}_32x32_tiny" "ddim_baseline"
+-
+-    # Run TinyUNet + Learnable Adapter
+-    describe_run "$ROOT_DIR/configs/$learnable_config_file" "${family_name}_32x32_tiny_learnable" "tiny-learnable"
+-    python "$ROOT_DIR/train.py" \
+-      --config "$ROOT_DIR/configs/$learnable_config_file" \
+-      --output-dir "$SYN_DIR" \
+-      --run-id "${family_name}_32x32_tiny_learnable"
+-
+-    # Run SpectralUNet
+-    tmp_cfg="$(mktemp "$SYN_DIR/${family_name}_32_spectral_XXXX.yaml")"
+-    augment_config "$ROOT_DIR/configs/$config_file" "$tmp_cfg"
+-    describe_run "$tmp_cfg" "${family_name}_32x32_spectral" "spectral+uniform"
+-    python "$ROOT_DIR/train.py" \
+-      --config "$tmp_cfg" \
+-      --output-dir "$SYN_DIR" \
+-      --run-id "${family_name}_32x32_spectral" \
+-      --variant spectral
+-    sample_with_masf "$SYN_DIR/runs/${family_name}_32x32_spectral"
+-
+-    # Run SpectralUNetDeep
+-    tmp_cfg_deep="$(mktemp "$SYN_DIR/${family_name}_32_deep_XXXX.yaml")"
+-    augment_config "$ROOT_DIR/configs/$config_file" "$tmp_cfg_deep"
+-    describe_run "$tmp_cfg_deep" "${family_name}_32x32_spectral_deep" "spectral_deep+uniform"
+-    python "$ROOT_DIR/train.py" \
+-      --config "$tmp_cfg_deep" \
+-      --output-dir "$SYN_DIR" \
+-      --run-id "${family_name}_32x32_spectral_deep" \
+-      --variant spectral_deep
+-    sample_with_masf "$SYN_DIR/runs/${family_name}_32x32_spectral_deep" "masf_deep"
+-
+-    # Run Pure SpectralUNet (unet_spectral model type)
+-    tmp_cfg_unet="$(mktemp "$SYN_DIR/${family_name}_32_unet_XXXX.yaml")"
+-    augment_config "$ROOT_DIR/configs/$config_file" "$tmp_cfg_unet"
+-    describe_run "$tmp_cfg_unet" "${family_name}_32x32_unet_spectral" "unet_spectral+uniform"
+-    python "$ROOT_DIR/train.py" \
+-      --config "$tmp_cfg_unet" \
+-      --output-dir "$SYN_DIR" \
+-      --run-id "${family_name}_32x32_unet_spectral" \
+-      --variant unet_spectral
+-    sample_with_masf "$SYN_DIR/runs/${family_name}_32x32_unet_spectral" "masf_unet"
+   done
+ }
+ 
+ run_cifar() {
+-  echo "[2/5] CIFAR-10 benchmark (TinyUNet vs SpectralUNet vs Deep)"
++  echo "[2/4] CIFAR-10 benchmark (32x32 TinyUNet)"
+   rm -f "$CIFAR_DIR/summary.csv"
+   rm -rf "$CIFAR_DIR/runs"
+   mkdir -p "$CIFAR_DIR"
+@@ -338,53 +252,10 @@ run_cifar() {
+     --output-dir "$CIFAR_DIR" \
+     --run-id "cifar_32x32_tiny"
+   sample_with_ddim "$CIFAR_DIR/runs/cifar_32x32_tiny" "ddim_baseline"
+-
+-  tmp_cfg_cifar="$(mktemp "$CIFAR_DIR/cifar_32_spectral_XXXX.yaml")"
+-  augment_config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "$tmp_cfg_cifar"
+-  describe_run "$tmp_cfg_cifar" "cifar_32x32_spectral" "spectral+uniform"
+-  python "$ROOT_DIR/train.py" \
+-    --config "$tmp_cfg_cifar" \
+-    --output-dir "$CIFAR_DIR" \
+-    --run-id "cifar_32x32_spectral" \
+-    --variant spectral
+-  sample_with_masf "$CIFAR_DIR/runs/cifar_32x32_spectral"
+-
+-  tmp_cfg_cifar_deep="$(mktemp "$CIFAR_DIR/cifar_32_deep_XXXX.yaml")"
+-  augment_config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "$tmp_cfg_cifar_deep"
+-  describe_run "$tmp_cfg_cifar_deep" "cifar_32x32_spectral_deep" "spectral_deep+uniform"
+-  python "$ROOT_DIR/train.py" \
+-    --config "$tmp_cfg_cifar_deep" \
+-    --output-dir "$CIFAR_DIR" \
+-    --run-id "cifar_32x32_spectral_deep" \
+-    --variant spectral_deep
+-  sample_with_masf "$CIFAR_DIR/runs/cifar_32x32_spectral_deep" "masf_deep"
+-}
+-
+-run_feature_ablation() {
+-  echo "[3/5] Spectral feature toggle ablation"
+-  rm -f "$ABL_DIR/summary.csv"
+-  mkdir -p "$ABL_DIR"
+-
+-  # Baseline spectral without additional toggles
+-  describe_run "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "cifar_32x32_spectral_plain" "spectral"
+-  python "$ROOT_DIR/train.py" \
+-    --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
+-    --output-dir "$ABL_DIR" \
+-    --run-id "cifar_32x32_spectral_plain" \
+-    --variant spectral
+-
+-  tmp_cfg_ablation="$(mktemp "$ABL_DIR/cifar_32_ablation_XXXX.yaml")"
+-  augment_config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" "$tmp_cfg_ablation"
+-  describe_run "$tmp_cfg_ablation" "cifar_32x32_spectral_uniform" "spectral+uniform"
+-  python "$ROOT_DIR/train.py" \
+-    --config "$tmp_cfg_ablation" \
+-    --output-dir "$ABL_DIR" \
+-    --run-id "cifar_32x32_spectral_uniform" \
+-    --variant spectral
+ }
+ 
+ run_taguchi() {
+-  echo "[4/5] Taguchi sweep"
++  echo "[3/4] Taguchi sweep"
+   local array_basename
+   array_basename="$(basename "$TAGUCHI_ARRAY_PATH")"
+   local array_stem="${array_basename%.csv}"
+@@ -480,7 +351,7 @@ run_taguchi() {
+ }
+ 
+ generate_report() {
+-  echo "[5/5] Generating report_v2 bundle"
++  echo "[4/4] Generating report_v2 bundle"
+   mkdir -p "$REPORT_V2_DIR/appendix/noise_chains"
+   python "$ROOT_DIR/scripts/visualize_uniform_noise.py" \
+     --config "$ROOT_DIR/configs/benchmark_spectral_cifar.yaml" \
+@@ -500,7 +371,6 @@ generate_report() {
+ 
+ run_synthetic
+ run_cifar
+-run_feature_ablation
+ run_taguchi
+ generate_report
+ 
+diff --git a/scripts/run_taguchi_suite.py b/scripts/run_taguchi_suite.py
+index 47ef319..a5a257b 100644
+--- a/scripts/run_taguchi_suite.py
++++ b/scripts/run_taguchi_suite.py
+@@ -26,7 +26,6 @@ if str(ROOT) not in sys.path:  # pragma: no cover
+ # Optional: pre-baked OA CSVs. If not found, we will synthesize a simple L27-like CSV.
+ OA_DESIGN_MAP: Dict[str, Path] = {
+     "L27": Path("configs/taguchi/L27_extended.csv"),
+-    "L23": Path("configs/taguchi/L23_synthetic.csv"),
+     "L18": Path("configs/taguchi/L18_mixed.csv"),
+ }
+ 
+diff --git a/src/cli/train.py b/src/cli/train.py
+index a098a05..8525e76 100644
+--- a/src/cli/train.py
++++ b/src/cli/train.py
+@@ -40,7 +40,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
+     parser.add_argument(
+         "--variant",
+         type=str,
+-        choices=["baseline", "spectral", "spectral_deep", "unet_spectral"],
++        choices=["baseline", "unet_tiny"],
+         default=None,
+         help="Optional override for the model variant.",
+     )
+@@ -112,9 +112,7 @@ def apply_variant_override(config: Dict[str, Any], variant: Optional[str]) -> No
+     if variant:
+         alias = {
+             "baseline": "baseline",
+-            "spectral": "unet_spectral",
+-            "spectral_deep": "unet_spectral_deep",
+-            "unet_spectral": "unet_spectral",
++            "unet_tiny": "unet_tiny",
+         }
+         config.setdefault("model", {})
+         config["model"]["type"] = alias.get(variant, variant)
+@@ -207,8 +205,6 @@ def train_from_config(
+     if snr_ratio is not None:
+         diffusion_cfg = config.setdefault("diffusion", {})
+         diffusion_cfg["snr_ratio"] = float(snr_ratio)
+-        spectral_cfg = config.setdefault("spectral", {})
+-        spectral_cfg["snr_ratio"] = float(snr_ratio)
+     if lambda_var is not None:
+         diffusion_cfg = config.setdefault("diffusion", {})
+         diffusion_cfg["lambda_var"] = float(lambda_var)
+diff --git a/src/core/__init__.py b/src/core/__init__.py
+index f135ef5..c3269c5 100644
+--- a/src/core/__init__.py
++++ b/src/core/__init__.py
+@@ -2,15 +2,12 @@
+ 
+ from .losses import DiffusionLoss, get_loss_fn  # noqa: F401
+ from .model import BaselineConvModel, build_model  # noqa: F401
+-from .model_unet_spectral import SpectralUNet, SpectralUNetDeep  # noqa: F401
+ from .model_unet_tiny import TinyUNet  # noqa: F401
+ from .time_embed import TimeMLP, sinusoidal_embedding  # noqa: F401
+ 
+ __all__ = [
+     "BaselineConvModel",
+     "TinyUNet",
+-    "SpectralUNet",
+-    "SpectralUNetDeep",
+     "TimeMLP",
+     "sinusoidal_embedding",
+     "DiffusionLoss",
+diff --git a/src/core/model.py b/src/core/model.py
+index f93e66e..3302a6d 100644
+--- a/src/core/model.py
++++ b/src/core/model.py
+@@ -4,7 +4,6 @@ import torch
+ from torch import nn
+ 
+ from .initialization import apply_initialization
+-from .model_unet_spectral import SpectralUNet, SpectralUNetDeep
+ from .model_unet_tiny import TinyUNet
+ 
+ 
+@@ -40,8 +39,6 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
+     "baseline": BaselineConvModel,
+     "baseline_conv": BaselineConvModel,
+     "unet_tiny": TinyUNet,
+-    "unet_spectral": SpectralUNet,
+-    "unet_spectral_deep": SpectralUNetDeep,
+ }
+ 
+ 
+diff --git a/src/core/model_unet_tiny.py b/src/core/model_unet_tiny.py
+index 272ed1e..81e888d 100644
+--- a/src/core/model_unet_tiny.py
++++ b/src/core/model_unet_tiny.py
+@@ -1,4 +1,3 @@
+-import time
+ from typing import Any, Dict, List, Optional
+ 
+ import torch
+@@ -6,8 +5,6 @@ from torch import nn
+ from torch.nn import functional as F
+ 
+ from src.core.time_embed import TimeMLP, sinusoidal_embedding
+-from src.spectral.adapter import SpectralAdapter
+-from src.spectral.fft_utils import configure_spectral_params
+ 
+ 
+ class ConvBlock(nn.Module):
+@@ -18,7 +15,6 @@ class ConvBlock(nn.Module):
+         in_channels: int,
+         out_channels: int,
+         time_width: int = 0,
+-        spectral_adapter: Optional[SpectralAdapter] = None,
+     ) -> None:
+         super().__init__()
+         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+@@ -26,17 +22,12 @@ class ConvBlock(nn.Module):
+         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+         self.norm2 = nn.GroupNorm(1, out_channels)
+         self.time_bias = nn.Linear(time_width, out_channels) if time_width > 0 else None
+-        self.spectral_adapter = spectral_adapter
+ 
+     def forward(
+         self,
+         x: torch.Tensor,
+         t_feat: Optional[torch.Tensor] = None,
+-        block_adapter: Optional[SpectralAdapter] = None,
+     ) -> torch.Tensor:
+-        adapter = block_adapter or self.spectral_adapter
+-        if adapter is not None:
+-            x = adapter(x, t_feat)
+         h = self.conv1(x)
+         if self.time_bias is not None and t_feat is not None:
+             h = h + self.time_bias(t_feat).unsqueeze(-1).unsqueeze(-1)
+@@ -46,32 +37,6 @@ class ConvBlock(nn.Module):
+         return h
+ 
+ 
+-def _build_weight_map(
+-    spectral_config: Dict[str, Any],
+-    height: int,
+-    width: int,
+-) -> Optional[torch.Tensor]:
+-    weighting = spectral_config.get("weighting", "none")
+-    if weighting == "none":
+-        return None
+-
+-    fy = torch.fft.fftfreq(height, d=1.0)
+-    fx = torch.fft.fftfreq(width, d=1.0)
+-    grid_y, grid_x = torch.meshgrid(fy, fx, indexing="ij")
+-    radius = torch.sqrt(grid_x**2 + grid_y**2)
+-
+-    if weighting == "radial":
+-        weight = 1.0 / (1.0 + radius**2)
+-    elif weighting == "bandpass":
+-        inner = spectral_config.get("bandpass_inner", 0.05)
+-        outer = spectral_config.get("bandpass_outer", 0.25)
+-        weight = ((radius >= inner) & (radius <= outer)).float()
+-    else:
+-        raise ValueError(f"Unknown spectral weighting '{weighting}'")
+-
+-    return weight.to(torch.float32)
+-
+-
+ class TinyUNet(nn.Module):
+     """Lightweight UNet-style architecture suitable for 32×32 inputs."""
+ 
+@@ -89,62 +54,6 @@ class TinyUNet(nn.Module):
+         self.time_embed_dim = int(time_embed_dim)
+         self.time_mlp = TimeMLP(self.time_embed_dim, time_width)
+ 
+-        self.spectral_cfg = configure_spectral_params(config)
+-        params = self.spectral_cfg
+-        enabled = params.get("enabled", False)
+-        weighting = params.get("weighting", "none")
+-        normalize = params.get("normalize", True)
+-        inner = params.get("bandpass_inner", 0.1)
+-        outer = params.get("bandpass_outer", 0.6)
+-        apply_to = set(params.get("apply_to", []))
+-        learnable = params.get("learnable", False)
+-        condition_mode = params.get("condition", "none") if learnable else "none"
+-        mlp_hidden = params.get("mlp_hidden_dim", 64)
+-        learn_temp = params.get("learnable_temperature", 50.0)
+-        learn_gain_init = params.get("learnable_gain_init", 1.0)
+-        condition_dim = time_width if (learnable and condition_mode == "time") else 0
+-
+-        self.spectral_input: Optional[SpectralAdapter] = None
+-        self.spectral_output: Optional[SpectralAdapter] = None
+-        self.spectral_block: Optional[SpectralAdapter] = None
+-
+-        if enabled:
+-            if "input" in apply_to:
+-                self.spectral_input = SpectralAdapter(
+-                    True,
+-                    weighting,
+-                    normalize,
+-                    inner,
+-                    outer,
+-                    learnable=False,
+-                )
+-            if "output" in apply_to:
+-                self.spectral_output = SpectralAdapter(
+-                    True,
+-                    weighting,
+-                    normalize,
+-                    inner,
+-                    outer,
+-                    learnable=learnable,
+-                    condition_dim=condition_dim,
+-                    mlp_hidden_dim=mlp_hidden,
+-                    learnable_temperature=learn_temp,
+-                    learnable_gain_init=learn_gain_init,
+-                )
+-            if params.get("per_block", False):
+-                self.spectral_block = SpectralAdapter(
+-                    True,
+-                    weighting,
+-                    normalize,
+-                    inner,
+-                    outer,
+-                    learnable=learnable,
+-                    condition_dim=condition_dim,
+-                    mlp_hidden_dim=mlp_hidden,
+-                    learnable_temperature=learn_temp,
+-                    learnable_gain_init=learn_gain_init,
+-                )
+-
+         self.encoder_blocks = nn.ModuleList()
+         self.downsamples = nn.ModuleList()
+ 
+@@ -179,11 +88,9 @@ class TinyUNet(nn.Module):
+         self.upsamples = nn.ModuleList(upsamplers)
+         self.decoder_blocks = nn.ModuleList(decoder_blocks)
+         self.head = nn.Conv2d(base_channels, in_channels, kernel_size=1)
++        self._spectral_calls = 0.0
+ 
+     def forward(self, x: torch.Tensor, t: Optional[torch.Tensor] = None) -> torch.Tensor:
+-        if self.spectral_input is not None:
+-            x = self.spectral_input(x, None)
+-
+         t_feat = None
+         if t is not None:
+             t_feat = self.time_mlp(sinusoidal_embedding(t, self.time_embed_dim))
+@@ -191,12 +98,12 @@ class TinyUNet(nn.Module):
+         skips: List[torch.Tensor] = []
+         h = x
+         for idx, block in enumerate(self.encoder_blocks):
+-            h = block(h, t_feat, block_adapter=self.spectral_block)
++            h = block(h, t_feat)
+             skips.append(h)
+             if idx < len(self.downsamples):
+                 h = self.downsamples[idx](h)
+ 
+-        h = self.bottleneck(h, t_feat, block_adapter=self.spectral_block)
++        h = self.bottleneck(h, t_feat)
+ 
+         for idx, (upsample, block) in enumerate(zip(self.upsamples, self.decoder_blocks)):
+             h = upsample(h)
+@@ -204,29 +111,18 @@ class TinyUNet(nn.Module):
+             if h.shape[-2:] != skip.shape[-2:]:
+                 h = F.interpolate(h, size=skip.shape[-2:], mode="nearest")
+             h = torch.cat([h, skip], dim=1)
+-            h = block(h, t_feat, block_adapter=self.spectral_block)
++            h = block(h, t_feat)
+ 
+         out = self.head(h)
+-        if self.spectral_output is not None:
+-            out = self.spectral_output(out, t_feat)
+         return out
+ 
+     def spectral_stats(self) -> Dict[str, float]:
+-        stats = {"spectral_calls": 0.0, "spectral_time_seconds": 0.0}
+-        stats_cpu = 0.0
+-        stats_cuda = 0.0
+-        for adapter in (self.spectral_input, self.spectral_output, self.spectral_block):
+-            if adapter is not None:
+-                data = adapter.stats()
+-                stats["spectral_calls"] += data["spectral_calls"]
+-                stats["spectral_time_seconds"] += data["spectral_time_seconds"]
+-                stats_cpu += data.get("spectral_cpu_time_seconds", 0.0)
+-                stats_cuda += data.get("spectral_cuda_time_seconds", 0.0)
+-        stats["spectral_cpu_time_seconds"] = stats_cpu
+-        stats["spectral_cuda_time_seconds"] = stats_cuda
+-        return stats
++        return {
++            "spectral_calls": float(self._spectral_calls),
++            "spectral_time_seconds": 0.0,
++            "spectral_cpu_time_seconds": 0.0,
++            "spectral_cuda_time_seconds": 0.0,
++        }
+ 
+     def reset_spectral_stats(self) -> None:
+-        for adapter in (self.spectral_input, self.spectral_output, self.spectral_block):
+-            if adapter is not None:
+-                adapter.reset_stats()
++        self._spectral_calls = 0.0
+diff --git a/src/spectral/__init__.py b/src/spectral/__init__.py
+index ddf4fdf..ae46b2b 100644
+--- a/src/spectral/__init__.py
++++ b/src/spectral/__init__.py
+@@ -1,6 +1,5 @@
+ """Spectral domain utilities for diffusion models."""
+ 
+-from .adapter import SpectralAdapter  # noqa: F401
+ from .fft_adapter import add_uniform_frequency_noise  # noqa: F401
+ from .complex_layers import (  # noqa: F401
+     ComplexBatchNorm2d,
+@@ -12,7 +11,6 @@ from .complex_layers import (  # noqa: F401
+ from .bridge import SpectralBridge, get_bridge  # noqa: F401
+ 
+ __all__ = [
+-    "SpectralAdapter",
+     "ComplexConv2d",
+     "ComplexBatchNorm2d",
+     "ComplexConvTranspose2d",
+diff --git a/src/visualization/collect.py b/src/visualization/collect.py
+index 7263e2f..d031cd8 100755
+--- a/src/visualization/collect.py
++++ b/src/visualization/collect.py
+@@ -7,14 +7,10 @@ import pandas as pd
+ 
+ NAME_MAP = {
+     "SPECTRAL_BENCH_baseline": "TinyUNet (Synthetic)",
+-    "SPECTRAL_BENCH_spectral": "SpectralUNet (Synthetic)",
+     "synthetic_tiny": "TinyUNet (Synthetic)",
+-    "synthetic_spectral": "SpectralUNet (Synthetic)",
+     "cifar_baseline": "TinyUNet (CIFAR)",
+     "cifar_tiny": "TinyUNet (CIFAR)",
+     "spectral_baseline": "TinyUNet (CIFAR)",
+-    "cifar_spectral": "SpectralUNet (CIFAR)",
+-    "spectral_unet": "SpectralUNet (CIFAR)",
+ }
+ 
+ 
+diff --git a/taguchi_suite/oa.py b/taguchi_suite/oa.py
+index 9dc7a9d..6bf3871 100644
+--- a/taguchi_suite/oa.py
++++ b/taguchi_suite/oa.py
+@@ -52,7 +52,6 @@ def _l36() -> pd.DataFrame:
+ _DESIGNS: Dict[str, Callable[[], pd.DataFrame]] = {
+     "L9": _l9,
+     "L18": lambda: _load_csv("L18_mixed.csv"),
+-    "L23": lambda: _load_csv("L23_synthetic.csv"),
+     "L27": lambda: _load_csv("L27_extended.csv"),
+     "L36": _l36,
+ }
+diff --git a/tests/sanity/conftest.py b/tests/sanity/conftest.py
+index 08e7be9..314b673 100644
+--- a/tests/sanity/conftest.py
++++ b/tests/sanity/conftest.py
+@@ -37,15 +37,12 @@ def cifar_batch() -> torch.Tensor:
+ 
+ @pytest.fixture()
+ def spectral_model() -> torch.nn.Module:
+-    """Construct a minimal spectral UNet for quick unit checks."""
++    """Construct a minimal TinyUNet for quick unit checks."""
+     model_cfg = {
+-        "type": "unet_spectral",
++        "type": "unet_tiny",
+         "channels": 3,
+         "base_channels": 16,
+-        "amp_hidden_dim": 16,
+-        "enable_amp_residual": False,
+-        "enable_phase_attention": True,
+-        "phase_heads": 1,
++        "depth": 2,
+         "diffusion": {"time_embed_dim": 64},
+         "data": {"channels": 3},
+     }
+diff --git a/tests/test_cli_commands.py b/tests/test_cli_commands.py
+index b5cf6fe..2fb00d5 100644
+--- a/tests/test_cli_commands.py
++++ b/tests/test_cli_commands.py
+@@ -47,17 +47,17 @@ def test_train_cli_dry_run(tmp_path):
+         assert len(lines) <= 1
+ 
+ 
+-def test_train_cli_variant_spectral_sets_model(tmp_path):
++def test_train_cli_variant_sets_model(tmp_path):
+     config_path = _write_config(tmp_path, _synthetic_config())
+     result = train_from_config(
+         config_path=config_path,
+         output_dir=tmp_path,
+-        variant="spectral",
++        variant="unet_tiny",
+         dry_run=False,
+         cleanup=False,
+     )
+     saved_config = yaml.safe_load(Path(result["config_path"]).read_text())
+-    assert saved_config["model"]["type"] == "unet_spectral"
++    assert saved_config["model"]["type"] == "unet_tiny"
+     system_path = Path(result["config_path"]).parent / "system.json"
+     assert system_path.exists()
+     data = json.loads(system_path.read_text())
+diff --git a/tests/test_cli_train.py b/tests/test_cli_train.py
+index 4513621..7399457 100644
+--- a/tests/test_cli_train.py
++++ b/tests/test_cli_train.py
+@@ -60,7 +60,7 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
+ 
+     result = train_from_config(
+         config_path=config_path,
+-        variant="spectral",
++        variant="unet_tiny",
+         output_dir=output_dir,
+         dry_run=True,
+         snr_ratio=0.75,
+@@ -69,9 +69,8 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
+     assert result["run_id"]
+     assert _DummyPipeline.last_config is not None
+     config = _DummyPipeline.last_config
+-    assert config["model"]["type"] == "unet_spectral"
++    assert config["model"]["type"] == "unet_tiny"
+     assert config["diffusion"]["snr_ratio"] == pytest.approx(0.75)
+-    assert config["spectral"]["snr_ratio"] == pytest.approx(0.75)
+ 
+ 
+ def test_train_from_config_writes_json_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+diff --git a/tests/test_loss_domain.py b/tests/test_loss_domain.py
+index 4ee2489..5bc98de 100644
+--- a/tests/test_loss_domain.py
++++ b/tests/test_loss_domain.py
+@@ -3,7 +3,6 @@ import pytest
+ torch = pytest.importorskip("torch")
+ 
+ from src.core.losses import DiffusionLoss
+-from src.spectral.adapter import SpectralAdapter
+ 
+ 
+ def _coef(batch: int) -> tuple[torch.Tensor, torch.Tensor]:
+@@ -22,29 +21,3 @@ def test_diffusion_loss_default_matches_spatial_mse():
+     expected = (prediction - target).pow(2).mean()
+     assert torch.allclose(loss, expected)
+ 
+-
+-def test_diffusion_loss_spectral_weighting_matches_adapter_mse():
+-    prediction = torch.randn(2, 3, 16, 16, dtype=torch.float32, requires_grad=True)
+-    target = torch.randn_like(prediction)
+-    sqrt_alpha, sqrt_one_minus = _coef(prediction.shape[0])
+-
+-    loss_fn = DiffusionLoss(config={"spectral_weighting": "radial", "use_weighting": False})
+-    loss, _ = loss_fn(prediction, target, sqrt_alpha, sqrt_one_minus)
+-    loss.backward()
+-    grad_from_loss = prediction.grad.detach().clone()
+-
+-    prediction_manual = prediction.detach().clone().requires_grad_()
+-    residual = target.detach() - prediction_manual
+-    adapter = SpectralAdapter(
+-        enabled=True,
+-        weighting="radial",
+-        normalize=True,
+-        bandpass_inner=loss_fn.config.get("bandpass_inner", 0.1),
+-        bandpass_outer=loss_fn.config.get("bandpass_outer", 0.6),
+-    )
+-    filtered = adapter(residual)
+-    manual_loss = filtered.pow(2).mean()
+-    manual_loss.backward()
+-
+-    assert torch.allclose(loss.detach(), manual_loss.detach(), atol=1e-6, rtol=1e-5)
+-    assert torch.allclose(grad_from_loss, prediction_manual.grad, atol=1e-6, rtol=1e-5)
+diff --git a/tests/test_taguchi_pipeline.py b/tests/test_taguchi_pipeline.py
+index b09e5f2..fdaa9cd 100644
+--- a/tests/test_taguchi_pipeline.py
++++ b/tests/test_taguchi_pipeline.py
+@@ -46,7 +46,7 @@ def test_runner_builds_config_from_row():
+     runner = TaguchiExperimentRunner(
+         design_matrix_path=Path("configs/taguchi/L27_extended.csv"),
+         base_config={
+-            "model": {"type": "unet_spectral"},
++            "model": {"type": "unet_tiny"},
+             "data": {"height": 32, "width": 32},
+             "spectral": {},
+             "diffusion": {},

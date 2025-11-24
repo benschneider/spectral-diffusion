@@ -37,15 +37,12 @@ def cifar_batch() -> torch.Tensor:
 
 @pytest.fixture()
 def spectral_model() -> torch.nn.Module:
-    """Construct a minimal spectral UNet for quick unit checks."""
+    """Construct a minimal TinyUNet for quick unit checks."""
     model_cfg = {
-        "type": "unet_spectral",
+        "type": "unet_tiny",
         "channels": 3,
         "base_channels": 16,
-        "amp_hidden_dim": 16,
-        "enable_amp_residual": False,
-        "enable_phase_attention": True,
-        "phase_heads": 1,
+        "depth": 2,
         "diffusion": {"time_embed_dim": 64},
         "data": {"channels": 3},
     }

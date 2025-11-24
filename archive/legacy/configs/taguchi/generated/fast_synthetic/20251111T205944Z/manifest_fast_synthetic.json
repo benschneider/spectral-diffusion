@@ -1,0 +1,47 @@
+{
+  "suite": "fast_synthetic",
+  "description": "Quick 32\u00d732 synthetic Taguchi run with best-known defaults.",
+  "oa": "L27",
+  "oa_path": "configs/taguchi/L27_extended.csv",
+  "base_config": "configs/taguchi_smoke_best.yaml",
+  "registry": "configs/taguchi/generated/fast_synthetic/20251111T205944Z/factor_registry_fast_synthetic.yaml",
+  "design": "configs/taguchi/generated/fast_synthetic/20251111T205944Z/design_L27_fast_synthetic.csv",
+  "randomize": false,
+  "seeds": [
+    42
+  ],
+  "estimate": {
+    "runs": 27,
+    "seconds_per_run": 120.0,
+    "total_seconds": 3240.0
+  },
+  "catalog_sha": "834478fe094e538db85b3e72578305f1ad49ea3ad80827072a811344f30340d1",
+  "suite_sha": "e8e7f40f38f9bc43dcd8d4d216e9fb8e374eb9cbef579b9734186b6a15094506",
+  "runtime_estimate_sec": 3240.0,
+  "generated_at": "2025-11-11T20:59:44.646276+00:00",
+  "git_commit": "38c4603934126a2e0fd97515506b5bdc20a127dc",
+  "constraints": [
+    {
+      "expr": "normalization_mode == \"off\" and lambda_var == 0.004",
+      "status": "OK",
+      "severity": "block",
+      "reason": "Higher \u03bb_var without normalization destabilizes early gradients.",
+      "triggered": false
+    },
+    {
+      "expr": "image_resolution == 128 and sampling_steps == 100",
+      "status": "OK",
+      "severity": "block",
+      "reason": "High resolution with max steps exceeds the runtime budget.",
+      "triggered": false
+    },
+    {
+      "expr": "grad_clipping == \"none\" and learning_rate == 0.003",
+      "status": "OK",
+      "severity": "warn",
+      "reason": "High LR without clipping tends to overflow; prefer warn then block.",
+      "triggered": false
+    }
+  ],
+  "workspace": "configs/taguchi/generated/fast_synthetic/20251111T205944Z"
+}

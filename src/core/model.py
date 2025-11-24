@@ -4,7 +4,6 @@ import torch
 from torch import nn
 
 from .initialization import apply_initialization
-from .model_unet_spectral import SpectralUNet, SpectralUNetDeep
 from .model_unet_tiny import TinyUNet
 
 
@@ -40,8 +39,6 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "baseline": BaselineConvModel,
     "baseline_conv": BaselineConvModel,
     "unet_tiny": TinyUNet,
-    "unet_spectral": SpectralUNet,
-    "unet_spectral_deep": SpectralUNetDeep,
 }
 
 

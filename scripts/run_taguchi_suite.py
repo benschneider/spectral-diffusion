@@ -26,7 +26,6 @@ if str(ROOT) not in sys.path:  # pragma: no cover
 # Optional: pre-baked OA CSVs. If not found, we will synthesize a simple L27-like CSV.
 OA_DESIGN_MAP: Dict[str, Path] = {
     "L27": Path("configs/taguchi/L27_extended.csv"),
-    "L23": Path("configs/taguchi/L23_synthetic.csv"),
     "L18": Path("configs/taguchi/L18_mixed.csv"),
 }
 

@@ -40,7 +40,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variant",
         type=str,
-        choices=["baseline", "spectral", "spectral_deep", "unet_spectral"],
+        choices=["baseline", "unet_tiny"],
         default=None,
         help="Optional override for the model variant.",
     )
@@ -112,9 +112,7 @@ def apply_variant_override(config: Dict[str, Any], variant: Optional[str]) -> No
     if variant:
         alias = {
             "baseline": "baseline",
-            "spectral": "unet_spectral",
-            "spectral_deep": "unet_spectral_deep",
-            "unet_spectral": "unet_spectral",
+            "unet_tiny": "unet_tiny",
         }
         config.setdefault("model", {})
         config["model"]["type"] = alias.get(variant, variant)
@@ -207,8 +205,6 @@ def train_from_config(
     if snr_ratio is not None:
         diffusion_cfg = config.setdefault("diffusion", {})
         diffusion_cfg["snr_ratio"] = float(snr_ratio)
-        spectral_cfg = config.setdefault("spectral", {})
-        spectral_cfg["snr_ratio"] = float(snr_ratio)
     if lambda_var is not None:
         diffusion_cfg = config.setdefault("diffusion", {})
         diffusion_cfg["lambda_var"] = float(lambda_var)

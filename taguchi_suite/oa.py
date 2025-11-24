@@ -52,7 +52,6 @@ def _l36() -> pd.DataFrame:
 _DESIGNS: Dict[str, Callable[[], pd.DataFrame]] = {
     "L9": _l9,
     "L18": lambda: _load_csv("L18_mixed.csv"),
-    "L23": lambda: _load_csv("L23_synthetic.csv"),
     "L27": lambda: _load_csv("L27_extended.csv"),
     "L36": _l36,
 }

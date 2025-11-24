@@ -46,7 +46,7 @@ def test_runner_builds_config_from_row():
     runner = TaguchiExperimentRunner(
         design_matrix_path=Path("configs/taguchi/L27_extended.csv"),
         base_config={
-            "model": {"type": "unet_spectral"},
+            "model": {"type": "unet_tiny"},
             "data": {"height": 32, "width": 32},
             "spectral": {},
             "diffusion": {},

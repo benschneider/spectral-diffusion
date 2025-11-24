@@ -47,17 +47,17 @@ def test_train_cli_dry_run(tmp_path):
         assert len(lines) <= 1
 
 
-def test_train_cli_variant_spectral_sets_model(tmp_path):
+def test_train_cli_variant_sets_model(tmp_path):
     config_path = _write_config(tmp_path, _synthetic_config())
     result = train_from_config(
         config_path=config_path,
         output_dir=tmp_path,
-        variant="spectral",
+        variant="unet_tiny",
         dry_run=False,
         cleanup=False,
     )
     saved_config = yaml.safe_load(Path(result["config_path"]).read_text())
-    assert saved_config["model"]["type"] == "unet_spectral"
+    assert saved_config["model"]["type"] == "unet_tiny"
     system_path = Path(result["config_path"]).parent / "system.json"
     assert system_path.exists()
     data = json.loads(system_path.read_text())

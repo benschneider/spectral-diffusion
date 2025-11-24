@@ -60,7 +60,7 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
 
     result = train_from_config(
         config_path=config_path,
-        variant="spectral",
+        variant="unet_tiny",
         output_dir=output_dir,
         dry_run=True,
         snr_ratio=0.75,
@@ -69,9 +69,8 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
     assert result["run_id"]
     assert _DummyPipeline.last_config is not None
     config = _DummyPipeline.last_config
-    assert config["model"]["type"] == "unet_spectral"
+    assert config["model"]["type"] == "unet_tiny"
     assert config["diffusion"]["snr_ratio"] == pytest.approx(0.75)
-    assert config["spectral"]["snr_ratio"] == pytest.approx(0.75)
 
 
 def test_train_from_config_writes_json_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

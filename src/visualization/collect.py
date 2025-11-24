@@ -7,14 +7,10 @@ import pandas as pd
 
 NAME_MAP = {
     "SPECTRAL_BENCH_baseline": "TinyUNet (Synthetic)",
-    "SPECTRAL_BENCH_spectral": "SpectralUNet (Synthetic)",
     "synthetic_tiny": "TinyUNet (Synthetic)",
-    "synthetic_spectral": "SpectralUNet (Synthetic)",
     "cifar_baseline": "TinyUNet (CIFAR)",
     "cifar_tiny": "TinyUNet (CIFAR)",
     "spectral_baseline": "TinyUNet (CIFAR)",
-    "cifar_spectral": "SpectralUNet (CIFAR)",
-    "spectral_unet": "SpectralUNet (CIFAR)",
 }
 
 
