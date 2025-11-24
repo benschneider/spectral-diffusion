@@ -15,6 +15,15 @@ def _design_matrix() -> pd.DataFrame:
 
 def test_factor_registry_loads_levels():
     registry = load_factor_registry(Path("configs/taguchi/factor_registry.yaml"))
+    expected = {
+        "snr_ratio",
+        "spectral_operator_mode",
+        "sampler_type",
+        "sampling_steps",
+        "train_steps",
+        "image_resolution",
+    }
+    assert set(registry.keys()) == expected
     assert "spectral_operator_mode" in registry
     assert registry["snr_ratio"]["levels"] == [0.8, 1.0, 1.4]
 
@@ -54,7 +63,7 @@ def test_runner_builds_config_from_row():
     assert config["spectral"]["operator_mode"] in {"none", "radial", "radial_squared"}
     assert config["diffusion"]["spectral_operator_mode"] == config["spectral"]["operator_mode"]
     assert config["sampling"]["sampler_type"] == "ddim"
-    assert config["sampling"]["num_steps"] == 30
+    assert config["sampling"]["num_steps"] == 10
     assert config["training"]["num_batches"] == 50
     assert config["data"]["height"] == 32
     assert config["data"]["width"] == 32
@@ -63,6 +72,7 @@ def test_runner_builds_config_from_row():
     assert taguchi_meta["row_number"] == 1
     assert taguchi_meta["factor_levels"]["spectral_operator_mode"]["level_label"] is not None
     assert set(taguchi_meta["factor_mapping"].values()) == set(registry.keys())
+    assert "curriculum" not in config.get("training", {})
 
 
 def test_randomised_mapping_respects_level_counts():

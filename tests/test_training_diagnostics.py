@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import json
 import subprocess
 import sys
@@ -31,9 +29,9 @@ def test_taguchi_aggregator_uses_runs_root(tmp_path):
 
 def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     factor_levels = {
-        "spectral_loss_weighting": {"level_label": "strong"},
+        "spectral_operator_mode": {"level_label": "none"},
         "sampler_type": {"level_index": 1},
-        "phase_attention_capacity": {"level_index": 2},
+        "snr_ratio": {"level_label": "1.0"},
     }
     aggregator = TaguchiAggregator(tmp_path, factor_levels)
 
@@ -52,7 +50,6 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
             self.loss_calls = []
             self.tail_calls = []
             self.noise_calls = []
-            self.phase_calls = []
 
         def loss_and_gradients(self, loss_steps, loss_history, grad_steps, grad_history, output_dir, run_id, filename="loss_gradients.png"):
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -79,12 +76,6 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
             self.noise_calls.append(tuple(noise_steps))
             return path
 
-        def phase_attention(self, attention, target_path):
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_text("phase")
-            self.phase_calls.append(attention.shape)
-            return target_path
-
     plotter = PlotterStub()
     diagnostics = TrainingDiagnostics(
         run_id="demo",
@@ -102,11 +93,8 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
         def __init__(self):
             super().__init__()
             self.weight = nn.Parameter(torch.tensor([1.0]))
-            self.pcm = SimpleNamespace(last_attention_map=torch.ones(1, 4, 4))
 
     model = DummyModel()
-    diagnostics.capture_phase_demo(model)
-
     model.weight.grad = torch.tensor([2.0])
     grad_norm = diagnostics.record_gradients(model, step=0)
     assert grad_norm == pytest.approx(2.0)
@@ -136,9 +124,8 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     aggregate_copy = aggregator.aggregate_dir / "demo_loss_gradients.png"
     assert aggregate_copy.exists()
 
-    spectral_dir = aggregator.get_factor_dir("spectral_loss_weighting")
+    spectral_dir = aggregator.get_factor_dir("spectral_operator_mode")
     sampler_dir = aggregator.get_factor_dir("sampler_type")
-    phase_dir = aggregator.get_factor_dir("phase_attention_capacity")
     assert (spectral_dir / "demo_spatial_demo.png").exists()
     assert (spectral_dir / "demo_fft_demo.png").exists()
     assert (spectral_dir / "demo_noisy_spatial_demo.png").exists()
@@ -147,7 +134,6 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     assert (spectral_dir / "demo_loss_tail_demo.png").exists()
     assert (sampler_dir / "demo_loss_grad_demo.png").exists()
     assert (sampler_dir / "demo_noise_norm_demo.png").exists()
-    assert (phase_dir / "demo_phase_attention_demo.png").exists()
 
     fft_feedback_file = diagnostics.diagnostics_dir / "fft_feedback.json"
     assert fft_feedback_file.exists()
@@ -170,7 +156,6 @@ def test_training_diagnostics_captures_and_finalises(monkeypatch, tmp_path):
     assert plotter.loss_calls
     assert plotter.tail_calls
     assert plotter.noise_calls
-    assert plotter.phase_calls
 
 
 def _run_step_recorder(output_dir, *, steps=20):

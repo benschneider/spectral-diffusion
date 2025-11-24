@@ -1,20 +1,18 @@
-# Diffusion vs Spectral Forward Process Audit (Updated)
+# Spectral Diffusion Forward-Process Audit (Unified)
 
 ## 0. Research Question and Experimental Axis
-- Core question: "How does explicit control of signal-to-noise ratio (SNR) in the frequency domain affect the stability and sample-efficiency of diffusion model training compared to standard spatial Gaussian noise?"
-- Implementation levers:
-  - Baseline: spatial Gaussian noise following DDPM schedule (no shaping).
-  - Spectral: FFT-shaped noise with controls: `uniform_corruption`, `freq_equalized_noise`, `corruption_mode`, `uniform_corruption_scale`, `snr_ratio`, `snr_scale_min/max`, phase corruption.
-  - Metrics needed: stability (loss curves, grad_norm, SNR_theory vs SNR_emp vs SNR_rel), sample efficiency (loss_drop_per_second, images_per_second), qualitative samples at matched loss.
-- All invariants and refactors should make this comparison clean and interpretable.
+- Core question: How does explicit control of SNR in the frequency domain affect stability and sample‑efficiency vs. standard spatial Gaussian noise?
+- Implementation levers (live): spectral_operator modes (`none`, `radial`, `radial_squared`) and `snr_ratio`; baseline is unshaped Gaussian noise (`mode=none`, `snr_ratio=1`).
+- Metrics: loss curves, grad_norm, `snr_theory`, `snr_emp`, `snr_rel`, `variance_sum`, images_per_second, qualitative samples.
 
-## Fresh scan – implementation notes (post-unification)
-- Forward noise: `x_t = sqrt(alpha_bar_t) * x0 + sqrt(1-alpha_bar_t) * eps_shaped * (1/snr_ratio)`, where `eps_shaped = spectral_operator(eps_raw, mode)` and RMS(eps_shaped)=1. No per-batch clamping of sqrt_alpha_t or sigma; no trimming of the schedule.
-- Scheduler: `build_diffusion` returns raw `alpha_bar_t` from beta/logSNR schedules without clamping/trimming.
-- Spectral branch: the only shaping entry point is `src/spectral/operator.py` (modes: none, radial, radial_squared). All noise paths call it.
-- SNR metrics: unified to `snr_theory = alpha_bar/(1-alpha_bar)`, `snr_emp = Var(signal)/Var(noise)`, `snr_rel = snr_emp/snr_theory`. Diagnostics also log `variance_sum = Var(signal)+Var(noise)` and channel-wise noise std bounds.
-- Loss weighting: minimal MSE/MAE with optional `log(snr_rel)` weighting; no adaptive weighting, overflow bridges, or spectral penalties.
-- Diagnostics/reporting: stability CSVs and report_v2 summarize only snr_theory/sn_emp/sn_rel, variance_sum, loss, and grad_norm. Taguchi factors reduced to real knobs: snr_ratio, spectral_operator_mode, sampler_type, sampling_steps, train_steps, image_resolution.
+## Current state (post-unification)
+- Forward noise: `x_t = sqrt(alpha_bar_t) * x0 + sqrt(1-alpha_bar_t) * spectral_operator(eps_raw, mode) * (1/snr_ratio)`, RMS(eps_shaped)=1 with per-sample centering. No per-batch clamping; schedule untrimmed.
+- Scheduler: `build_diffusion` returns raw beta/logSNR schedules; no trimming/clamping.
+- Spectral shaping: single entrypoint `src/spectral/operator.py`; all noise paths call it.
+- SNR metrics: only `snr_theory = alpha_bar/(1-alpha_bar)`, `snr_emp = Var(signal)/Var(noise)`, `snr_rel = snr_emp/snr_theory`, plus `variance_sum` and noise channel std bounds.
+- Loss: MSE/MAE with optional `log(snr_rel)` weighting; no adaptive weighting, overflow bridges, or penalties.
+- Diagnostics/reporting: stability CSVs/report_v2 use the unified SNR triad + `variance_sum`, loss, grad_norm.
+- Taguchi: factors reduced to `snr_ratio`, `spectral_operator_mode`, `sampler_type`, `sampling_steps`, `train_steps`, `image_resolution`.
 
 ## 1. BASELINE: First-Principles Diffusion Math (DDPM)
 | Concept | Definition / Notes |
@@ -28,55 +26,13 @@
 | Gradient expectations | DDPM objective with `eps`-prediction yields constant-variance gradients across timesteps; weighting by SNR or log-SNR only for variance stabilisation, not to change target distribution. |
 | SNR decay | Theoretical SNR is strictly decreasing with `t`; no clipping or re-scaling required for convergence proofs. |
 
-## 2. CURRENT IMPLEMENTATION SCAN (FROM REPO)
-
-### Forward process (x_t construction)
-- Baseline: x_t = sqrt_alpha_t*x0 + sqrt_one_minus_alpha_t*noise, but sqrt_alpha_t/sigma are clamped (ALPHA_MIN/ALPHA_MAX/SIGMA_MIN) before use (src/training/noise.py:120-130; src/training/steps.py:97-102).
-- Spectral: same signal term; noise shaped via FFT mask (reciprocal radius, optional squared), normalized, scaled by strength, snr_ratio, snr_scale_min/max; optional phase corruption on x0 FFT; adaptive rescale toward target_corr; then multiplied by clamped sqrt_one_minus_alpha_t (src/spectral/fft_adapter.py:125-290).
-- Schedule generation trims early steps where sigma < 0.03, altering alpha_bar trajectory (src/training/scheduler.py:86-104).
-
-### alpha/sigma schedule handling
-- Uses make_beta_schedule/logsnr_cosine; clamps sigma in schedule; trims leading steps below MIN_SIGMA_THRESHOLD=0.03 (src/training/scheduler.py:12-120).
-- Additional per-batch clamps in NoisePreparer/TrainingStepExecutor.
-
-### Spectral shaping operator
-- Implemented inline in add_uniform_frequency_noise: FFT mask, optional squared mask, normalization via _normalize_fft_noise, optional phase perturbation; no single S abstraction (src/spectral/fft_adapter.py:178-245).
-
-### Noise scaling and snr_ratio
-- Sequential scales: strength multiplier, snr_ratio via base_snr/target ratio, snr_scale_min/max clamp, adaptive_rescale toward target_corr, plus sigma clamp (src/spectral/fft_adapter.py:178-247).
-
-### Variance invariants
-- `_normalize_fft_noise` enforces unit RMS pre-strength; subsequent scaling (strength, snr_ratio, snr_scale_min/max, adaptive) and sigma clamp break Var(signal)+Var(noise)=1 (src/spectral/fft_adapter.py:203-247; src/training/steps.py variance_penalty).
-
-### Empirical/theoretical SNR handling
-- Theoretical: compute_snr_stats -> snr_raw/clamped/weight/log_snr (src/core/snr_scheduler.py; used in src/training/steps.py and src/core/losses.py).
-- Empirical: snr_effective from measure_batch_snr (src/core/snr_scheduler.py) and from fft_adapter stats; snr_measured/base/scale_factor in fft_adapter; snr_schedule trends in debug script. Weighting uses schedule SNR, not empirical.
-
-### Loss weighting
-- DiffusionLoss: adaptive weighting via AdaptiveSNRWeight (tanh log-SNR), optional spectral residual weighting, overflow bridge; weighting uses snr_for_weight from schedule (src/core/losses.py, src/core/adaptive_weight.py).
-- TrainingStepExecutor: may compute fallback weights via compute_snr_weight; adds variance_penalty and spectral_pressure to loss (src/training/steps.py:240-310).
-- Debug recorder mirrors penalties and weighting options (scripts/debug/record_training_steps.py).
-
-### Spectral adapter and penalties
-- SpectralAdapter reweights residuals in loss; renormalizes outputs to avoid std drift; spectral_pressure penalty added in TrainingStepExecutor and debug script (src/spectral/adapter.py; src/training/steps.py:260-305; scripts/debug/record_training_steps.py:783-793).
-
-### Gradient paths / grad_norm
-- Gradients logged only (src/training/diagnostics.py); no clipping in TrainingStepExecutor. Debug script supports clip_grad_norm/ratio and shock handler.
-
-### Taguchi factor structure
-- Factor registry includes snr_ratio, spectral_noise_shaping_strength, snr_weighting_mode, spectral_adapter_placement, etc.; report_v2 primary factors use these legacy knobs (configs/taguchi/factor_registry*.yaml; scripts/generate_report_v2.py PRIMARY_FACTORS_BY_PROFILE).
-
-### Diagnostics and logging
-- Stability CSV logs snr_schedule_mean/max/raw_max, snr_effective, overflow stats, variance_ratio/penalty, spectral_pressure (src/training/diagnostics.py).
-- fft_adapter stats log snr_effective/snr_measured/snr_base/snr_ratio_target/scale_factor and noisy mean/std (src/spectral/fft_adapter.py).
-- Reporting uses snr_schedule_mean and snr_effective in metadata (scripts/generate_report_v2.py).
-
-## Verified invariant violations (per code)
-- Forward invariant (x_t = sqrt(alpha_bar)*x0 + sqrt(1-alpha_bar)*eps_shaped, eps_shaped RMS=1): Violated by per-batch clamping (src/training/noise.py:120-130; src/training/steps.py:97-102) and schedule trimming (src/training/scheduler.py:86-104); spectral branch adds non-Gaussian/phase-correlated noise (src/spectral/fft_adapter.py:199-203).
-- SNR coherence (snr_theory, snr_emp, snr_rel computed once): Violated—multiple SNRs (snr_schedule, snr_effective, snr_measured, snr_base, snr_scale_factor) computed in different places; weighting uses schedule SNR; empirical SNR not unified (src/training/steps.py coeff_stats, src/core/losses.py, src/spectral/fft_adapter.py stats, scripts/debug/record_training_steps.py).
-- Variance preservation (Var(signal)+Var(noise)=1 when shaping off): Violated—clamping and sequential scaling alter variance; invariant only penalized via variance_penalty, not enforced (src/training/steps.py:269-305; src/spectral/fft_adapter.py:203-247).
-- Single scaling path (eps_raw -> eps_shaped RMS=1 -> *sqrt(1-alpha)*k): Violated—strength, snr_scale_min/max, adaptive_rescale, phase mode create multiple scales (src/spectral/fft_adapter.py:178-247).
-- Gaussianity (noise independent, Gaussian when shaping=none): Violated by phase mode tied to x0 and by mask-colored noise; shaping=none still uses clamped sigma (src/spectral/fft_adapter.py:178-210, 199-203; src/training/noise.py clamps).
+## Current TODOs / gaps
+- Quarantine or delete legacy configs/scripts still carrying removed knobs (`uniform_corruption`, `freq_equalized_noise`, `snr_weighting`, `snr_scale_min/max`, phase_*), and fence off archived Taguchi runs (L23/L27 legacy, `scripts/run_taguchi_v2_fixed.py`, archive/*).
+- Leave adaptive/overflow utilities (`src/utils/adaptive_snr.py`, `src/core/overflow_handler.py`, `src/core/snr_scheduler.py`) clearly marked legacy; do not let them leak into live configs or tests (e.g., `tests/test_numerical_stability.py`, `tests/test_record_training_steps.py`).
+- Phase-attention references in spectral UNet and sanity fixtures (`src/core/model_unet_spectral.py`, `tests/test_spectral_unet_model.py`, `tests/sanity/conftest.py`, README snippets) should be archived or labelled experimental.
+- Reporting/doc stragglers: ensure README and archived docs no longer advertise spectral adapters/phase/overflow as active; keep main narrative focused on the SNR triad and minimal Taguchi factors.
+- Archive scripts mentioning removed knobs (`scripts/archive/run_full_report*.sh`, other archive tools) should be fenced off or removed.
+- Invariants: maintain tests for RMS(eps_shaped)=1, Var(signal)+Var(noise)=1 (shaping off), snr_rel≈1 (shaping off), monotone snr_theory; keep tolerances aligned with small-batch variation.
 
 ## 2. “80% WINS” (tagged, research-aligned)
 1) Remove alpha/sigma clamps and schedule trimming [FWD][VAR][SNR]  
@@ -195,10 +151,9 @@
   Research link: Stabilizes runs to compare noise regimes fairly.
 
 ## Reporting gaps
-- Current reports/logs surface snr_schedule_mean and snr_effective, not snr_theory/snr_emp/snr_rel.
-- Stability CSV lacks snr_emp/rel and variance_sum.
-- Taguchi profiles use legacy factors; no exposure of spectral_operator_mode or unified SNR metrics.
-- Needed metrics for the research question: snr_theory, snr_emp, snr_rel, variance_sum deviation, loss curves, grad_norm, loss_drop_per_second, images_per_second.
+- Primary reporting paths now emit `snr_theory`, `snr_emp`, `snr_rel`, `variance_sum`, loss, grad_norm; ensure any remaining dashboards/scripts (archived notebooks, old Taguchi reports) drop `snr_schedule_*`, `snr_effective`, overflow metrics.
+- Taguchi reports should only show factors: `snr_ratio`, `spectral_operator_mode`, `sampler_type`, `sampling_steps`, `train_steps`, `image_resolution`.
+- Keep stability CSV/plots on the unified SNR triad + variance_sum; prune overflow/pressure plots from live reports.
 
 ## 4. MINIMAL FORWARD PROCESS SPEC
 - Equation: x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * eps_shaped.
@@ -374,8 +329,31 @@ Log exactly once per batch:
 
 ---
 
+
 ## 9. Minimal Forward Spec Summary
 - `x_t = sqrt(alpha_bar_t)*x_0 + sqrt(1-alpha_bar_t)*eps_shaped`.  
 - eps_shaped = S(eps_raw) with RMS=1.  
 - noise = sqrt(1-alpha)*eps_shaped*(1/snr_ratio).  
 - Invariants enforced via tests and runtime warnings.
+
+## 10. Current Capability Table
+
+| Category         | Allowed in Current Pipeline                                                                                                    | Forbidden / Not Implemented                                                      |
+|------------------|------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| **Forward Process** | unified DDPM coefficients, spectral operator S with centering+unit RMS, single k=1/snr_ratio                               | clamping, trimming, multi-stage scaling, phase-noise                             |
+| **Metrics**         | snr_theory, snr_emp, snr_rel, variance_sum                                                                                | snr_schedule*, snr_effective, overflow metrics                                   |
+| **Taguchi Factors** | snr_ratio, spectral_operator_mode, sampler_type, sampling_steps, train_steps, image_resolution                             | spectral_adapter_placement, spectral_loss_weighting, adaptive knobs              |
+| **Diagnostics**     | grad_norm, variance_sum                                                                                                   | phase demos, spectral_pressure, overflow logs                                    |
+| **Loss**            | MSE/MAE with optional log(snr_rel)                                                                                        | adaptive_snr, variance/spectral penalties                                        |
+
+## 11. Consolidated TODO Checklist
+
+- purge remaining legacy config keys
+- archive/deprecate adaptive/overflow utilities
+- remove phase-attention from live docs and tests
+- enforce monotonic snr_theory test
+- ensure all runners/scripts use unified SNR triad
+- verify Taguchi mapping uses only six factors
+- add optional grad_clip_norm to config reference
+- remove or archive scripts mentioning deprecated knobs
+- validate variance_sum and snr_rel invariants in CI

@@ -6,7 +6,7 @@ from typing import Dict, Optional
 
 import torch
 
-from src.core.numeric import safe_ratio, safe_sqrt
+from src.core.numeric import safe_clamp, safe_ratio, safe_sqrt
 
 
 @dataclass

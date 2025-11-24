@@ -60,9 +60,9 @@ Requirements:
 The set of “primary factors” is selected per profile:
 
 Examples:
-- **SNR profile:** `snr_ratio`, `spectral_noise_shaping_strength`, `snr_weighting_mode`, `spectral_adapter_placement`.
-- **Sampler profile:** `sampler_type`, `sampling_steps`, `snr_ratio`.
-- **Curriculum profile:** `curriculum_mode`, `train_steps`.
+- **SNR profile:** `snr_ratio`, `spectral_operator_mode`.
+- **Sampler profile:** `sampler_type`, `sampling_steps`.
+- **Training depth:** `train_steps`, `image_resolution` (optional secondary profile).
 
 Requirements:
 - Use `taguchi_report.csv` and `factor_mapping.json` for factor names and levels.
@@ -173,4 +173,3 @@ Only images under `report_v2/images/` appear in the main report.
 - A new script (`scripts/generate_report_v2.py`) should produce all required plots and `summary.md`.
 - Existing plotting code moves to `scripts/figures/archive/`.
 - The main report must stay concise and directly mapped to the three core research questions.
-

@@ -36,8 +36,7 @@ from src.visualization.plots import (
 
 PRIMARY_FACTORS_BY_PROFILE = {
     "snr": ["snr_ratio", "spectral_operator_mode"],
-    "sampler": ["sampler_type", "sampling_steps", "snr_ratio"],
-    "curriculum": ["curriculum_mode", "train_steps"],
+    "sampler": ["sampler_type", "sampling_steps"],
 }
 
 
@@ -54,7 +53,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--cifar-dir", type=Path, default=None, help="Override CIFAR summary directory.")
     parser.add_argument("--taguchi-dir", type=Path, default=None, help="Override Taguchi summary directory.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Target directory for report_v2 (default: <report-root>/report_v2).")
-    parser.add_argument("--profile", choices=["snr", "sampler", "curriculum"], default="snr", help="Primary factor profile.")
+    parser.add_argument("--profile", choices=["snr", "sampler"], default="snr", help="Primary factor profile.")
     parser.add_argument("--primary-factor", action="append", default=None, help="Explicit primary factor (can repeat).")
     parser.add_argument("--max-loss-runs", type=int, default=4, help="Max runs to show on loss curves.")
     parser.add_argument("--max-tradeoff-points", type=int, default=12, help="Max scatter points per tradeoff plot.")
@@ -148,7 +147,6 @@ def _extract_run_metadata(row: pd.Series, factor_mapping: dict[str, Any]) -> dic
     spectral_cfg = cfg.get("spectral", {}) if isinstance(cfg, dict) else {}
     loss_cfg = cfg.get("loss", {}) if isinstance(cfg, dict) else {}
     sampling_cfg = cfg.get("sampling", {}) if isinstance(cfg, dict) else {}
-    curriculum_cfg = data_cfg.get("curriculum", {}) if isinstance(data_cfg, dict) else {}
 
     meta: Dict[str, Any] = {}
     meta["run"] = row.get("run_id") or row.get("display_name") or row.get("run_axis") or "run"
@@ -170,7 +168,6 @@ def _extract_run_metadata(row: pd.Series, factor_mapping: dict[str, Any]) -> dic
     meta["runtime_seconds"] = row.get("runtime_seconds")
     meta["sampler_type"] = sampling_cfg.get("sampler_type")
     meta["sampling_steps"] = sampling_cfg.get("num_steps")
-    meta["curriculum_mode"] = curriculum_cfg.get("mode") if isinstance(curriculum_cfg, dict) else None
 
     # Attach factor levels when available (Taguchi).
     factors = factor_mapping.get("factors", {}) if isinstance(factor_mapping, dict) else {}
@@ -187,21 +184,20 @@ def _format_metadata_block(metas: List[dict[str, Any]]) -> List[str]:
     for meta in metas:
         lines.append(f"- **{meta.get('run','run')}**")
         details = []
-        for key in [
-            "dataset",
-            "architecture",
-            "snr_ratio",
-            "spectral_operator_mode",
-            "snr_theory_avg",
-            "snr_emp_avg",
-            "snr_rel_avg",
-            "variance_sum_avg",
-            "final_loss",
-            "loss_drop_per_second",
-            "images_per_second",
-            "sampler_type",
-            "curriculum_mode",
-        ]:
+    for key in [
+        "dataset",
+        "architecture",
+        "snr_ratio",
+        "spectral_operator_mode",
+        "snr_theory_avg",
+        "snr_emp_avg",
+        "snr_rel_avg",
+        "variance_sum_avg",
+        "final_loss",
+        "loss_drop_per_second",
+        "images_per_second",
+        "sampler_type",
+    ]:
             val = meta.get(key)
             if val is None or val == "":
                 continue

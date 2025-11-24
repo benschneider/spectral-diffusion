@@ -155,42 +155,11 @@ def _apply_sampler(cfg: Dict[str, Any], label: str) -> None:
 
 def _apply_sampling_steps(cfg: Dict[str, Any], label: str) -> None:
     sampling_cfg = cfg.setdefault("sampling", {})
-    step_map = {
-        "30": 30,
-        "50": 50,
-        "100": 100,
-        "1": 30,
-        "2": 50,
-        "3": 100,
-    }
-    level = str(label)
-    if level in step_map:
-        steps = step_map[level]
-    else:
-        try:
-            steps = int(label)
-        except ValueError as exc:  # pragma: no cover - defensive
-            raise ValueError(f"Unknown sampling_steps level '{label}'") from exc
+    try:
+        steps = int(label)
+    except ValueError as exc:  # pragma: no cover - defensive
+        raise ValueError(f"Unknown sampling_steps level '{label}'") from exc
     sampling_cfg["num_steps"] = steps
-
-
-def _apply_curriculum(cfg: Dict[str, Any], label: str) -> None:
-    training_cfg = cfg.setdefault("training", {})
-    if label == "none":
-        training_cfg.pop("curriculum", None)
-    elif label == "lowres_warmup":
-        training_cfg["curriculum"] = {
-            "mode": "lowres_warmup",
-            "warmup_epochs": 1,
-            "resolution": 8,
-        }
-    elif label == "spectral_first":
-        training_cfg["curriculum"] = {
-            "mode": "spectral_first",
-            "spectral_epochs": 1,
-        }
-    else:
-        raise ValueError(f"Unknown curriculum_mode level '{label}'")
 
 
 def _apply_train_steps(cfg: Dict[str, Any], label: str) -> None:
@@ -216,7 +185,6 @@ _FACTOR_APPLIERS = {
     "snr_ratio": _apply_snr_ratio,
     "sampler_type": _apply_sampler,
     "sampling_steps": _apply_sampling_steps,
-    "curriculum_mode": _apply_curriculum,
     "train_steps": _apply_train_steps,
     "image_resolution": _apply_image_resolution,
 }

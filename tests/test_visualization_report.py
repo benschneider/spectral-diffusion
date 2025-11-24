@@ -73,7 +73,7 @@ def test_write_summary_markdown_includes_new_sections(tmp_path):
     )
 
     taguchi_dir = tmp_path / "taguchi"
-    demo_dir = taguchi_dir / "factors" / "spectral_adapter_placement" / "none"
+    demo_dir = taguchi_dir / "factors" / "spectral_operator_mode" / "none"
     demo_dir.mkdir(parents=True)
     demo_img = demo_dir / "demo_spatial_run.png"
     demo_img.write_bytes(b"demo")

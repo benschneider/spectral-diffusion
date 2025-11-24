@@ -56,22 +56,17 @@ def _summarise(run_id: str, rows: List[Dict[str, float]]) -> Dict[str, float]:
         vals = values(key)
         return max(vals) if vals else math.nan
 
-    def total(key: str) -> float:
-        vals = values(key)
-        return sum(vals) if vals else math.nan
-
     summary = {
         "run_id": run_id,
-        "snr_schedule_mean_avg": avg("snr_schedule_mean"),
-        "snr_schedule_mean_std": pstdev(values("snr_schedule_mean")) if len(values("snr_schedule_mean")) > 1 else 0.0,
-        "snr_effective_avg": avg("snr_effective"),
-        "snr_raw_max_peak": peak("snr_raw_max"),
-        "overflow_count_total": total("overflow_count"),
-        "overflow_rate_peak": peak("overflow_rate_per_1k"),
-        "variance_ratio_avg": avg("variance_ratio"),
-        "variance_ratio_std": pstdev(values("variance_ratio")) if len(values("variance_ratio")) > 1 else 0.0,
-        "prediction_std_ratio_avg": avg("prediction_std_ratio"),
-        "spectral_pressure_avg": avg("spectral_pressure"),
+        "snr_theory_avg": avg("snr_theory"),
+        "snr_emp_avg": avg("snr_emp"),
+        "snr_rel_avg": avg("snr_rel"),
+        "snr_rel_std": pstdev(values("snr_rel")) if len(values("snr_rel")) > 1 else 0.0,
+        "variance_sum_avg": avg("variance_sum"),
+        "variance_sum_std": pstdev(values("variance_sum")) if len(values("variance_sum")) > 1 else 0.0,
+        "grad_norm_avg": avg("grad_norm"),
+        "noise_channel_std_min_avg": avg("noise_channel_std_min"),
+        "noise_channel_std_max_avg": avg("noise_channel_std_max"),
     }
     return summary
 
@@ -82,16 +77,15 @@ def _write_summary(output_path: Path, rows: List[Dict[str, float]]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "run_id",
-        "snr_schedule_mean_avg",
-        "snr_schedule_mean_std",
-        "snr_effective_avg",
-        "snr_raw_max_peak",
-        "overflow_count_total",
-        "overflow_rate_peak",
-        "variance_ratio_avg",
-        "variance_ratio_std",
-        "prediction_std_ratio_avg",
-        "spectral_pressure_avg",
+        "snr_theory_avg",
+        "snr_emp_avg",
+        "snr_rel_avg",
+        "snr_rel_std",
+        "variance_sum_avg",
+        "variance_sum_std",
+        "grad_norm_avg",
+        "noise_channel_std_min_avg",
+        "noise_channel_std_max_avg",
     ]
     with output_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)

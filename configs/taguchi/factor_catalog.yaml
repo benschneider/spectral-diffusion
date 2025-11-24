@@ -6,5 +6,5 @@ factors:
   sampler_type:
     levels: ["ddim", "dpm_solver_pp"]
   sampling_steps:
-    levels: [4, 16, 36]
+    levels: [10, 20, 30]
 constraints: []

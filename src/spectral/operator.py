@@ -31,8 +31,10 @@ def _radial_mask(shape: Tuple[int, int], power: float) -> torch.Tensor:
 
 
 def _normalize_spatial(noise: torch.Tensor) -> torch.Tensor:
-    rms = _per_sample_rms(noise)
-    return noise / rms
+    dims = tuple(range(1, noise.ndim)) if noise.ndim > 1 else ()
+    centered = noise - noise.mean(dim=dims, keepdim=True)
+    rms = _per_sample_rms(centered)
+    return centered / rms
 
 
 def spectral_operator(

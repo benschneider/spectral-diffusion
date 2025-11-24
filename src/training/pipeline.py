@@ -120,22 +120,20 @@ class TrainingPipeline:
                     )
                     snr_min = float(schedule_snr.min().item())
                     snr_max = float(schedule_snr.max().item())
-                    sample_noise = noise_preparer.prepare(
-                        xb,
-                        coeffs,
-                        torch.zeros(xb.shape[0], device=xb.device, dtype=torch.long),
-                        base_noise=torch.randn_like(xb),
-                    )
-                    effective = sample_noise.stats.get("snr_effective") if sample_noise.stats else None
-                    self.logger.info(
-                        "[SNR-DIAG] schedule_snr_range=(%.3f, %.3f) effective_sample=%.3f snr_ratio=%s spectral_scale=(%s,%s)",
-                        snr_min,
-                        snr_max,
-                        float(effective) if effective is not None else float("nan"),
-                        noise_preparer.snr_ratio,
-                        getattr(noise_preparer, "snr_scale_min", None),
-                        getattr(noise_preparer, "snr_scale_max", None),
-                    )
+                sample_noise = noise_preparer.prepare(
+                    xb,
+                    coeffs,
+                    torch.zeros(xb.shape[0], device=xb.device, dtype=torch.long),
+                    base_noise=torch.randn_like(xb),
+                )
+                effective = sample_noise.stats.get("snr_emp") if sample_noise.stats else None
+                self.logger.info(
+                    "[SNR-DIAG] schedule_snr_range=(%.3f, %.3f) snr_emp_sample=%.3f snr_ratio=%s",
+                    snr_min,
+                    snr_max,
+                    float(effective) if effective is not None else float("nan"),
+                    noise_preparer.snr_ratio,
+                )
 
                 B = xb.shape[0]
                 if loss_aware_enabled and warmup_repeats > 1:
@@ -187,8 +185,6 @@ class TrainingPipeline:
                     timesteps,
                     grad_callback=lambda: diagnostics.record_gradients(self.model, step),
                 )
-
-                diagnostics.capture_phase_demo(self.model)
 
                 step += 1
                 diagnostics.record_loss(step, outcome.loss)

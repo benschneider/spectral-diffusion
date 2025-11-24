@@ -11,7 +11,6 @@ from pathlib import Path
 from statistics import mean
 from typing import Dict, Iterable, Mapping, Optional
 
-import numpy as np
 import torch
 from torch import nn
 
@@ -107,7 +106,6 @@ class TrainingDiagnostics:
 
         self._initial_batch_captured = False
         self._noisy_capture_done = False
-        self._phase_demo_captured = False
         self.stability_csv_path = self.diagnostics_dir / "stability_metrics.csv"
 
     def capture_initial_batch(self, batch: torch.Tensor) -> None:
@@ -153,38 +151,6 @@ class TrainingDiagnostics:
                 shutil.copy(fft_src, factor_dir / f"demo_noisy_fft_{self.run_id}.png")
 
         self._noisy_capture_done = True
-
-    def capture_phase_demo(self, model: nn.Module) -> None:
-        if self._phase_demo_captured:
-            return
-        factor_dir = self.aggregator.get_factor_dir("phase_attention_capacity")
-        if factor_dir is None:
-            self._phase_demo_captured = True
-            return
-        pcm = getattr(model, "pcm", None)
-        if pcm is None:
-            self._phase_demo_captured = True
-            return
-        weights = getattr(pcm, "last_attention_map", None)
-        if weights is None:
-            return
-        attention = weights.detach().cpu().numpy()
-        if attention.ndim == 3:
-            attention = attention.mean(axis=0)
-        if attention.ndim == 1:
-            side = int(np.sqrt(attention.shape[0]))
-            if side * side == attention.shape[0]:
-                attention = attention.reshape(side, side)
-        if attention.ndim == 2 and attention.shape[0] != attention.shape[1]:
-            side = int(np.sqrt(attention.shape[-1]))
-            if side * side == attention.shape[-1]:
-                attention = attention.reshape(side, side)
-        if attention.ndim != 2:
-            self._phase_demo_captured = True
-            return
-        target_path = factor_dir / f"demo_phase_attention_{self.run_id}.png"
-        self.plotter.phase_attention(attention, target_path)
-        self._phase_demo_captured = True
 
     def record_loss(self, step: int, loss: float) -> None:
         self.loss_steps.append(step)
@@ -263,7 +229,7 @@ class TrainingDiagnostics:
             for factor, factor_dir in self.aggregator.iter_factor_dirs():
                 shutil.copy(loss_plot, factor_dir / f"demo_loss_grad_{self.run_id}.png")
 
-            spectral_dir = self.aggregator.get_factor_dir("spectral_loss_weighting")
+            spectral_dir = self.aggregator.get_factor_dir("spectral_operator_mode")
             self.plotter.recent_loss_tail(
                 self.loss_steps,
                 self.loss_history,

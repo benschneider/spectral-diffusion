@@ -1,5 +1,10 @@
 # Taguchi DOE Expansion Plan (L16 Binary + L18 Mixed Designs)
 
+> **Legacy note:** This plan captures historical Taguchi factors (phase
+> attention, spectral adapters, adaptive SNR weighting). Current experiments
+> restrict Taguchi to `snr_ratio`, `spectral_operator_mode`, `sampler_type`,
+> `sampling_steps`, `train_steps`, and `image_resolution`.
+
 Our original goal was to move from the legacy L8 (5 binary factors) to a richer L16 experiment covering up to 15 two-level toggles in a single batch. That roadmap is still valuable for purely binary toggles, but we now also operate a mixed-level **L18 (2¹ × 3⁷)** array in production. The L18 rollout (via `configs/taguchi/factor_registry.yaml` + `configs/taguchi/L18_mixed.csv`) lets us sweep eight high-impact factors with three levels each while keeping the binary controls reserved for quick experiments. The L16 notes below remain as a parking lot for future two-level variants.
 
 ## Synthetic L23 diagnostics quickstart

@@ -2,6 +2,11 @@
 
 This page explains the core knobs you can tweak when running Spectral Diffusion. Use it alongside the YAML configs in `configs/`.
 
+> **Scope reminder:** The supported knobs in the main pipeline are limited to
+> `snr_ratio`, `spectral_operator_mode`, sampler choice/steps, training steps,
+> and image resolution. Legacy adaptive/phase/adapter options remain documented
+> here only for archival purposes.
+
 ## 1. Training CLI (`train.py`)
 ```
 python train.py --config configs/baseline.yaml \

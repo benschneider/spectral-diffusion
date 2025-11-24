@@ -63,9 +63,10 @@ def _prepare(config: Dict[str, Any], device: torch.device):
 
 def main() -> None:
     args = _parse_args()
-    seed_everything(args.seed)
-    device = torch.device(args.device) if args.device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     config = load_config(args.config)
+    config["seed"] = args.seed
+    seed_everything(config)
+    device = torch.device(args.device) if args.device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     (
         model,
         loss_fn,

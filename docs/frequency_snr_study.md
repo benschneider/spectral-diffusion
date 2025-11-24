@@ -3,6 +3,11 @@
 This note collects the knobs, metrics, and experiment plans needed for the
 question:
 
+> **Current scope:** The live pipeline only supports DDPM-style forward noise
+> with a single spectral operator and `snr_ratio`. Legacy knobs such as phase
+> corruption, adaptive SNR governors, and variance penalties are retired or
+> archived.
+
 > **How does explicit control of signal-to-noise ratio (SNR) in the frequency
 > domain affect diffusion training stability and sample efficiency compared to
 > standard spatial Gaussian noise?**

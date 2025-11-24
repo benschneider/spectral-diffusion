@@ -1,5 +1,9 @@
 # Training Flow Overview (Adaptive Governor v3.0)
 
+> **Legacy note:** The adaptive regulator described here is deprecated. The
+> active training path uses fixed DDPM coefficients with optional spectral
+> operator + `snr_ratio` scaling only.
+
 This guide explains how the centralised adaptive regulator integrates with the
 spectral diffusion training loop. It complements the pipeline notes by showing
 where each control signal originates and how it feeds back into the loss.

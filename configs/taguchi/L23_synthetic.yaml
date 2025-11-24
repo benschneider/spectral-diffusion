@@ -1,3 +1,7 @@
+## LEGACY: retained for archival Taguchi L23 experiments. Not used by the current
+## minimal Taguchi factor set (snr_ratio, spectral_operator_mode, sampler_type,
+## sampling_steps, train_steps, image_resolution).
+
 model:
   type: unet_tiny
   channels: 3

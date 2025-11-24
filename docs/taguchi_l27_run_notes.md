@@ -1,5 +1,10 @@
 # Taguchi L27 (32×32 full report) – what the factors actually do
 
+> **Legacy note:** This walkthrough covers deprecated factors (phase attention,
+> spectral adapters, variance penalties). Current Taguchi sweeps only vary
+> `snr_ratio`, `spectral_operator_mode`, `sampler_type`, `sampling_steps`,
+> `train_steps`, and `image_resolution`.
+
 Run root: `results/full_report_32x32_20251117_212900/taguchi`  
 Design: `configs/taguchi/L27_extended.csv`  
 Mapping: `factor_mapping.json` in this folder (and under each `runs/<run_id>`).

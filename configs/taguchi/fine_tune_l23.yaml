@@ -1,3 +1,7 @@
+## LEGACY: retained for archival Taguchi L23 fine-tuning experiments.
+## Current Taguchi sweeps only vary snr_ratio, spectral_operator_mode,
+## sampler_type, sampling_steps, train_steps, and image_resolution.
+
 seed: 1234
 
 data:

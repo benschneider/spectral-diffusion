@@ -23,13 +23,12 @@ except ImportError:  # pragma: no cover - optional dependency
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 FACTOR_YAML_KEYS = {
-    "spectral_adapter_placement": "spectral.apply_to",
-    "spectral_loss_weighting": "spectral.weighting",
-    "spectral_noise_shaping_strength": "diffusion.uniform_corruption / spectral.freq_equalized_noise",
-    "phase_attention_capacity": "model.enable_phase_attention / model.phase_heads",
+    "snr_ratio": "diffusion.snr_ratio / spectral.snr_ratio",
+    "spectral_operator_mode": "diffusion.spectral_operator_mode / spectral.operator_mode",
     "sampler_type": "sampling.sampler_type",
     "sampling_steps": "sampling.num_steps",
-    "curriculum_mode": "training.curriculum",
+    "train_steps": "training.num_batches",
+    "image_resolution": "data.height / data.width",
 }
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".svg", ".gif"}

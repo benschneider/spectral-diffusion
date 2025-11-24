@@ -14,27 +14,3 @@ suites:
     randomize: false
     seeds: [42]
     base_config: configs/taguchi_smoke_best.yaml
-  fine_tune_l23:
-    description: "Synthetic fine-tuning suite that reuses L23 levels for diagnostics."
-    include:
-      - shock_handler
-      - normalization_mode
-      - lambda_var
-      - grad_clipping
-      - ema_beta
-      - optimizer
-      - learning_rate
-      - synthetic_profile
-      - noise_color
-      - spectral_slope
-      - snr_level
-      - seed_mode
-    fixed:
-      train_steps: 120
-      sampling_steps: 30
-      image_resolution: 32
-    oa: L23
-    oa_path: configs/taguchi/L23_synthetic.csv
-    randomize: false
-    seeds: [123]
-    base_config: configs/taguchi/fine_tune_l23.yaml
