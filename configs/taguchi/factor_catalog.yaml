@@ -4,7 +4,7 @@ factors:
   spectral_operator_mode:
     levels: ["none", "radial", "radial_squared"]
   sampler_type:
-    levels: ["ddim", "dpm_solver_pp"]
+    levels: ["ddim", "dpm_solver++"]
   sampling_steps:
     levels: [10, 20, 30]
 constraints: []

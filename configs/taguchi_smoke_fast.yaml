@@ -5,57 +5,33 @@ model:
   depth: 1
 
 data:
-  source: cifar10
-  root: data
+  source: synthetic
   channels: 3
   height: 32
   width: 32
-  download: false
+  family: spectral
+
+diffusion:
+  num_timesteps: 300
+  beta_schedule: cosine
+  prediction_type: eps
+  time_embed_dim: 64
+  fft_norm: ortho
+  snr_ratio: 1.0
+  spectral_operator_mode: none
 
 training:
   batch_size: 32
   epochs: 1
-  num_batches: 3
+  train_steps: 3
   log_every: 1
 
 optim:
   lr: 2.0e-4
   weight_decay: 0.0
 
-diffusion:
-  num_timesteps: 300
-  beta_schedule: cosine
-  prediction_type: eps
-  loss_threshold: null
-  time_embed_dim: 64
-  snr_ratio: 1.0
-  spectral_operator_mode: none
-  fft_norm: ortho
-
-loss:
-  reduction: mean
-
-spectral:
-  operator_mode: none
-  snr_ratio: 1.0
-
 sampling:
-  enabled: false
+  enabled: true
   sampler_type: ddpm
-  num_samples: 8
-  num_steps: 20
-
-initialization:
-  strategy: default
-  scale: 0.02
-  source:
-    type: random_normal
-    length: 4096
-    mean: 0.0
-    std: 2.5
-    seed: 1337
-
-evaluation:
-  reference_dir: null
-  use_fid: false
-  image_size: null
+  num_samples: 16
+  sampling_steps: 20

@@ -1,3 +1,37 @@
-# @extends configs/benchmark_synthetic_large_base.yaml
+model:
+  type: unet_tiny
+  channels: 3
+  base_channels: 16
+  depth: 1
+
 data:
+  source: synthetic
+  channels: 3
+  height: 32
+  width: 32
   family: texture
+
+diffusion:
+  num_timesteps: 200
+  beta_schedule: linear
+  prediction_type: eps
+  time_embed_dim: 64
+  fft_norm: ortho
+  snr_ratio: 1.0
+  spectral_operator_mode: none
+
+training:
+  batch_size: 32
+  epochs: 3
+  train_steps: 15
+  log_every: 5
+
+optim:
+  lr: 2.0e-4
+  weight_decay: 0.0
+
+sampling:
+  enabled: true
+  sampler_type: ddpm
+  num_samples: 16
+  sampling_steps: 20

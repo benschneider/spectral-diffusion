@@ -7,7 +7,7 @@ factors:
     levels: ["none", "radial", "radial_squared"]
   sampler_type:
     description: Reverse sampler choice.
-    levels: ["ddim", "dpm_solver_pp"]
+    levels: ["ddim", "dpm_solver++"]
   sampling_steps:
     description: Number of denoising steps during sampling.
     levels: [10, 20, 30]

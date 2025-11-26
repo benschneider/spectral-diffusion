@@ -1,63 +1,37 @@
-seed: 1234
-
-data:
-  source: synthetic
-  family: spectral
-  channels: 3
-  height: 32
-  width: 32
-  size: 64
-  synthetic:
-    size: 64
-    image_size: 32
-    channels: 3
-    freq_mix: 0.45
-    color_mix: 0.3
-    include_gratings: true
-    include_shapes: true
-    use_text: true
-    log_fft_energy: false
-    seed: 1234
-
-diffusion:
-  beta_schedule: cosine
-  num_timesteps: 1000
-  prediction_type: eps
-  fft_norm: ortho
-  spectral_operator_mode: radial
-  snr_ratio: 1.0
-
-spectral:
-  operator_mode: radial
-  snr_ratio: 1.0
-
-loss:
-  reduction: mean
-  mode: mse
-
 model:
   type: unet_tiny
   channels: 3
   base_channels: 32
   depth: 2
 
-optim:
-  lr: 0.0001
-  weight_decay: 0.0
+data:
+  source: synthetic
+  channels: 3
+  height: 32
+  width: 32
+  family: spectral
+
+diffusion:
+  num_timesteps: 1000
+  beta_schedule: cosine
+  prediction_type: eps
+  time_embed_dim: 128
+  fft_norm: ortho
+  snr_ratio: 1.0
+  spectral_operator_mode: radial
 
 training:
   batch_size: 16
   epochs: 1
-  num_batches: 32
-  log_every: 5
+  train_steps: 32
+  log_every: 8
 
-evaluation:
-  image_size: null
-  reference_dir: null
-  use_fid: false
+optim:
+  lr: 1.0e-4
+  weight_decay: 0.0
 
 sampling:
-  enabled: false
-  num_samples: 8
-  num_steps: 250
+  enabled: true
   sampler_type: ddim
+  num_samples: 16
+  sampling_steps: 250

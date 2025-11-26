@@ -7,43 +7,31 @@ model:
 data:
   source: synthetic
   channels: 3
-  height: 16
-  width: 16
+  height: 32
+  width: 32
+  family: spectral
+
+diffusion:
+  num_timesteps: 200
+  beta_schedule: linear
+  prediction_type: eps
+  time_embed_dim: 64
+  fft_norm: ortho
+  snr_ratio: 1.0
+  spectral_operator_mode: none
 
 training:
   batch_size: 64
   epochs: 3
-  num_batches: 15
+  train_steps: 15
   log_every: 5
 
 optim:
   lr: 2.0e-4
   weight_decay: 0.0
 
-diffusion:
-  num_timesteps: 200
-  beta_schedule: linear
-  prediction_type: eps
-  loss_threshold: null
-  time_embed_dim: 64
-  snr_ratio: 1.0
-  spectral_operator_mode: none
-  fft_norm: ortho
-
-loss:
-  reduction: mean
-
-spectral:
-  operator_mode: none
-  snr_ratio: 1.0
-
 sampling:
-  enabled: false
+  enabled: true
   sampler_type: ddpm
-  num_samples: 8
-  num_steps: 20
-
-evaluation:
-  reference_dir: null
-  use_fid: false
-  image_size: null
+  num_samples: 16
+  sampling_steps: 20
