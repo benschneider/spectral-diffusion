@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import torch
-from torch.utils.data import DataLoader, Dataset, RandomSampler
+from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
 from src.data.synthetic import generate_synthetic_samples
@@ -31,22 +31,11 @@ def _build_synthetic_dataloader(
     training_cfg: Dict[str, Any],
 ) -> DataLoader:
     bs = int(training_cfg.get("batch_size", 32))
-    num_workers = int(data_cfg.get("num_workers", 0))
     defaults = SyntheticSpectralConfig()
 
     channels = int(data_cfg.get("channels", defaults.channels))
     height = int(data_cfg.get("height", data_cfg.get("image_size", defaults.image_size)))
     width = int(data_cfg.get("width", height))
-
-    synthetic_overrides = data_cfg.get("synthetic", {}) or {}
-    if "image_size" in synthetic_overrides:
-        height = width = int(synthetic_overrides["image_size"])
-
-    num_batches = int(training_cfg.get("num_batches", 0))
-    dataset_base_size = int(data_cfg.get("size", 0))
-    if dataset_base_size <= 0:
-        dataset_base_size = defaults.size
-    num_samples = bs * num_batches if num_batches > 0 else None
 
     family = str(data_cfg.get("family", "spectral")).lower()
     if family in {"", "spectral"}:
@@ -55,43 +44,35 @@ def _build_synthetic_dataloader(
                 "Synthetic spectral datasets require square images; received height="
                 f"{height} and width={width}."
             )
-        synth_cfg = dict(vars(defaults))
-        synth_cfg.update(synthetic_overrides)
-        base_size = max(dataset_base_size, bs)
-        synth_cfg.update(
-            {
-                "channels": channels,
-                "image_size": height,
-                "size": base_size,
-            }
+        dataset = SyntheticSpectralDataset(
+            size=defaults.size,
+            image_size=height,
+            channels=channels,
+            freq_mix=defaults.freq_mix,
+            color_mix=defaults.color_mix,
+            use_text=defaults.use_text,
+            include_gratings=defaults.include_gratings,
+            include_shapes=defaults.include_shapes,
+            log_fft_energy=defaults.log_fft_energy,
+            seed=defaults.seed,
         )
-        dataset = SyntheticSpectralDataset(**synth_cfg)
-        sampler = None
-        if num_samples is not None:
-            sampler = RandomSampler(dataset, replacement=True, num_samples=num_samples)
         return DataLoader(
             dataset,
             batch_size=bs,
-            shuffle=sampler is None,
-            sampler=sampler,
+            shuffle=True,
             drop_last=True,
-            num_workers=num_workers,
+            num_workers=0,
         )
     else:
-        dataset_size = int(data_cfg.get("size", 0))
-        if dataset_size <= 0 and num_batches > 0:
-            dataset_size = max(bs * num_batches, bs)
-        if dataset_size <= 0:
-            dataset_size = defaults.size
         dataset = _FamilySyntheticDataset(
-            length=dataset_size,
+            length=defaults.size,
             channels=channels,
             height=height,
             width=width,
             data_cfg={**data_cfg},
         )
 
-    return DataLoader(dataset, batch_size=bs, shuffle=True, drop_last=True, num_workers=num_workers)
+    return DataLoader(dataset, batch_size=bs, shuffle=True, drop_last=True, num_workers=0)
 
 
 class _FamilySyntheticDataset(Dataset):
@@ -145,21 +126,8 @@ def _build_cifar10_dataloader(
     bs = int(training_cfg.get("batch_size", 32))
     target_h = int(data_cfg.get("height", 32))
     target_w = int(data_cfg.get("width", 32))
-    num_workers = int(data_cfg.get("num_workers", 0))
-
-    def _parse_bool(value, default: bool) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "y", "on"}
-        return default
-
-    download = _parse_bool(data_cfg.get("download"), default=True)
-    root = data_cfg.get("root", "data")
+    download = True
+    root = "data"
     Path(root).mkdir(parents=True, exist_ok=True)
 
     transform = transforms.Compose(
@@ -199,7 +167,7 @@ def _build_cifar10_dataloader(
         batch_size=bs,
         shuffle=True,
         drop_last=True,
-        num_workers=num_workers,
+        num_workers=0,
     )
 
 

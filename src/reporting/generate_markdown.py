@@ -23,11 +23,11 @@ except ImportError:  # pragma: no cover - optional dependency
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 FACTOR_YAML_KEYS = {
-    "snr_ratio": "diffusion.snr_ratio / spectral.snr_ratio",
-    "spectral_operator_mode": "diffusion.spectral_operator_mode / spectral.operator_mode",
+    "snr_ratio": "diffusion.snr_ratio",
+    "spectral_operator_mode": "diffusion.spectral_operator_mode",
     "sampler_type": "sampling.sampler_type",
-    "sampling_steps": "sampling.num_steps",
-    "train_steps": "training.num_batches",
+    "sampling_steps": "sampling.sampling_steps",
+    "train_steps": "training.train_steps",
     "image_resolution": "data.height / data.width",
 }
 

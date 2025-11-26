@@ -121,23 +121,19 @@ def build_factor_column_mapping(
 
 def _apply_spectral_operator_mode(cfg: Dict[str, Any], label: str) -> None:
     diffusion_cfg = cfg.setdefault("diffusion", {})
-    spectral_cfg = cfg.setdefault("spectral", {})
     mode = str(label)
     if mode not in {"none", "radial", "radial_squared"}:
         raise ValueError(f"Unknown spectral_operator_mode level '{label}'")
     diffusion_cfg["spectral_operator_mode"] = mode
-    spectral_cfg["operator_mode"] = mode
 
 
 def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> None:
     diffusion_cfg = cfg.setdefault("diffusion", {})
-    spectral_cfg = cfg.setdefault("spectral", {})
     try:
         value = float(label)
     except ValueError as exc:  # pragma: no cover - defensive
         raise ValueError(f"snr_ratio level '{label}' is not numeric") from exc
     diffusion_cfg["snr_ratio"] = value
-    spectral_cfg["snr_ratio"] = value
 
 
 def _apply_sampler(cfg: Dict[str, Any], label: str) -> None:
@@ -159,7 +155,7 @@ def _apply_sampling_steps(cfg: Dict[str, Any], label: str) -> None:
         steps = int(label)
     except ValueError as exc:  # pragma: no cover - defensive
         raise ValueError(f"Unknown sampling_steps level '{label}'") from exc
-    sampling_cfg["num_steps"] = steps
+    sampling_cfg["sampling_steps"] = steps
 
 
 def _apply_train_steps(cfg: Dict[str, Any], label: str) -> None:
@@ -167,7 +163,7 @@ def _apply_train_steps(cfg: Dict[str, Any], label: str) -> None:
     steps = int(label)
     if steps <= 0:
         raise ValueError("Training steps must be positive.")
-    training_cfg["num_batches"] = steps
+    training_cfg["train_steps"] = steps
     training_cfg.setdefault("epochs", 1)
 
 
@@ -426,36 +422,8 @@ class TaguchiExperimentRunner:
     def _legacy_build_config(self, row: pd.Series, row_number: int) -> Dict[str, Any]:
         cfg = deepcopy(self.base_config)
         cfg.setdefault("model", {})
-        cfg.setdefault("spectral", {})
         cfg.setdefault("sampling", {})
-        cfg.setdefault("initialization", {})
-
-        if "A" in row:
-            cfg["spectral"]["freq_equalized_noise"] = int(row["A"]) == 2
-        if "B" in row:
-            cfg["spectral"]["freq_attention"] = int(row["B"]) == 2
-        if "C" in row:
-            cfg["sampling"]["sampler_type"] = "dpm_solver++" if int(row["C"]) == 2 else "ddim"
-        if "D" in row:
-            cfg["spectral"]["enabled"] = int(row["D"]) == 2
-        if "E" in row:
-            level = int(row["E"])
-            init_cfg = cfg.setdefault("initialization", {})
-            if level == 2:
-                init_cfg.update(
-                    {
-                        "strategy": "cross_domain_flat",
-                        "scale": init_cfg.get("scale", 0.02),
-                        "recycle": True,
-                    }
-                )
-                if "source" not in init_cfg:
-                    init_cfg["source"] = {
-                        "type": "constant",
-                        "values": [0.0, 1.0, -1.0, 0.5],
-                    }
-            else:
-                init_cfg.setdefault("strategy", "default")
+        cfg.setdefault("training", {})
 
         taguchi_meta = cfg.setdefault("taguchi", {})
         taguchi_meta["row"] = row.to_dict()
@@ -471,12 +439,11 @@ class TaguchiExperimentRunner:
 
         cfg = deepcopy(self.base_config)
         cfg.setdefault("model", {})
-        cfg.setdefault("spectral", {})
         cfg.setdefault("sampling", {})
-        cfg.setdefault("initialization", {})
         cfg.setdefault("diffusion", {})
         cfg.setdefault("training", {})
         cfg.setdefault("optim", {})
+        cfg.setdefault("data", {})
 
         design_levels: Dict[str, int] = {}
         factor_levels: Dict[str, Dict[str, Any]] = {}

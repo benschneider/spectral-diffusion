@@ -45,10 +45,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Override sample count.",
     )
     parser.add_argument(
+        "--sampling-steps",
         "--num-steps",
         type=int,
         default=None,
-        help="Override number of diffusion steps.",
+        dest="sampling_steps",
+        help="Override number of diffusion steps used during sampling.",
     )
     parser.add_argument(
         "--sampler-type",
@@ -78,7 +80,7 @@ def sample_from_run(
     config_path: Optional[Path] = None,
     tag: Optional[str] = None,
     num_samples: Optional[int] = None,
-    num_steps: Optional[int] = None,
+    sampling_steps: Optional[int] = None,
     sampler_type: Optional[str] = None,
     log_level: str = "INFO",
 ) -> Dict[str, Any]:
@@ -106,7 +108,7 @@ def sample_from_run(
 
     sample_info = pipeline.generate_samples(
         num_samples=num_samples,
-        num_steps=num_steps,
+        sampling_steps=sampling_steps,
         sampler_type=sampler_type,
         output_dir=sample_dir,
     )
@@ -115,7 +117,7 @@ def sample_from_run(
         "checkpoint_path": str(checkpoint_path),
         "config_path": str(config_file),
         "num_samples": sample_info["num_samples"],
-        "num_steps": sample_info["num_steps"],
+        "sampling_steps": sample_info["sampling_steps"],
         "sampler_type": sample_info["sampler_type"],
         "images_dir": str(sample_info["images_dir"]),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -129,7 +131,7 @@ def sample_from_run(
         "checkpoint_path": checkpoint_path,
         "images_dir": sample_info["images_dir"],
         "num_samples": sample_info["num_samples"],
-        "num_steps": sample_info["num_steps"],
+        "sampling_steps": sample_info["sampling_steps"],
         "metadata_path": metadata_path,
     }
 
@@ -144,7 +146,7 @@ def main(argv: Optional[Any] = None) -> None:
         config_path=args.config,
         tag=args.tag,
         num_samples=args.num_samples,
-        num_steps=args.num_steps,
+        sampling_steps=args.sampling_steps,
         sampler_type=args.sampler_type,
         log_level=args.log_level,
     )

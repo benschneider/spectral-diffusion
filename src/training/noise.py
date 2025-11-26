@@ -46,16 +46,9 @@ class NoisePreparer:
     @classmethod
     def from_config(cls, config: Mapping[str, Any]) -> "NoisePreparer":
         diffusion_cfg: Mapping[str, Any] = config.get("diffusion", {}) or {}
-        spectral_cfg: Mapping[str, Any] = config.get("spectral", {}) or {}
-        operator_mode = diffusion_cfg.get(
-            "spectral_operator_mode",
-            spectral_cfg.get("operator_mode", "none"),
-        )
-        snr_ratio = diffusion_cfg.get(
-            "snr_ratio",
-            spectral_cfg.get("snr_ratio", 1.0),
-        )
-        mask_params = spectral_cfg.get("operator_mask_params")
+        operator_mode = diffusion_cfg.get("spectral_operator_mode", "none")
+        snr_ratio = diffusion_cfg.get("snr_ratio", 1.0)
+        mask_params = None
 
         return cls(
             operator_mode=str(operator_mode or "none"),

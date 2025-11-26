@@ -3,7 +3,6 @@ from typing import Any, Dict, Optional, Type
 import torch
 from torch import nn
 
-from .initialization import apply_initialization
 from .model_unet_tiny import TinyUNet
 
 
@@ -51,6 +50,4 @@ def build_model(config: Dict[str, Any]) -> nn.Module:
             f"Unknown model type '{model_type}'. Available: {list(MODEL_REGISTRY.keys())}"
         )
     model = model_cls(config=config)
-    init_cfg = config.get("initialization")
-    apply_initialization(model, init_cfg)
     return model
