@@ -347,12 +347,7 @@ class TrainingPipeline:
         coeffs = build_diffusion(T, schedule)
 
         sampler = sampling_cfg.get("sampler_type", "ddpm").lower()
-        try:
-            sampler_impl = build_sampler(sampler, model=self.model, coeffs=coeffs)
-        except ValueError:
-            self.logger.warning("Sampler '%s' not supported; falling back to ddpm", sampler)
-            sampler_impl = build_sampler("ddpm", model=self.model, coeffs=coeffs)
-            sampler = "ddpm"
+        sampler_impl = build_sampler(sampler, model=self.model, coeffs=coeffs)
 
         model_cfg = self.config.get("model", {})
         data_cfg = self.config.get("data", {})

@@ -40,7 +40,7 @@ class NoisePreparer:
         mask_params: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self.operator_mode = str(operator_mode or "none")
-        self.snr_ratio = float(snr_ratio) if snr_ratio else 1.0
+        self.snr_ratio = 1.0 if snr_ratio is None else float(snr_ratio)
         self.mask_params = dict(mask_params or {})
 
     @classmethod

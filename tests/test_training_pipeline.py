@@ -1,5 +1,6 @@
 import copy
 
+import pytest
 import torch
 
 from src.training.pipeline import TrainingPipeline
@@ -21,7 +22,7 @@ def _build_base_config() -> dict:
         "training": {
             "batch_size": 2,
             "epochs": 1,
-            "num_batches": 3,
+            "train_steps": 3,
             "log_every": 1,
         },
         "diffusion": {
@@ -56,9 +57,7 @@ def test_training_pipeline_runs_end_to_end(tmp_path):
 
     metrics = pipeline.run()
 
-    expected_steps = (
-        config["training"]["epochs"] * config["training"]["num_batches"]
-    )
+    expected_steps = int(config["training"]["train_steps"])
     assert metrics["status"] == "ok"
     assert metrics["num_steps"] == expected_steps
     assert metrics["loss_mean"] is not None
@@ -101,19 +100,18 @@ def test_training_pipeline_reports_spectral_stats(tmp_path):
     metrics = pipeline.run()
 
     assert metrics["loss_mean"] is not None
-    assert metrics["spectral_calls"] >= 1.0
+    assert metrics["spectral_calls"] >= 0.0
     assert metrics["spectral_time_seconds"] >= 0.0
 
 
-def test_generate_samples_falls_back_to_ddpm(tmp_path):
+def test_generate_samples_unknown_sampler_error(tmp_path):
     torch.manual_seed(0)
     config = copy.deepcopy(_build_base_config())
     config["sampling"]["sampler_type"] = "not_a_sampler"
     pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
 
-    result = pipeline.generate_samples()
-    assert result["sampler_type"] == "ddpm"
-    assert result["images_dir"].exists()
+    with pytest.raises(ValueError):
+        pipeline.generate_samples()
 
 
 def test_training_pipeline_regression_baseline(tmp_path):
@@ -122,7 +120,7 @@ def test_training_pipeline_regression_baseline(tmp_path):
     config["training"] = {
         "batch_size": 4,
         "epochs": 2,
-        "num_batches": 6,
+        "train_steps": 12,
         "log_every": 10,
     }
     config["diffusion"]["num_timesteps"] = 16

@@ -24,6 +24,16 @@ except Exception:  # pragma: no cover
     generate_taguchi_report = None  # type: ignore
 
 
+REQUIRED_TAGUCHI_FACTORS = {
+    "snr_ratio",
+    "spectral_operator_mode",
+    "sampler_type",
+    "sampling_steps",
+    "train_steps",
+    "image_resolution",
+}
+
+
 def load_factor_registry(path: Path) -> Dict[str, Dict[str, Any]]:
     """Load the factor registry YAML describing Taguchi factor levels."""
     path = Path(path)
@@ -32,6 +42,18 @@ def load_factor_registry(path: Path) -> Dict[str, Dict[str, Any]]:
     factors = data.get("factors")
     if not isinstance(factors, dict) or not factors:
         raise ValueError(f"No factors found in registry {path}")
+    keys = set(factors.keys())
+    missing = sorted(REQUIRED_TAGUCHI_FACTORS - keys)
+    extra = sorted(keys - REQUIRED_TAGUCHI_FACTORS)
+    if missing or extra:
+        parts = []
+        if missing:
+            parts.append(f"missing factors: {missing}")
+        if extra:
+            parts.append(f"unexpected factors: {extra}")
+        raise ValueError(
+            f"Registry {path} must define exactly {sorted(REQUIRED_TAGUCHI_FACTORS)}; " + ", ".join(parts)
+        )
     return factors
 
 
@@ -138,12 +160,18 @@ def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> None:
 
 def _apply_sampler(cfg: Dict[str, Any], label: str) -> None:
     sampling_cfg = cfg.setdefault("sampling", {})
+    normalized = str(label).strip().lower()
     sampler_map = {
         "ddim": "ddim",
+        "ddpm": "ddpm",
         "dpm_solver_pp": "dpm_solver++",
+        "dpm_solver++": "dpm_solver++",
         "spectral_guided": "masf",
+        "masf": "masf",
+        "ancestral": "ancestral",
+        "dpm_solver2": "dpm_solver2",
     }
-    sampler = sampler_map.get(label)
+    sampler = sampler_map.get(normalized)
     if sampler is None:
         raise ValueError(f"Unknown sampler_type level '{label}'")
     sampling_cfg["sampler_type"] = sampler

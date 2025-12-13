@@ -14,6 +14,18 @@
 - Diagnostics/reporting: stability CSVs/report_v2 use the unified SNR triad + `variance_sum`, loss, grad_norm.
 - Taguchi: factors reduced to `snr_ratio`, `spectral_operator_mode`, `sampler_type`, `sampling_steps`, `train_steps`, `image_resolution`.
 
+## Final invariants (release gate)
+- **Single DDPM forward path**: `NoisePreparer` pulls `snr_ratio` and `spectral_operator_mode` from `diffusion.*`, calls `spectral_operator`, and scales by `k = 1 / snr_ratio` exactly once before mixing with `sqrt(alpha_bar_t)` / `sqrt(1 - alpha_bar_t)`.
+- **Sampler declarations**: every config and Taguchi factor must set `sampling.sampler_type` explicitly; unknown labels raise immediately (no fallback to DDPM).
+- **Taguchi factor surface**: registries must define exactly `{snr_ratio, spectral_operator_mode, sampler_type, sampling_steps, train_steps, image_resolution}`. Suites may pin factors to single levels, but they cannot add or omit knobs.
+- **Recorder/diagnostics**: scripts/debug utilities import `NoisePreparer`, `sample_timesteps`, and `TrainingStepExecutor` instead of reimplementing forward math, so recorded SNR values mirror the training loop.
+
+### Removed / non-existent knobs
+- No `spectral_adapter_*`, `spectral_pressure`, `phase_attention`, or `residual_adapter` toggles.
+- No `uniform_corruption`, `freq_equalized_noise`, `adaptive_rescale`, `snr_scale_min/max`, `snr_ratio_target`, or `strength` scalars.
+- No `loss.spectral_weighting`, `spectral_mask`, `learnable_adapter`, or `spectral.*` overrides that diverge from `diffusion.*`.
+- No sampler fallbacks, adaptive schedulers, or hidden defaults beyond the unified schema noted above.
+
 ## 1. BASELINE: First-Principles Diffusion Math (DDPM)
 | Concept | Definition / Notes |
 | --- | --- |
