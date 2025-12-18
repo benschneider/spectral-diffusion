@@ -1,3 +1,4 @@
+import json
 import logging
 from collections import defaultdict
 from pathlib import Path
@@ -18,6 +19,7 @@ from src.training.sampling import build_sampler
 from src.training.scheduler import build_diffusion, sample_timesteps
 from src.training.steps import TrainingStepExecutor
 from src.training.visualization import DiagnosticsPlotter
+from src.utils.sanity_checks import check_fft_sanity
 
 
 class TrainingPipeline:
@@ -95,6 +97,29 @@ class TrainingPipeline:
         total_timesteps = coeffs.num_timesteps
         snr_ratio_value = noise_preparer.snr_ratio
 
+        checkpoint_every_raw = training_cfg.get("checkpoint_every")
+        checkpoint_every = int(checkpoint_every_raw) if checkpoint_every_raw is not None else None
+        if checkpoint_every is not None and checkpoint_every <= 0:
+            raise ValueError("training.checkpoint_every must be positive when set.")
+
+        eval_every_raw = training_cfg.get("eval_every")
+        eval_every = int(eval_every_raw) if eval_every_raw is not None else None
+        if eval_every is not None and eval_every <= 0:
+            raise ValueError("training.eval_every must be positive when set.")
+
+        eval_num_samples_raw = training_cfg.get("eval_num_samples")
+        eval_num_samples = (
+            int(eval_num_samples_raw)
+            if eval_num_samples_raw is not None
+            else None
+        )
+        if eval_num_samples is not None and eval_num_samples <= 0:
+            raise ValueError("training.eval_num_samples must be positive when set.")
+
+        eval_seed_raw = training_cfg.get("eval_seed")
+        eval_seed = int(eval_seed_raw) if eval_seed_raw is not None else int(self.config.get("seed", 1337))
+        eval_artifacts: list[dict[str, Any]] = []
+
         fft_feedback_history: Dict[str, list[float]] = defaultdict(list)
         coeff_history: Dict[str, list[float]] = {}
         batch_history: Dict[str, list[float]] = {}
@@ -135,7 +160,7 @@ class TrainingPipeline:
                     base_noise=torch.randn_like(xb),
                 )
 
-                diagnostics.capture_noisy_example(noise_batch.noisy)
+                diagnostics.capture_noisy_example(noise_batch.noisy, eps=noise_batch.eps)
                 diagnostics.record_noise_stats(step + 1, noise_batch.stats or {})
 
                 outcome = step_executor.run_step(
@@ -159,6 +184,68 @@ class TrainingPipeline:
                     coeff_history.setdefault(key, []).append(float(value))
                 for key, value in outcome.batch_stats.items():
                     batch_history.setdefault(key, []).append(float(value))
+
+                if checkpoint_every is not None and step % checkpoint_every == 0:
+                    self.save_checkpoint(step)
+
+                if eval_every is not None and step % eval_every == 0:
+                    eval_dir = self.work_dir / "eval" / f"step_{step:06d}"
+                    samples_dir = eval_dir / "samples"
+                    diag_dir = eval_dir / "diagnostics"
+                    diag_dir.mkdir(parents=True, exist_ok=True)
+                    # Preserve training RNG streams while using deterministic sampling seeds.
+                    cpu_state = torch.random.get_rng_state()
+                    cuda_state = (
+                        torch.cuda.get_rng_state_all()
+                        if torch.cuda.is_available()
+                        else None
+                    )
+                    try:
+                        torch.manual_seed(eval_seed + step)
+                        if torch.cuda.is_available():
+                            torch.cuda.manual_seed_all(eval_seed + step)
+                        requested_samples, requested_steps, sampler = self._resolve_sampling_request(
+                            num_samples=eval_num_samples,
+                            sampling_steps=None,
+                            sampler_type=None,
+                        )
+                        samples = self._sample_tensor(
+                            num_samples=requested_samples,
+                            sampling_steps=requested_steps,
+                            sampler_type=sampler,
+                            coeffs=coeffs,
+                        )
+                        self._write_samples(samples_dir, samples)
+                        sanity_json = check_fft_sanity(
+                            inputs=samples.detach().cpu(),
+                            dataset_name="generated_samples",
+                            out_dir=diag_dir,
+                            prefix="eval_",
+                        )
+                        checkpoint_path = None
+                        if checkpoint_every is not None:
+                            checkpoint_path = self.work_dir / "checkpoints" / f"checkpoint_step_{step}.pt"
+                            if not checkpoint_path.exists():
+                                checkpoint_path = self.save_checkpoint(step)
+                        eval_payload = {
+                            "step": step,
+                            "seed": eval_seed + step,
+                            "sampler_type": sampler,
+                            "sampling_steps": requested_steps,
+                            "num_samples": requested_samples,
+                            "samples_dir": str(samples_dir),
+                            "diagnostics_dir": str(diag_dir),
+                            "sanity_json": str(sanity_json),
+                            "checkpoint_path": str(checkpoint_path) if checkpoint_path else None,
+                        }
+                        eval_path = eval_dir / "eval.json"
+                        eval_dir.mkdir(parents=True, exist_ok=True)
+                        eval_path.write_text(json.dumps(eval_payload, indent=2), encoding="utf-8")
+                        eval_artifacts.append(eval_payload)
+                    finally:
+                        torch.random.set_rng_state(cpu_state)
+                        if cuda_state is not None:
+                            torch.cuda.set_rng_state_all(cuda_state)
 
                 if step % log_every == 0:
                     snr_theory = outcome.coeff_stats.get("snr_theory", float("nan"))
@@ -231,6 +318,7 @@ class TrainingPipeline:
                 "loss_history": [float(v) for v in loss_history],
                 "mae_history": [float(v) for v in mae_history],
                 "snr_ratio": snr_ratio_value,
+                "eval_artifacts": eval_artifacts,
                 **{
                     f"fft_{key}_history": [float(v) for v in vals]
                     for key, vals in fft_feedback_history.items()
@@ -318,14 +406,84 @@ class TrainingPipeline:
                 getattr(self._noise_preparer, "fft_norm", None)
                 or str(diffusion_cfg.get("fft_norm", "ortho"))
             )
-            self._step_executor = TrainingStepExecutor(
-                model=self.model,
-                optimizer=self.optimizer,
-                loss_fn=self.loss_fn,
-                prediction_type=str(prediction_type),
-                fft_norm=str(fft_norm),
-            )
+        self._step_executor = TrainingStepExecutor(
+            model=self.model,
+            optimizer=self.optimizer,
+            loss_fn=self.loss_fn,
+            prediction_type=str(prediction_type),
+            fft_norm=str(fft_norm),
+        )
 
+    def _resolve_sampling_request(
+        self,
+        *,
+        num_samples: Optional[int],
+        sampling_steps: Optional[int],
+        sampler_type: Optional[str],
+    ) -> tuple[int, int, str]:
+        sampling_cfg = dict(self.config.get("sampling", {}) or {})
+        enabled = bool(sampling_cfg.get("enabled", False))
+        if not enabled:
+            raise ValueError("sampling.enabled must be true for sampling/evaluation.")
+
+        if sampler_type is None:
+            sampler_raw = sampling_cfg.get("sampler_type")
+            if sampler_raw is None:
+                raise ValueError("sampling.sampler_type is required for sampling.")
+            sampler_type = str(sampler_raw)
+
+        if sampling_steps is None:
+            if "sampling_steps" in sampling_cfg:
+                sampling_steps = int(sampling_cfg["sampling_steps"])
+            elif "num_steps" in sampling_cfg:
+                raise ValueError(
+                    "sampling.num_steps is deprecated; use sampling.sampling_steps instead."
+                )
+            else:
+                raise ValueError("sampling.sampling_steps is required for sampling.")
+
+        if num_samples is None:
+            num_samples = int(sampling_cfg.get("num_samples", 16))
+
+        if int(sampling_steps) <= 0:
+            raise ValueError("sampling.sampling_steps must be positive.")
+        if int(num_samples) <= 0:
+            raise ValueError("sampling.num_samples must be positive.")
+
+        return int(num_samples), int(sampling_steps), str(sampler_type).strip().lower()
+
+    def _sample_tensor(
+        self,
+        *,
+        num_samples: int,
+        sampling_steps: int,
+        sampler_type: str,
+        coeffs: Any,
+    ) -> torch.Tensor:
+        sampler_impl = build_sampler(sampler_type, model=self.model, coeffs=coeffs)
+
+        model_cfg = self.config.get("model", {})
+        data_cfg = self.config.get("data", {})
+        channels = int(model_cfg.get("channels") or data_cfg.get("channels", 3))
+        height = int(data_cfg.get("height", 32))
+        width = int(data_cfg.get("width", 32))
+        shape = (channels, height, width)
+
+        return sampler_impl.sample(
+            num_samples=int(num_samples),
+            shape=shape,
+            num_steps=int(sampling_steps),
+            device=self.device,
+        )
+
+    @staticmethod
+    def _write_samples(images_dir: Path, samples: torch.Tensor) -> None:
+        images_dir.mkdir(parents=True, exist_ok=True)
+        nrow = max(1, int(samples.shape[0] ** 0.5))
+        grid_path = images_dir / "grid.png"
+        save_image((samples + 1) / 2.0, grid_path, nrow=nrow)
+        for idx, img in enumerate(samples):
+            save_image((img + 1) / 2.0, images_dir / f"sample_{idx:03d}.png")
 
     def generate_samples(
         self,
@@ -336,46 +494,31 @@ class TrainingPipeline:
     ) -> Dict[str, Any]:
         sampling_cfg = dict(self.config.get("sampling", {}) or {})
         sampling_cfg["enabled"] = True
+        self.config.setdefault("sampling", {})
+        self.config["sampling"]["enabled"] = True
         if num_samples is not None:
-            sampling_cfg["num_samples"] = int(num_samples)
+            self.config["sampling"]["num_samples"] = int(num_samples)
         if sampling_steps is not None:
-            sampling_cfg["sampling_steps"] = int(sampling_steps)
+            self.config["sampling"]["sampling_steps"] = int(sampling_steps)
         if sampler_type is not None:
-            sampling_cfg["sampler_type"] = str(sampler_type)
+            self.config["sampling"]["sampler_type"] = str(sampler_type)
 
         T, schedule = self._diffusion_params()
         coeffs = build_diffusion(T, schedule)
 
-        sampler = sampling_cfg.get("sampler_type", "ddpm").lower()
-        sampler_impl = build_sampler(sampler, model=self.model, coeffs=coeffs)
-
-        model_cfg = self.config.get("model", {})
-        data_cfg = self.config.get("data", {})
-        channels = int(model_cfg.get("channels") or data_cfg.get("channels", 3))
-        height = int(data_cfg.get("height", 32))
-        width = int(data_cfg.get("width", 32))
-        shape = (channels, height, width)
-
-        requested_samples = int(sampling_cfg.get("num_samples", 16))
-        requested_steps = int(
-            sampling_cfg.get("sampling_steps", coeffs.betas.shape[0])
+        requested_samples, requested_steps, sampler = self._resolve_sampling_request(
+            num_samples=num_samples,
+            sampling_steps=sampling_steps,
+            sampler_type=sampler_type,
         )
-
-        images_dir = output_dir or (self.work_dir / "images")
-        images_dir.mkdir(parents=True, exist_ok=True)
-
-        samples = sampler_impl.sample(
+        samples = self._sample_tensor(
             num_samples=requested_samples,
-            shape=shape,
-            num_steps=requested_steps,
-            device=self.device,
+            sampling_steps=requested_steps,
+            sampler_type=sampler,
+            coeffs=coeffs,
         )
-
-        grid_path = images_dir / "grid.png"
-        save_image((samples + 1) / 2.0, grid_path, nrow=max(1, int(requested_samples**0.5)))
-
-        for idx, img in enumerate(samples):
-            save_image((img + 1) / 2.0, images_dir / f"sample_{idx:03d}.png")
+        images_dir = output_dir or (self.work_dir / "images")
+        self._write_samples(images_dir, samples)
 
         return {
             "images_dir": images_dir,

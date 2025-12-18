@@ -63,6 +63,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Override diffusion.snr_ratio (signal-to-noise ratio for spectral noise).",
     )
     parser.add_argument(
+        "--spectral-operator-mode",
+        type=str,
+        default=None,
+        choices=["none", "radial", "radial_squared"],
+        help="Override diffusion.spectral_operator_mode.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Skip intensive work; useful for testing the pipeline setup.",
@@ -82,6 +89,36 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Override config.seed for deterministic repeats.",
+    )
+    parser.add_argument(
+        "--train-steps",
+        type=int,
+        default=None,
+        help="Override training.train_steps (total gradient steps).",
+    )
+    parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=None,
+        help="Override training.checkpoint_every (steps).",
+    )
+    parser.add_argument(
+        "--eval-every",
+        type=int,
+        default=None,
+        help="Override training.eval_every (steps).",
+    )
+    parser.add_argument(
+        "--eval-num-samples",
+        type=int,
+        default=None,
+        help="Override training.eval_num_samples (per eval).",
+    )
+    parser.add_argument(
+        "--eval-seed",
+        type=int,
+        default=None,
+        help="Override training.eval_seed (base seed for eval sampling).",
     )
     parser.add_argument(
         "--log-level",
@@ -123,6 +160,12 @@ def train_from_config(
     log_level: str = "INFO",
     json_log: bool = False,
     snr_ratio: Optional[float] = None,
+    spectral_operator_mode: Optional[str] = None,
+    train_steps: Optional[int] = None,
+    checkpoint_every: Optional[int] = None,
+    eval_every: Optional[int] = None,
+    eval_num_samples: Optional[int] = None,
+    eval_seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Load configuration, execute training, and log artifacts.
 
@@ -195,9 +238,27 @@ def train_from_config(
     if seed is not None:
         config["seed"] = int(seed)
     seed_everything(config)
+    if train_steps is not None:
+        config.setdefault("training", {})
+        config["training"]["train_steps"] = int(train_steps)
+    if checkpoint_every is not None:
+        config.setdefault("training", {})
+        config["training"]["checkpoint_every"] = int(checkpoint_every)
+    if eval_every is not None:
+        config.setdefault("training", {})
+        config["training"]["eval_every"] = int(eval_every)
+    if eval_num_samples is not None:
+        config.setdefault("training", {})
+        config["training"]["eval_num_samples"] = int(eval_num_samples)
+    if eval_seed is not None:
+        config.setdefault("training", {})
+        config["training"]["eval_seed"] = int(eval_seed)
     if snr_ratio is not None:
         diffusion_cfg = config.setdefault("diffusion", {})
         diffusion_cfg["snr_ratio"] = float(snr_ratio)
+    if spectral_operator_mode is not None:
+        diffusion_cfg = config.setdefault("diffusion", {})
+        diffusion_cfg["spectral_operator_mode"] = str(spectral_operator_mode)
 
     run_identifier = run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     dirs = ensure_directories(output_dir=output_dir, run_id=run_identifier)
@@ -298,6 +359,12 @@ def main(argv: Optional[Any] = None) -> None:
         log_level=args.log_level,
         json_log=args.json_log,
         snr_ratio=args.snr_ratio,
+        spectral_operator_mode=args.spectral_operator_mode,
+        train_steps=args.train_steps,
+        checkpoint_every=args.checkpoint_every,
+        eval_every=args.eval_every,
+        eval_num_samples=args.eval_num_samples,
+        eval_seed=args.eval_seed,
     )
     logging.getLogger("spectral_diffusion.train").info(
         "Completed run %s with metrics at %s", result["run_id"], result["metrics_path"]

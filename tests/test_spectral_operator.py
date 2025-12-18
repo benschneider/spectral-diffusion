@@ -14,7 +14,8 @@ def test_spectral_operator_identity_mode_normalises_noise() -> None:
     shaped = spectral_operator(eps, mode="none")
     rms = _per_sample_rms(shaped)
     assert torch.allclose(rms, torch.ones_like(rms), atol=1e-4)
-    expected = eps / _per_sample_rms(eps).view(-1, 1, 1, 1)
+    centered = eps - eps.mean(dim=tuple(range(1, eps.ndim)), keepdim=True)
+    expected = centered / _per_sample_rms(centered).view(-1, 1, 1, 1)
     assert torch.allclose(shaped, expected, atol=1e-4)
 
 

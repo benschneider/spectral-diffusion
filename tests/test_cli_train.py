@@ -19,7 +19,7 @@ def _write_minimal_config(destination: Path) -> Path:
             "height": 4,
             "width": 4,
         },
-        "training": {"batch_size": 1, "epochs": 1, "num_batches": 1, "log_every": 1},
+        "training": {"batch_size": 1, "epochs": 1, "train_steps": 1, "log_every": 1},
         "diffusion": {"num_timesteps": 2, "beta_schedule": "linear"},
         "optim": {"lr": 1e-3},
     }
@@ -64,6 +64,12 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
         output_dir=output_dir,
         dry_run=True,
         snr_ratio=0.75,
+        spectral_operator_mode="radial",
+        train_steps=12,
+        checkpoint_every=3,
+        eval_every=4,
+        eval_num_samples=5,
+        eval_seed=123,
     )
 
     assert result["run_id"]
@@ -71,6 +77,12 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
     config = _DummyPipeline.last_config
     assert config["model"]["type"] == "unet_tiny"
     assert config["diffusion"]["snr_ratio"] == pytest.approx(0.75)
+    assert config["diffusion"]["spectral_operator_mode"] == "radial"
+    assert config["training"]["train_steps"] == 12
+    assert config["training"]["checkpoint_every"] == 3
+    assert config["training"]["eval_every"] == 4
+    assert config["training"]["eval_num_samples"] == 5
+    assert config["training"]["eval_seed"] == 123
 
 
 def test_train_from_config_writes_json_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

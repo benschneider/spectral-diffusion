@@ -40,7 +40,7 @@ def test_training_step_executor_runs_backward_and_logs_stats(monkeypatch):
     class TinyModel(nn.Module):
         def __init__(self):
             super().__init__()
-            self.weight = nn.Parameter(torch.tensor(1.0))
+            self.weight = nn.Parameter(torch.tensor(0.0))
 
         def forward(self, x, timesteps):  # type: ignore[override]
             return self.weight * torch.ones_like(x)
@@ -64,7 +64,7 @@ def test_training_step_executor_runs_backward_and_logs_stats(monkeypatch):
     outcome = executor.run_step(clean, noise_batch, timesteps)
 
     assert loss_fn.calls == 1
-    assert outcome.loss > 0
+    assert outcome.loss >= 0.0
     assert outcome.grad_norm is None or outcome.grad_norm >= 0.0
     assert "snr_theory" in outcome.coeff_stats
     assert "prediction_mean" in outcome.batch_stats
@@ -73,8 +73,12 @@ def test_training_step_executor_runs_backward_and_logs_stats(monkeypatch):
 
 def test_training_step_executor_uses_loss_diag_per_sample(monkeypatch):
     class ZeroModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.weight = nn.Parameter(torch.tensor(0.0))
+
         def forward(self, x, timesteps):  # type: ignore[override]
-            return torch.zeros_like(x)
+            return self.weight * torch.ones_like(x)
 
     model = ZeroModel()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)

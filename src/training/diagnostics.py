@@ -34,7 +34,10 @@ class TaguchiAggregator:
     def _resolve_base(self) -> Path:
         parent = self.work_dir.parent
         if parent.name == "runs":
-            return parent.parent
+            grandparent = parent.parent
+            if (grandparent / "pyproject.toml").exists() or (grandparent / ".git").exists():
+                return parent
+            return grandparent
         return self.work_dir
 
     @property
@@ -129,7 +132,7 @@ class TrainingDiagnostics:
 
         self._initial_batch_captured = True
 
-    def capture_noisy_example(self, noisy_batch: torch.Tensor) -> None:
+    def capture_noisy_example(self, noisy_batch: torch.Tensor, eps: Optional[torch.Tensor] = None) -> None:
         if self._noisy_capture_done:
             return
         stats_path = check_fft_sanity(
@@ -149,6 +152,28 @@ class TrainingDiagnostics:
                 )
             if fft_src.exists():
                 shutil.copy(fft_src, factor_dir / f"demo_noisy_fft_{self.run_id}.png")
+
+        if eps is not None:
+            eps_path = check_fft_sanity(
+                eps.detach().cpu(),
+                f"{self.dataset_name}_eps",
+                self.aggregator.sanity_dir,
+                prefix=f"{self.run_id}_eps_",
+            )
+            base_name = eps_path.stem
+            eps_spatial_src = eps_path.with_name(f"{base_name}_spatial.png")
+            eps_fft_src = eps_path.with_name(f"{base_name}_fft_mag.png")
+            for _, factor_dir in self.aggregator.iter_factor_dirs():
+                if eps_spatial_src.exists():
+                    shutil.copy(
+                        eps_spatial_src,
+                        factor_dir / f"demo_eps_spatial_{self.run_id}.png",
+                    )
+                if eps_fft_src.exists():
+                    shutil.copy(
+                        eps_fft_src,
+                        factor_dir / f"demo_eps_fft_{self.run_id}.png",
+                    )
 
         self._noisy_capture_done = True
 
@@ -302,6 +327,12 @@ class TrainingDiagnostics:
                 self.aggregator.aggregate_dir / f"{self.run_id}_stability_metrics.csv"
             )
             shutil.copy(stability_csv, aggregate_target)
+            history_csv = self._export_training_history()
+            if history_csv is not None:
+                aggregate_history_target = (
+                    self.aggregator.aggregate_dir / f"{self.run_id}_training_history.csv"
+                )
+                shutil.copy(history_csv, aggregate_history_target)
 
     def _export_stability_metrics(self) -> Optional[Path]:
         if not self.noise_stats_steps:
@@ -342,3 +373,50 @@ class TrainingDiagnostics:
                 writer.writerow(row)
 
         return self.stability_csv_path
+
+    def _export_training_history(self) -> Optional[Path]:
+        if not self.noise_stats_steps:
+            return None
+
+        loss_lookup = {step: value for step, value in zip(self.loss_steps, self.loss_history)}
+        mae_lookup = {step: value for step, value in zip(self.loss_steps, self.mae_history)}
+        grad_lookup = {
+            step: value for step, value in zip(self.grad_norm_steps, self.grad_norm_history)
+        }
+
+        header = [
+            "step",
+            "loss",
+            "mae",
+            "grad_norm",
+            "snr_theory",
+            "snr_emp",
+            "snr_rel",
+            "variance_sum",
+            "noise_channel_std_min",
+            "noise_channel_std_max",
+        ]
+        keys = (
+            "snr_theory",
+            "snr_emp",
+            "snr_rel",
+            "variance_sum",
+            "noise_channel_std_min",
+            "noise_channel_std_max",
+        )
+        history_path = self.diagnostics_dir / "training_history.csv"
+        with history_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(header)
+            for idx, step in enumerate(self.noise_stats_steps):
+                row = [
+                    step,
+                    loss_lookup.get(step, math.nan),
+                    mae_lookup.get(step, math.nan),
+                    grad_lookup.get(step, math.nan),
+                ]
+                for key in keys:
+                    values = self.noise_stats_history.get(key, [])
+                    row.append(values[idx] if idx < len(values) else math.nan)
+                writer.writerow(row)
+        return history_path

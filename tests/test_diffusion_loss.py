@@ -14,7 +14,7 @@ def test_diffusion_loss_no_weighting_matches_mse():
     prediction = torch.tensor([[1.0, -2.0], [3.0, -4.0]], dtype=torch.float32).unsqueeze(0)
     target = torch.zeros_like(prediction)
     sqrt_alpha, sqrt_one_minus = _coef(prediction.shape)
-    loss_fn = DiffusionLoss({"use_weighting": False})
+    loss_fn = DiffusionLoss({"log_snr_weighting": False})
     loss, _ = loss_fn(
         prediction,
         target,
@@ -32,7 +32,7 @@ def test_diffusion_loss_with_weighting_changes_value():
     target = torch.randn_like(prediction)
     sqrt_alpha, sqrt_one_minus = _coef(prediction.shape)
 
-    loss_none = DiffusionLoss({"use_weighting": False})
+    loss_none = DiffusionLoss({"log_snr_weighting": False})
     baseline, _ = loss_none(
         prediction,
         target,
@@ -42,15 +42,16 @@ def test_diffusion_loss_with_weighting_changes_value():
         x0=target,
     )
 
-    loss_adaptive = DiffusionLoss({})
-    weighted, diag = loss_adaptive(
+    loss_weighted = DiffusionLoss({"log_snr_weighting": True})
+    weighted, diag = loss_weighted(
         prediction,
         target,
         sqrt_alpha,
         sqrt_one_minus,
         x_t=target,
         x0=target,
+        snr_rel=torch.tensor([0.5, 2.0]).view(2, 1, 1, 1),
     )
 
     assert not torch.allclose(baseline, weighted)
-    assert "mean_weight" in diag
+    assert "snr_weight_mean" in diag

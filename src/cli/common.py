@@ -18,15 +18,43 @@ import yaml
 DEFAULT_OUTPUT_DIR = Path("results")
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_mapping(
+    loader: yaml.SafeLoader,
+    node: yaml.nodes.MappingNode,
+    deep: bool = False,
+) -> dict:
+    mapping: dict = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            line = getattr(key_node.start_mark, "line", None)
+            suffix = f" at line {int(line) + 1}" if isinstance(line, int) else ""
+            raise ValueError(f"Duplicate YAML key '{key}'{suffix}.")
+        value = loader.construct_object(value_node, deep=deep)
+        mapping[key] = value
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_mapping,
+)
+
+
 def load_config(config_path: Path) -> Dict[str, Any]:
     """Load a YAML configuration file."""
     with config_path.open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
+        return yaml.load(handle, Loader=_UniqueKeyLoader) or {}
 
 
 def ensure_directories(output_dir: Path, run_id: str) -> Dict[str, Path]:
     """Create directories for a new training run."""
-    run_root = output_dir / "runs" / run_id
+    output_dir = Path(output_dir)
+    run_root = (output_dir / run_id) if output_dir.name == "runs" else (output_dir / "runs" / run_id)
     run_root.mkdir(parents=True, exist_ok=True)
     logs_dir = run_root / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)

@@ -45,7 +45,7 @@ def _build_base_config() -> dict:
             "enabled": True,
             "sampler_type": "ddpm",
             "num_samples": 2,
-            "num_steps": 4,
+            "sampling_steps": 4,
         },
     }
 
@@ -77,6 +77,23 @@ def test_training_pipeline_runs_end_to_end(tmp_path):
     diagnostics_img = tmp_path / "diagnostics" / "loss_gradients.png"
     assert diagnostics_img.exists()
 
+
+def test_training_pipeline_periodic_eval_artifacts(tmp_path):
+    torch.manual_seed(0)
+    config = copy.deepcopy(_build_base_config())
+    config["training"]["eval_every"] = 2
+    config["training"]["eval_num_samples"] = 2
+    config["training"]["checkpoint_every"] = 2
+    pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
+
+    metrics = pipeline.run()
+
+    assert metrics["eval_artifacts"]
+    eval_dir = tmp_path / "eval" / "step_000002"
+    assert (eval_dir / "eval.json").exists()
+    assert (eval_dir / "samples" / "grid.png").exists()
+    assert any((eval_dir / "samples").glob("sample_*.png"))
+    assert any((eval_dir / "diagnostics").glob("eval_sanity_generated_samples.json"))
 
 def test_training_pipeline_reports_spectral_stats(tmp_path):
     torch.manual_seed(0)

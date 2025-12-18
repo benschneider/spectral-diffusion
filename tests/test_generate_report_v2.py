@@ -49,7 +49,7 @@ def _write_taguchi(root: Path) -> None:
         70.0,
         factor_levels={
             "snr_ratio": {"level_label": "0.8", "level_index": 1},
-            "spectral_noise_shaping_strength": {"level_label": "mild_equalize", "level_index": 2},
+            "spectral_operator_mode": {"level_label": "radial", "level_index": 2},
         },
     )
 
@@ -66,8 +66,8 @@ def _write_taguchi(root: Path) -> None:
             "rank": 1,
         },
         {
-            "factor": "spectral_noise_shaping_strength",
-            "level": "mild_equalize",
+            "factor": "spectral_operator_mode",
+            "level": "radial",
             "mean_metric": 0.03,
             "snr": 1.5,
             "mean_runtime_seconds": 9.0,
@@ -81,7 +81,7 @@ def _write_taguchi(root: Path) -> None:
     factor_mapping = {
         "factors": {
             "snr_ratio": {"levels": [0.8, 1.0]},
-            "spectral_noise_shaping_strength": {"levels": ["off", "mild_equalize"]},
+            "spectral_operator_mode": {"levels": ["none", "radial"]},
         }
     }
     (taguchi_dir / "factor_mapping.json").write_text(json.dumps(factor_mapping), encoding="utf-8")

@@ -61,6 +61,51 @@ def _prepare(config: Dict[str, Any], device: torch.device):
     return model, loss_fn, optimizer, loader, coeffs, noise_preparer, step_executor
 
 
+def _summarise_snr_spikes(
+    *,
+    snr_vals: torch.Tensor,
+    sqrt_alpha_t: torch.Tensor,
+    sqrt_one_minus_t: torch.Tensor,
+    timesteps: torch.Tensor,
+    clean: torch.Tensor,
+    noisy: torch.Tensor,
+    noise: torch.Tensor,
+    target: torch.Tensor,
+    prediction: torch.Tensor,
+    threshold: float = 1_000.0,
+    top_k: int = 5,
+) -> Optional[Dict[str, Any]]:
+    """Summarise unusually large SNR values for debugging."""
+    snr_flat = snr_vals.view(-1).detach().cpu()
+    above = torch.nonzero(snr_flat > float(threshold), as_tuple=False).view(-1)
+    if above.numel() == 0:
+        return None
+
+    scores = snr_flat[above]
+    order = torch.argsort(scores, descending=True)
+    selected = above[order][: max(1, int(top_k))]
+
+    entries: list[dict[str, Any]] = []
+    for idx in selected.tolist():
+        entry = {
+            "sample_index": int(idx),
+            "timestep": int(timesteps.view(-1)[idx].item()),
+            "snr": float(snr_flat[idx].item()),
+            "sqrt_alpha": float(sqrt_alpha_t.view(-1)[idx].detach().cpu().item()),
+            "sqrt_one_minus": float(sqrt_one_minus_t.view(-1)[idx].detach().cpu().item()),
+        }
+        entries.append(entry)
+
+    entries.sort(key=lambda e: e["snr"], reverse=True)
+    return {
+        "threshold": float(threshold),
+        "count": int(len(entries)),
+        "max_snr": float(entries[0]["snr"]),
+        "top_timesteps": [int(e["timestep"]) for e in entries],
+        "entries": entries,
+    }
+
+
 def main() -> None:
     args = _parse_args()
     config = load_config(args.config)

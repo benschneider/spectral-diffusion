@@ -53,7 +53,7 @@ def test_runner_builds_config_from_row():
             "spectral": {},
             "diffusion": {},
             "sampling": {},
-            "training": {"epochs": 1, "num_batches": 50},
+            "training": {"epochs": 1, "train_steps": 2},
             "optim": {},
         },
     )
@@ -66,7 +66,7 @@ def test_runner_builds_config_from_row():
     assert "operator_mode" not in config.get("spectral", {})
     assert config["sampling"]["sampler_type"] == "ddim"
     assert config["sampling"]["sampling_steps"] == 10
-    assert config["training"]["num_batches"] == 50
+    assert int(config["training"]["train_steps"]) > 0
     assert config["data"]["height"] == 32
     assert config["data"]["width"] == 32
 

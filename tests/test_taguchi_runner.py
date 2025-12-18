@@ -26,8 +26,8 @@ def _base_config() -> dict:
         },
         "training": {
             "batch_size": 2,
-            "num_batches": 1,
             "epochs": 1,
+            "train_steps": 2,
             "log_every": 1,
         },
     }
@@ -85,7 +85,7 @@ def test_build_config_does_not_mutate_base(tmp_path):
     cfg1.setdefault("spectral", {})["freq_attention"] = True
 
     cfg2 = runner._build_config_from_row(first_row, row_number=1)
-    assert cfg2.get("spectral", {}).get("freq_attention") is False
+    assert cfg2.get("spectral", {}).get("freq_attention") is None
 
 
 def test_run_batch_generates_taguchi_report(tmp_path):

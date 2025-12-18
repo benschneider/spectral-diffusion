@@ -13,6 +13,7 @@ from src.cli.common import (
     append_run_summary,
     configure_run_logger,
     ensure_directories,
+    load_config,
     save_config_snapshot,
     save_metrics,
 )
@@ -141,24 +142,26 @@ def build_factor_column_mapping(
     return mapping
 
 
-def _apply_spectral_operator_mode(cfg: Dict[str, Any], label: str) -> None:
+def _apply_spectral_operator_mode(cfg: Dict[str, Any], label: str) -> str:
     diffusion_cfg = cfg.setdefault("diffusion", {})
     mode = str(label)
     if mode not in {"none", "radial", "radial_squared"}:
         raise ValueError(f"Unknown spectral_operator_mode level '{label}'")
     diffusion_cfg["spectral_operator_mode"] = mode
+    return mode
 
 
-def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> None:
+def _apply_snr_ratio(cfg: Dict[str, Any], label: str) -> str:
     diffusion_cfg = cfg.setdefault("diffusion", {})
     try:
         value = float(label)
     except ValueError as exc:  # pragma: no cover - defensive
         raise ValueError(f"snr_ratio level '{label}' is not numeric") from exc
     diffusion_cfg["snr_ratio"] = value
+    return str(value)
 
 
-def _apply_sampler(cfg: Dict[str, Any], label: str) -> None:
+def _apply_sampler(cfg: Dict[str, Any], label: str) -> str:
     sampling_cfg = cfg.setdefault("sampling", {})
     normalized = str(label).strip().lower()
     sampler_map = {
@@ -175,33 +178,37 @@ def _apply_sampler(cfg: Dict[str, Any], label: str) -> None:
     if sampler is None:
         raise ValueError(f"Unknown sampler_type level '{label}'")
     sampling_cfg["sampler_type"] = sampler
+    return sampler
 
 
-def _apply_sampling_steps(cfg: Dict[str, Any], label: str) -> None:
+def _apply_sampling_steps(cfg: Dict[str, Any], label: str) -> str:
     sampling_cfg = cfg.setdefault("sampling", {})
     try:
         steps = int(label)
     except ValueError as exc:  # pragma: no cover - defensive
         raise ValueError(f"Unknown sampling_steps level '{label}'") from exc
     sampling_cfg["sampling_steps"] = steps
+    return str(steps)
 
 
-def _apply_train_steps(cfg: Dict[str, Any], label: str) -> None:
+def _apply_train_steps(cfg: Dict[str, Any], label: str) -> str:
     training_cfg = cfg.setdefault("training", {})
     steps = int(label)
     if steps <= 0:
         raise ValueError("Training steps must be positive.")
     training_cfg["train_steps"] = steps
     training_cfg.setdefault("epochs", 1)
+    return str(steps)
 
 
-def _apply_image_resolution(cfg: Dict[str, Any], label: str) -> None:
+def _apply_image_resolution(cfg: Dict[str, Any], label: str) -> str:
     data_cfg = cfg.setdefault("data", {})
     res = int(label)
     if res <= 0:
         raise ValueError("Image resolution must be positive.")
     data_cfg["height"] = res
     data_cfg["width"] = res
+    return str(res)
 
 
 _FACTOR_APPLIERS = {
@@ -240,8 +247,8 @@ def apply_factor_to_config(
     applier = _FACTOR_APPLIERS.get(factor_name)
     if applier is None:
         raise KeyError(f"No applier registered for factor '{factor_name}'.")
-    applier(cfg, label)
-    return label
+    applied = applier(cfg, label)
+    return applied if applied is not None else label
 
 class TaguchiExperimentRunner:
     """Automate Taguchi design experiments across spectral diffusion variants."""
@@ -629,8 +636,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
 
-    with args.config.open("r", encoding="utf-8") as handle:
-        base_config = yaml.safe_load(handle) or {}
+    base_config = load_config(args.config)
 
     factor_registry = None
     if args.factor_registry is not None:

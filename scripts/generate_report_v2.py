@@ -184,20 +184,20 @@ def _format_metadata_block(metas: List[dict[str, Any]]) -> List[str]:
     for meta in metas:
         lines.append(f"- **{meta.get('run','run')}**")
         details = []
-    for key in [
-        "dataset",
-        "architecture",
-        "snr_ratio",
-        "spectral_operator_mode",
-        "snr_theory_avg",
-        "snr_emp_avg",
-        "snr_rel_avg",
-        "variance_sum_avg",
-        "final_loss",
-        "loss_drop_per_second",
-        "images_per_second",
-        "sampler_type",
-    ]:
+        for key in [
+            "dataset",
+            "architecture",
+            "snr_ratio",
+            "spectral_operator_mode",
+            "snr_theory_avg",
+            "snr_emp_avg",
+            "snr_rel_avg",
+            "variance_sum_avg",
+            "final_loss",
+            "loss_drop_per_second",
+            "images_per_second",
+            "sampler_type",
+        ]:
             val = meta.get(key)
             if val is None or val == "":
                 continue

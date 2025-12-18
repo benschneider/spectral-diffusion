@@ -41,14 +41,11 @@ def test_config_consistency():
         bench_diff.get("beta_schedule") == taguchi_diff.get("beta_schedule")
     ), "Diffusion beta schedule differs between configs."
 
-    bench_spectral = benchmark.get("spectral", {})
-    taguchi_spectral = taguchi.get("spectral", {})
-    assert bench_spectral.get(
-        "normalize", False
-    ), "Benchmark spectral config must enable normalization."
-    assert taguchi_spectral.get(
-        "normalize", False
-    ), "Taguchi spectral config must enable normalization."
+    for cfg_name, diff in [("benchmark", bench_diff), ("taguchi", taguchi_diff)]:
+        assert "snr_ratio" in diff, f"{cfg_name} config must set diffusion.snr_ratio"
+        assert "spectral_operator_mode" in diff, f"{cfg_name} config must set diffusion.spectral_operator_mode"
+        assert float(diff["snr_ratio"]) > 0.0
+        assert str(diff["spectral_operator_mode"]) in {"none", "radial", "radial_squared"}
 
     # Optional normalization block – skip gracefully if missing
     normalization = bench_data.get("normalization")

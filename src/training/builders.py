@@ -126,8 +126,8 @@ def _build_cifar10_dataloader(
     bs = int(training_cfg.get("batch_size", 32))
     target_h = int(data_cfg.get("height", 32))
     target_w = int(data_cfg.get("width", 32))
-    download = True
-    root = "data"
+    download = bool(data_cfg.get("download", True))
+    root = str(data_cfg.get("root", "data"))
     Path(root).mkdir(parents=True, exist_ok=True)
 
     transform = transforms.Compose(
@@ -145,19 +145,22 @@ def _build_cifar10_dataloader(
             transform=transform,
         )
     except RuntimeError as exc:
-        msg = (
-            "CIFAR-10 dataset not found and automatic download disabled. "
-            "Either enable download by setting data.download=true or fetch it manually with:\n"
-            "  mkdir -p data && curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz "
-            "-o data/cifar-10-python.tar.gz && tar -xzf data/cifar-10-python.tar.gz -C data\n"
-            "Then rerun training or set data.source to 'synthetic'."
+        manual = (
+            f"  mkdir -p {root} && curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz "
+            f"-o {root}/cifar-10-python.tar.gz && tar -xzf {root}/cifar-10-python.tar.gz -C {root}\n"
         )
         if download:
             msg = (
                 "Failed to download CIFAR-10 automatically. "
                 "Check network access or download it manually with:\n"
-                "  mkdir -p data && curl -L https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz "
-                "-o data/cifar-10-python.tar.gz && tar -xzf data/cifar-10-python.tar.gz -C data\n"
+                f"{manual}"
+                "Then rerun training or set data.source to 'synthetic'."
+            )
+        else:
+            msg = (
+                "CIFAR-10 dataset not found and automatic download disabled. "
+                "Either enable download by setting data.download=true or fetch it manually with:\n"
+                f"{manual}"
                 "Then rerun training or set data.source to 'synthetic'."
             )
         raise RuntimeError(msg) from exc

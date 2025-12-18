@@ -24,7 +24,7 @@ def _synthetic_config() -> dict:
     return {
         "model": {"type": "baseline", "channels": 3},
         "data": {"source": "synthetic", "channels": 3, "height": 8, "width": 8},
-        "training": {"batch_size": 2, "num_batches": 2, "epochs": 1},
+        "training": {"batch_size": 2, "epochs": 1, "train_steps": 3, "log_every": 1},
         "diffusion": {"num_timesteps": 4, "beta_schedule": "linear"},
         "sampling": {"enabled": False},
     }
@@ -107,7 +107,7 @@ def test_sample_cli_generates_artifacts(tmp_path):
         run_dir=run_dir,
         checkpoint=checkpoint_path,
         num_samples=2,
-        num_steps=3,
+        sampling_steps=3,
         sampler_type="ddim",
         tag="unittest",
     )
@@ -121,7 +121,7 @@ def test_sample_cli_generates_artifacts(tmp_path):
     metadata = json.loads(metadata_path.read_text())
     assert metadata["checkpoint_path"] == str(checkpoint_path)
     assert metadata["num_samples"] == 2
-    assert metadata["num_steps"] == 3
+    assert metadata["sampling_steps"] == 3
     assert metadata["sampler_type"] == "ddim"
 
     # cleanup artifacts
@@ -144,7 +144,8 @@ def test_evaluate_cli_metrics(tmp_path):
         run_dir=Path(train_result["config_path"]).parent,
         checkpoint=Path(train_result["checkpoint_path"]),
         num_samples=1,
-        num_steps=2,
+        sampling_steps=2,
+        sampler_type="ddpm",
     )
     generated_dir = Path(sample_result["images_dir"])
 
