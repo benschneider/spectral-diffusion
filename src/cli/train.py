@@ -115,6 +115,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Override training.eval_num_samples (per eval).",
     )
     parser.add_argument(
+        "--eval-sampling-steps",
+        type=int,
+        default=None,
+        help="Override training.eval_sampling_steps (sampling steps per eval).",
+    )
+    parser.add_argument(
         "--eval-seed",
         type=int,
         default=None,
@@ -165,6 +171,7 @@ def train_from_config(
     checkpoint_every: Optional[int] = None,
     eval_every: Optional[int] = None,
     eval_num_samples: Optional[int] = None,
+    eval_sampling_steps: Optional[int] = None,
     eval_seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Load configuration, execute training, and log artifacts.
@@ -250,6 +257,9 @@ def train_from_config(
     if eval_num_samples is not None:
         config.setdefault("training", {})
         config["training"]["eval_num_samples"] = int(eval_num_samples)
+    if eval_sampling_steps is not None:
+        config.setdefault("training", {})
+        config["training"]["eval_sampling_steps"] = int(eval_sampling_steps)
     if eval_seed is not None:
         config.setdefault("training", {})
         config["training"]["eval_seed"] = int(eval_seed)
@@ -364,6 +374,7 @@ def main(argv: Optional[Any] = None) -> None:
         checkpoint_every=args.checkpoint_every,
         eval_every=args.eval_every,
         eval_num_samples=args.eval_num_samples,
+        eval_sampling_steps=args.eval_sampling_steps,
         eval_seed=args.eval_seed,
     )
     logging.getLogger("spectral_diffusion.train").info(

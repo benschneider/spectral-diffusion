@@ -47,3 +47,4 @@ sampling: enabled, sampler_type, num_samples, sampling_steps
 ## Follow-Up (Optional)
 - Run smoke: `python train.py --config configs/baseline.yaml --dry-run`
 - Verify Taguchi run: `python src/experiments/run_experiment.py --config configs/taguchi_smoke_best.yaml --array configs/taguchi/L27_extended.csv --row 1 --finalize`
+- Paper figure pipeline (reproducible + manifest): `python scripts/make_paper_figures.py --out-root ./runs/paper_run_001`

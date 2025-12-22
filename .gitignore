@@ -194,3 +194,4 @@ data/cifar-10-batches-py/data_batch_3
 data/cifar-10-batches-py/data_batch_4
 data/cifar-10-batches-py/data_batch_5
 configs/taguchi/generated/
+runs

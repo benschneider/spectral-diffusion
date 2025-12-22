@@ -69,6 +69,7 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
         checkpoint_every=3,
         eval_every=4,
         eval_num_samples=5,
+        eval_sampling_steps=6,
         eval_seed=123,
     )
 
@@ -82,6 +83,7 @@ def test_train_from_config_applies_cli_overrides(monkeypatch: pytest.MonkeyPatch
     assert config["training"]["checkpoint_every"] == 3
     assert config["training"]["eval_every"] == 4
     assert config["training"]["eval_num_samples"] == 5
+    assert config["training"]["eval_sampling_steps"] == 6
     assert config["training"]["eval_seed"] == 123
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -68,10 +69,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def _find_latest_checkpoint(run_dir: Path) -> Path:
-    checkpoints = sorted((run_dir / "checkpoints").glob("checkpoint_step_*.pt"))
+    checkpoints_dir = run_dir / "checkpoints"
+    checkpoints = list(checkpoints_dir.glob("checkpoint_step_*.pt"))
     if not checkpoints:
         raise FileNotFoundError(f"No checkpoints found under {run_dir / 'checkpoints'}")
-    return checkpoints[-1]
+
+    step_pattern = re.compile(r"checkpoint_step_(\d+)\.pt$")
+
+    def _step(path: Path) -> int:
+        match = step_pattern.search(path.name)
+        return int(match.group(1)) if match else -1
+
+    best = max(checkpoints, key=lambda p: (_step(p), p.stat().st_mtime))
+    if _step(best) < 0:
+        raise ValueError(f"Unable to infer checkpoint steps under {checkpoints_dir}")
+    return best
 
 
 def sample_from_run(

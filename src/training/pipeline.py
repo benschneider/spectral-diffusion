@@ -116,6 +116,15 @@ class TrainingPipeline:
         if eval_num_samples is not None and eval_num_samples <= 0:
             raise ValueError("training.eval_num_samples must be positive when set.")
 
+        eval_sampling_steps_raw = training_cfg.get("eval_sampling_steps")
+        eval_sampling_steps = (
+            int(eval_sampling_steps_raw)
+            if eval_sampling_steps_raw is not None
+            else None
+        )
+        if eval_sampling_steps is not None and eval_sampling_steps <= 0:
+            raise ValueError("training.eval_sampling_steps must be positive when set.")
+
         eval_seed_raw = training_cfg.get("eval_seed")
         eval_seed = int(eval_seed_raw) if eval_seed_raw is not None else int(self.config.get("seed", 1337))
         eval_artifacts: list[dict[str, Any]] = []
@@ -206,7 +215,7 @@ class TrainingPipeline:
                             torch.cuda.manual_seed_all(eval_seed + step)
                         requested_samples, requested_steps, sampler = self._resolve_sampling_request(
                             num_samples=eval_num_samples,
-                            sampling_steps=None,
+                            sampling_steps=eval_sampling_steps,
                             sampler_type=None,
                         )
                         samples = self._sample_tensor(
