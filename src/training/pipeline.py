@@ -231,6 +231,79 @@ class TrainingPipeline:
                             out_dir=diag_dir,
                             prefix="eval_",
                         )
+
+                        denoise_payload = None
+                        denoise_num = int(training_cfg.get("eval_denoise_num_samples", 8))
+                        denoise_num = max(0, min(int(denoise_num), int(xb.shape[0])))
+                        denoise_timestep = training_cfg.get("eval_denoise_timestep")
+                        if denoise_timestep is None:
+                            denoise_timestep = int(total_timesteps // 2)
+                        denoise_timestep = int(denoise_timestep)
+                        if denoise_num > 0:
+                            if not 0 <= denoise_timestep < total_timesteps:
+                                raise ValueError(
+                                    "training.eval_denoise_timestep must be within "
+                                    f"[0, {total_timesteps - 1}], got {denoise_timestep}."
+                                )
+                            xb_eval = xb[:denoise_num]
+                            t_eval = torch.full(
+                                (denoise_num,),
+                                denoise_timestep,
+                                device=self.device,
+                                dtype=torch.long,
+                            )
+                            noisy_eval = noise_preparer.prepare(
+                                xb_eval,
+                                coeffs,
+                                t_eval,
+                                base_noise=torch.randn_like(xb_eval),
+                            )
+                            pred = self.model(noisy_eval.noisy, t_eval)
+                            prediction_type = str(self.config.get("diffusion", {}).get("prediction_type", "eps")).lower()
+                            if prediction_type == "eps":
+                                pred_x0 = (noisy_eval.noisy - noisy_eval.sqrt_one_minus_alpha_t * pred) / noisy_eval.sqrt_alpha_t.clamp_min(1e-12)
+                            elif prediction_type == "x0":
+                                pred_x0 = pred
+                            elif prediction_type == "v":
+                                pred_x0 = noisy_eval.sqrt_alpha_t * noisy_eval.noisy - noisy_eval.sqrt_one_minus_alpha_t * pred
+                            else:  # pragma: no cover - defensive; validated elsewhere
+                                raise ValueError(f"Unsupported prediction_type '{prediction_type}'")
+                            pred_x0 = pred_x0.clamp(-1.0, 1.0)
+
+                            nrow = max(1, int(denoise_num ** 0.5))
+                            x0_path = diag_dir / "eval_denoise_x0.png"
+                            xt_path = diag_dir / "eval_denoise_xt.png"
+                            pred_path = diag_dir / "eval_denoise_pred_x0.png"
+                            save_image(
+                                xb_eval.detach().cpu(),
+                                x0_path,
+                                normalize=True,
+                                value_range=(-1, 1),
+                                nrow=nrow,
+                            )
+                            save_image(
+                                noisy_eval.noisy.detach().cpu(),
+                                xt_path,
+                                normalize=True,
+                                value_range=(-1, 1),
+                                nrow=nrow,
+                            )
+                            save_image(
+                                pred_x0.detach().cpu(),
+                                pred_path,
+                                normalize=True,
+                                value_range=(-1, 1),
+                                nrow=nrow,
+                            )
+                            denoise_payload = {
+                                "num_samples": denoise_num,
+                                "timestep": denoise_timestep,
+                                "prediction_type": prediction_type,
+                                "mse": float((pred_x0.detach() - xb_eval.detach()).pow(2).mean().cpu().item()),
+                                "x0_grid": str(x0_path),
+                                "xt_grid": str(xt_path),
+                                "pred_x0_grid": str(pred_path),
+                            }
                         checkpoint_path = None
                         if checkpoint_every is not None:
                             checkpoint_path = self.work_dir / "checkpoints" / f"checkpoint_step_{step}.pt"
@@ -245,6 +318,7 @@ class TrainingPipeline:
                             "samples_dir": str(samples_dir),
                             "diagnostics_dir": str(diag_dir),
                             "sanity_json": str(sanity_json),
+                            "denoise": denoise_payload,
                             "checkpoint_path": str(checkpoint_path) if checkpoint_path else None,
                         }
                         eval_path = eval_dir / "eval.json"

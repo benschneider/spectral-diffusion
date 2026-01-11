@@ -43,3 +43,24 @@ To generate the manifest/commands without running training:
 python scripts/make_paper_figures.py --out-root ./runs/paper_dry_run --dry-run --force --profile fast
 ```
 
+## Visual step inspector (Web)
+
+Use the local web UI (stdlib only):
+
+```bash
+python scripts/debug/inspect_step_web.py
+```
+
+Then open `http://127.0.0.1:8787` in your browser. It provides the same controls
+and renders the five diagnostic grids plus the summary JSON.
+
+## Training monitor (Web)
+
+Use the local training monitor UI (stdlib only):
+
+```bash
+python scripts/debug/train_monitor_web.py
+```
+
+Then open `http://127.0.0.1:8790` in your browser. It shows loss/MAE/grad/SNR
+traces, log tail, and the latest eval artifacts.

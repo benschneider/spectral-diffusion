@@ -83,6 +83,7 @@ def test_training_pipeline_periodic_eval_artifacts(tmp_path):
     config = copy.deepcopy(_build_base_config())
     config["training"]["eval_every"] = 2
     config["training"]["eval_num_samples"] = 2
+    config["training"]["eval_sampling_steps"] = 2
     config["training"]["checkpoint_every"] = 2
     pipeline = TrainingPipeline(config=config, work_dir=tmp_path)
 
@@ -94,6 +95,9 @@ def test_training_pipeline_periodic_eval_artifacts(tmp_path):
     assert (eval_dir / "samples" / "grid.png").exists()
     assert any((eval_dir / "samples").glob("sample_*.png"))
     assert any((eval_dir / "diagnostics").glob("eval_sanity_generated_samples.json"))
+    assert (eval_dir / "diagnostics" / "eval_denoise_x0.png").exists()
+    assert (eval_dir / "diagnostics" / "eval_denoise_xt.png").exists()
+    assert (eval_dir / "diagnostics" / "eval_denoise_pred_x0.png").exists()
 
 def test_training_pipeline_reports_spectral_stats(tmp_path):
     torch.manual_seed(0)
